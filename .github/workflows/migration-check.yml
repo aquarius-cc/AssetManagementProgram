@@ -1,0 +1,89 @@
+name: Migration Safety Check
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "**/migrations/**"
+
+jobs:
+  migration-safety:
+    name: "迁移文件安全验证 (CT-6)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: asset_management_backend
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          MYSQL_DATABASE: asset_management_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_NAME: asset_management_test
+      DB_USER: root
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements/dev.txt
+
+      - name: "步骤① 确认无遗漏迁移"
+        run: |
+          echo "=== 检查是否有未生成的迁移 ==="
+          OUTPUT=$(python manage.py makemigrations --dry-run 2>&1)
+          if echo "$OUTPUT" | grep -q "No changes detected"; then
+            echo "✅ 无遗漏迁移"
+          else
+            echo "❌ 检测到未生成的迁移:"
+            echo "$OUTPUT"
+            echo ""
+            echo "请先执行 python manage.py makemigrations 生成迁移文件"
+            exit 1
+          fi
+
+      - name: "步骤② 预览待执行迁移列表"
+        run: |
+          echo "=== 待执行迁移列表 ==="
+          python manage.py migrate --plan
+
+      - name: "步骤③ 检查危险操作"
+        run: |
+          echo "=== 扫描新增迁移文件中的危险操作 ==="
+          # 获取本次 PR 修改的迁移文件
+          MIGRATION_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -- "*/migrations/*.py" || true)
+          if [ -z "$MIGRATION_FILES" ]; then
+            echo "✅ 未发现迁移文件变更"
+            exit 0
+          fi
+          FOUND_DANGER=0
+          for file in $MIGRATION_FILES; do
+            if [ -f "$file" ]; then
+              echo "检查: $file"
+              if grep -n "RemoveIndex\|RemoveField\|RenameField\|RenameModel" "$file"; then
+                echo "⚠️ 文件 $file 包含危险操作（Remove/Rename）"
+                FOUND_DANGER=1
+              fi
+            fi
+          done
+          if [ "$FOUND_DANGER" -eq 1 ]; then
+            echo ""
+            echo "⚠️ 检测到危险迁移操作，请确认："
+            echo "  1. 已在 PR 描述中注明'已人工确认数据无损'"
+            echo "  2. Code Review 阶段已重点审查"
+            echo "  3. 已备份数据库"
+            # 不直接阻止，但发出警告（由 Code Review 人工把关）
+          else
+            echo "✅ 未发现危险迁移操作"
+          fi

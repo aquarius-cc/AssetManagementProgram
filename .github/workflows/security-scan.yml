@@ -1,0 +1,126 @@
+name: Dependency Security Scan
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # 每周一凌晨 3:07 执行全量扫描（SC-8 落地）
+    - cron: "7 3 * * 1"
+
+jobs:
+  python-audit:
+    name: "Python 依赖安全审计 (pip-audit)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: asset_management_backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 安装 pip-audit
+        run: pip install pip-audit
+      - name: 生成 requirements 快照
+        run: pip freeze > requirements-snapshot.txt
+      - name: 执行安全审计（高危阻断）
+        run: pip-audit --requirement requirements-snapshot.txt --fail-on=high --desc
+      - name: 生成安全报告
+        if: always()
+        run: pip-audit --requirement requirements-snapshot.txt --format json --output audit-report.json || true
+      - name: 上传安全报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-audit-report
+          path: asset_management_backend/audit-report.json
+
+  node-audit:
+    name: "Node.js 依赖安全审计 (npm audit)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vue-assetmanagement
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: vue-assetmanagement/package-lock.json
+      - run: npm ci
+      - name: 执行安全审计（高危阻断）
+        run: npm audit --audit-level=high
+      - name: 生成安全报告
+        if: always()
+        run: npm audit --json > audit-report.json || true
+      - name: 上传安全报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-audit-report
+          path: vue-assetmanagement/audit-report.json
+
+  # ==================== 密钥扫描 (SC-2 落地) ====================
+  secret-scan:
+    name: "密钥泄露扫描"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 检查硬编码密钥（AK/SK/Token/密码）
+        run: |
+          echo "=== 扫描疑似硬编码密钥 ==="
+          # 扫描常见的密钥模式
+          PATTERNS=(
+            'AKIA[0-9A-Z]{16}'
+            '-----BEGIN.*PRIVATE KEY-----'
+            'password\s*[:=]\s*["\x27][^"\x27]{8,}'
+            'secret\s*[:=]\s*["\x27][^"\x27]{8,}'
+            'token\s*[:=]\s*["\x27][^"\x27]{8,}'
+            'api_key\s*[:=]\s*["\x27][^"\x27]{8,}'
+          )
+          FOUND=0
+          for pattern in "${PATTERNS[@]}"; do
+            MATCHES=$(rg -n "$pattern" --type py --type js --type ts --type json -g '!node_modules' -g '!*.lock' -g '!venv/' -g '!dist/' . 2>/dev/null || true)
+            if [ -n "$MATCHES" ]; then
+              echo "⚠️ 发现疑似密钥匹配: $pattern"
+              echo "$MATCHES"
+              FOUND=1
+            fi
+          done
+          if [ "$FOUND" -eq 1 ]; then
+            echo ""
+            echo "❌ 检测到疑似硬编码密钥，请人工确认并移除"
+            echo "   若为误报，请在 PR 描述中说明"
+            exit 1
+          fi
+          echo "✅ 未发现硬编码密钥"
+
+  # ==================== 周报生成 (SC-8 落地) ====================
+  weekly-report:
+    name: "每周安全报告"
+    runs-on: ubuntu-latest
+    needs: [python-audit, node-audit]
+    if: github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+      - name: 汇总本周安全发现
+        run: |
+          echo "# 每周安全审计报告" > security-weekly-report.md
+          echo "" >> security-weekly-report.md
+          echo "**生成时间**: $(date -u '+%Y-%m-%d %H:%M UTC')" >> security-weekly-report.md
+          echo "" >> security-weekly-report.md
+          echo "## Python 依赖" >> security-weekly-report.md
+          echo "- 审计状态: ${{ needs.python-audit.result }}" >> security-weekly-report.md
+          echo "" >> security-weekly-report.md
+          echo "## Node.js 依赖" >> security-weekly-report.md
+          echo "- 审计状态: ${{ needs.node-audit.result }}" >> security-weekly-report.md
+      - name: 上传周报
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-weekly-report
+          path: security-weekly-report.md

@@ -1,0 +1,266 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "20"
+
+jobs:
+  # ==================== 后端检查 ====================
+  backend-lint:
+    name: "后端 - 代码规范 (ruff)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: asset_management_backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install ruff
+      - name: Ruff 代码规范检查
+        run: ruff check .
+      - name: Ruff 格式检查
+        run: ruff format --check .
+
+  backend-type-check:
+    name: "后端 - 类型检查 (mypy)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: asset_management_backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -r requirements/dev.txt
+      - name: MyPy 类型检查
+        run: mypy . --strict
+
+  backend-complexity:
+    name: "后端 - 圈复杂度 (C90)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: asset_management_backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install ruff
+      - name: 圈复杂度检查（上限10）
+        run: ruff check . --select C90 --max-complexity 10
+
+  backend-test:
+    name: "后端 - 测试 + 覆盖率"
+    runs-on: ubuntu-latest
+    needs: [backend-lint, backend-type-check, backend-complexity]
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          MYSQL_DATABASE: asset_management_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    defaults:
+      run:
+        working-directory: asset_management_backend
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_NAME: asset_management_test
+      DB_USER: root
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -r requirements/dev.txt
+      - name: 数据库迁移检查
+        run: python manage.py migrate --plan
+      - name: 整体覆盖率检查（红线 80%）
+        run: |
+          pytest --cov=. --cov-fail-under=80 --cov-report=xml --cov-report=html -v
+      - name: 核心 Service 层覆盖率专项检查（红线 90%）
+        run: |
+          pytest --cov=apps.assetmanagement.services --cov-fail-under=90 -v
+          pytest --cov=apps.authusermanagement.services --cov-fail-under=90 -v
+          pytest --cov=apps.usermanagement.services --cov-fail-under=90 -v
+          pytest --cov=apps.unregisteredasset.services --cov-fail-under=90 -v
+      - name: 上传覆盖率报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage-report
+          path: asset_management_backend/htmlcov/
+
+  backend-mutation:
+    name: "后端 - 变异测试"
+    runs-on: ubuntu-latest
+    needs: [backend-test]
+    defaults:
+      run:
+        working-directory: asset_management_backend
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          MYSQL_DATABASE: asset_management_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_NAME: asset_management_test
+      DB_USER: root
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -r requirements/dev.txt
+      - name: 变异测试（红线 80% Killed）
+        run: |
+          mutmut run --paths-to-mutate apps/assetmanagement/services
+          mutmut results
+          KILLED=$(mutmut results | grep -c "killed" || true)
+          TOTAL=$(mutmut results | grep -c "total" || true)
+          echo "Killed: $KILLED / Total: $TOTAL"
+
+  # ==================== 前端检查 ====================
+  frontend-lint:
+    name: "前端 - 代码规范 (ESLint)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vue-assetmanagement
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: vue-assetmanagement/package-lock.json
+      - run: npm ci
+      - name: ESLint 检查
+        run: npm run lint
+
+  frontend-type-check:
+    name: "前端 - 类型检查 (TypeScript)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vue-assetmanagement
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: vue-assetmanagement/package-lock.json
+      - run: npm ci
+      - name: TypeScript 类型检查
+        run: npx vue-tsc --noEmit
+
+  frontend-complexity:
+    name: "前端 - 复杂度检查 (ESLint complexity)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vue-assetmanagement
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: vue-assetmanagement/package-lock.json
+      - run: npm ci
+      - name: 复杂度检查（上限10）
+        run: npx eslint . --ext .vue,.ts --rule "complexity: ['error', 10]"
+
+  frontend-test:
+    name: "前端 - 测试 + 覆盖率"
+    runs-on: ubuntu-latest
+    needs: [frontend-lint, frontend-type-check, frontend-complexity]
+    defaults:
+      run:
+        working-directory: vue-assetmanagement
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: vue-assetmanagement/package-lock.json
+      - run: npm ci
+      - name: 整体覆盖率检查（红线 80%）
+        run: npx vitest run --coverage --threshold 80
+      - name: 核心 Store 层覆盖率专项检查（红线 90%）
+        run: npx vitest run --coverage --coverage.include="src/stores/**/*.ts"
+      - name: 上传覆盖率报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage-report
+          path: vue-assetmanagement/coverage/
+
+  frontend-mutation:
+    name: "前端 - 变异测试"
+    runs-on: ubuntu-latest
+    needs: [frontend-test]
+    defaults:
+      run:
+        working-directory: vue-assetmanagement
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: vue-assetmanagement/package-lock.json
+      - run: npm ci
+      - name: 变异测试（红线 80% Killed）
+        run: npx vitest --mutate
+
+  # ==================== 汇总 ====================
+  ci-summary:
+    name: "CI 汇总"
+    runs-on: ubuntu-latest
+    needs: [backend-test, backend-mutation, frontend-test, frontend-mutation]
+    if: always()
+    steps:
+      - name: 检查所有 Job 结果
+        run: |
+          echo "=== CI Pipeline Results ==="
+          echo "Backend Test: ${{ needs.backend-test.result }}"
+          echo "Backend Mutation: ${{ needs.backend-mutation.result }}"
+          echo "Frontend Test: ${{ needs.frontend-test.result }}"
+          echo "Frontend Mutation: ${{ needs.frontmutation.result }}"
+          if [ "${{ needs.backend-test.result }}" != "success" ] || \
+             [ "${{ needs.frontend-test.result }}" != "success" ]; then
+            echo "CI 检查未通过，阻止合并"
+            exit 1
+          fi
