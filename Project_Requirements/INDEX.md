@@ -1,6 +1,6 @@
 # 资产管理系统 — 文档总览索引
 
-> 版本：V2.1 | 最后更新：2026-07-09
+> 版本：V2.3 | 最后更新：2026-07-13
 > 本文档是项目全部文档的唯一入口索引，按类别组织，提供快速定位链接。
 
 ---
@@ -81,7 +81,7 @@ Project_Requirements/
 | [backend-business-rules.md](../Rules_Fiels/backend-business-rules.md) | v1.3 | 后端业务规范 B1-B10、状态转换规则表、代码复用与量化规范 BR-1~BR-7 | 后端开发 |
 | [backend-testing-rules.md](../Rules_Fiels/backend-testing-rules.md) | v1.3 | 后端测试规范 T1-T8、变异测试（覆盖 4 个 App）、迁移验证三步法、覆盖率命令汇总 | 后端开发、测试 |
 | [frontend-business-rules.md](../Rules_Fiels/frontend-business-rules.md) | v1.2 | 前端设计令牌 F1-F15、暗色模式、代码复用与量化规范 FR-1~FR-7 | 前端开发 |
-| [frontend-testing-rules.md](../Rules_Fiels/frontend-testing-rules.md) | v1.4 | 前端测试规范 T9-T16（无 ID 冲突）、Store 层覆盖、Vitest 变异测试（禁止 Stryker） | 前端开发、测试 |
+| [frontend-testing-rules.md](../Rules_Fiels/frontend-testing-rules.md) | v1.5 | 前端测试规范 T9-T17（含代码质量三项检查）、Store 层覆盖、Vitest 变异测试（禁止 Stryker） | 前端开发、测试 |
 
 ---
 
@@ -89,9 +89,37 @@ Project_Requirements/
 
 | 文件 | 版本 | 核心内容 |
 |:---|:---:|:---|
-| [AGENTS.md](../AGENTS.md) | v3.3.0 | 根级配置：跨端契约、宪法级规则（CT/DR/SC/OC/AR）、审计票制度、功能验收引用 |
-| [asset_management_backend/AGENTS.md](../asset_management_backend/AGENTS.md) | v9.1.0 | 后端子引擎：五层架构、复杂度门禁（ruff C90）、测试门禁（pytest + mutmut） |
-| [vue-assetmanagement/AGENTS.md](../vue-assetmanagement/AGENTS.md) | v9.3.0 | 前端子引擎：技术栈硬约束、设计令牌、Vitest 变异测试（T9-T16，禁止 Stryker） |
+| [AGENTS.md](../AGENTS.md) | v3.4.1 | 根级配置：跨端契约、宪法级规则（CT/DR/SC/OC/AR）、AI交互与写作规范（Fact/Style）、审计票制度 |
+| [asset_management_backend/AGENTS.md](../asset_management_backend/AGENTS.md) | v9.2.1 | 后端子引擎：五层架构、复杂度门禁（ruff C90）、测试门禁（pytest + mutmut）、审计票同步根级 |
+| [vue-assetmanagement/AGENTS.md](../vue-assetmanagement/AGENTS.md) | v9.5.1 | 前端子引擎：技术栈硬约束、设计令牌、Vitest 变异测试（T9-T17，禁止 Stryker）、审计票同步根级 |
+
+### 5.1 根级规则索引（AGENTS.md §1-§9）
+
+| 章节 | 内容 | 约束级别 |
+|:---|:---|:---|
+| §1 核心执行协议 | 读取优先、小步验证、红线保护、测试规则（CT）、DRY规则（DR）、交互协议（ID）、能力提取 | 宪法级 |
+| §2 规则索引 | 后端/前端执行引擎与规范文件映射 | 参考 |
+| §3 跨端一致性契约 | API 响应结构、状态枚举、分页参数、日期格式 | 宪法级 |
+| §4 审计票 | 必填项 + 自检项双层结构 | 宪法级 |
+| §5 规则演进 | 变更触发、执行步骤、红线保护、沙盒缓冲期 | 流程级 |
+| §6 安全红线 | SC-1~SC-8（密钥/注入/上传/依赖扫描） | 宪法级 |
+| §7 可观测性 | OC-1~OC-7（trace/日志/脱敏/Prometheus/健康检查） | 宪法级 |
+| §8 AI鲁棒性 | AR-1~AR-5（TODO标注/风险代码/超时重试/配置管理/静态检查） | 宪法级 |
+| §9 AI交互与写作 | Fact-1~Fact-3（事实基线）、Style-1~Style-3（写作风格） | 宪法级 |
+
+### 5.2 审计票格式（三端统一）
+
+```markdown
+[审计票 - 自检项]
+- 测试：CT-2[√] CT-4[√] CT-6[√]
+- DRY：DR-2[√] DR-3[√] DR-4[√] DR-6[√]
+- 安全：SC-2[√] SC-4~SC-8[√]
+- 可观测性：OC-1~OC-3[√] OC-4[~] OC-5[~] OC-6[√] OC-7[~]
+- AI鲁棒性：AR-1~AR-5[√]
+- AI行为：Fact-1[√]（事实基线）
+- 写作风格：Style-1~Style-3[√]
+- 覆盖率：整体 XX%（≥80%）/ 核心 XX%（≥90%）
+```
 
 ---
 
@@ -158,6 +186,10 @@ Project_Requirements/
 | 用户怎么操作系统 | [10-用户培训手册](01-业务需求/10-用户培训手册.md) |
 | 后端测试怎么写 | [backend-testing-rules](../Rules_Fiels/backend-testing-rules.md) |
 | 前端测试怎么写 | [frontend-testing-rules](../Rules_Fiels/frontend-testing-rules.md) |
+| AI 回答的事实基线 | [AGENTS.md §9.1](../AGENTS.md) Fact-1~Fact-3 |
+| AI 写作风格要求 | [AGENTS.md §9.2](../AGENTS.md) Style-1~Style-3 |
+| AI 追问与洞察协议 | [AGENTS.md §1.6](../AGENTS.md) ID-1~ID-2 |
+| AI 审计票格式 | [AGENTS.md §4](../AGENTS.md) 必填项 + 自检项 |
 
 ---
 
@@ -169,6 +201,6 @@ Project_Requirements/
 | 技术设计 | 7 | 已完成（09 数据字典覆盖 17 张表） |
 | 安全与运维 | 5 | 已完成（含 Prometheus/Grafana 配置） |
 | 开发规范 | 4 | 已完成（变异测试覆盖 4 个 App） |
-| AI 引擎配置 | 3 | 已完成 |
+| AI 引擎配置 | 3 | 已完成（v3.4.1/v9.2.1/v9.5.1，含 AI 交互与写作规范） |
 | 总览索引 | 1 | 本文件 |
 | **合计** | **25** | **全部就绪** |

@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>资产管理系统 — 统一最终审查报告</title>
+  <style>
+    @font-face { font-family: 'WorkSans'; src: url('./_shared/fonts/WorkSans-Regular.ttf') format('truetype'); font-weight: 400; }
+    @font-face { font-family: 'WorkSans'; src: url('./_shared/fonts/WorkSans-Bold.ttf') format('truetype'); font-weight: 700; }
+    @font-face { font-family: 'JetBrainsMono'; src: url('./_shared/fonts/JetBrainsMono-Regular.ttf') format('truetype'); font-weight: 400; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 15px; scroll-behavior: smooth; }
+    body { font-family: 'WorkSans', -apple-system, 'Microsoft YaHei', sans-serif; color: #1a1a2e; background: #fff; line-height: 1.7; padding: 2rem 1rem; }
+    article.page { max-width: 1060px; margin: 0 auto; }
+    .cover { text-align: center; padding: 3rem 0 2rem; border-bottom: 3px solid #7c3aed; margin-bottom: 2rem; }
+    .cover h1 { font-size: 1.8rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.5rem; }
+    .cover .meta { font-size: 0.85rem; color: #5f6b7a; }
+    .toc { background: #f7f8fa; border-radius: 8px; padding: 1.5rem 2rem; margin-bottom: 2rem; }
+    .toc h2 { font-size: 1rem; font-weight: 700; margin-bottom: 0.75rem; color: #7c3aed; }
+    .toc ol { padding-left: 1.2rem; list-style: none; counter-reset: tc; }
+    .toc ol > li { counter-increment: tc; margin-bottom: 0.35rem; }
+    .toc ol > li::before { content: counter(tc) "."; font-weight: 700; color: #7c3aed; margin-right: 0.4rem; }
+    .toc a { color: #1a1a2e; text-decoration: none; }
+    .toc a:hover { text-decoration: underline; }
+    h2 { font-size: 1.35rem; font-weight: 700; padding-top: 2rem; margin-bottom: 1rem; border-left: 4px solid #7c3aed; padding-left: 0.75rem; }
+    h3 { font-size: 1.1rem; font-weight: 700; margin: 1.5rem 0 0.5rem; color: #7c3aed; }
+    p { margin-bottom: 0.6rem; }
+    ul, ol { margin: 0.4rem 0 0.8rem 1.2rem; }
+    li { margin-bottom: 0.3rem; }
+    .table-wrap { overflow-x: auto; overflow-y: auto; max-height: 600px; margin: 1rem 0; border: 1px solid #dde2e9; border-radius: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    thead { position: sticky; top: 0; z-index: 1; }
+    th { background: #7c3aed; color: #fff; padding: 0.55rem 0.7rem; text-align: left; font-weight: 700; font-size: 0.78rem; white-space: nowrap; }
+    td { padding: 0.45rem 0.7rem; border-bottom: 1px solid #dde2e9; vertical-align: top; }
+    tr:nth-child(even) td { background: #f7f8fa; }
+    td code { font-family: 'JetBrainsMono', monospace; font-size: 0.78rem; background: #eef1f6; padding: 0.1rem 0.3rem; border-radius: 3px; }
+    .badge { display: inline-block; padding: 0.12rem 0.45rem; border-radius: 3px; font-size: 0.7rem; font-weight: 700; white-space: nowrap; }
+    .badge-p0 { background: #fde8e8; color: #b91c1c; }
+    .badge-p1 { background: #fef3c7; color: #92400e; }
+    .badge-p2 { background: #dbeafe; color: #1d4ed8; }
+    .badge-p3 { background: #e0e7ff; color: #3730a3; }
+    .badge-ok { background: #d1fae5; color: #065f46; }
+    .badge-fixed { background: #d1fae5; color: #065f46; }
+    .badge-warn { background: #fef3c7; color: #92400e; }
+    .badge-both { background: #ede9fe; color: #5b21b6; }
+    .badge-a { background: #dbeafe; color: #1d4ed8; }
+    .badge-b { background: #d1fae5; color: #065f46; }
+    .callout { border-left: 4px solid #7c3aed; background: #f7f8fa; padding: 0.75rem 1rem; border-radius: 0 6px 6px 0; margin: 1rem 0; font-size: 0.88rem; }
+    .callout-danger { border-left-color: #dc2626; }
+    .callout-warn { border-left-color: #d97706; }
+    .callout-ok { border-left-color: #059669; }
+    .callout-info { border-left-color: #7c3aed; }
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.8rem; margin: 1rem 0 1.5rem; }
+    .stat-card { background: #f7f8fa; border: 1px solid #dde2e9; border-radius: 8px; padding: 0.9rem; text-align: center; }
+    .stat-card .num { font-size: 1.8rem; font-weight: 700; line-height: 1.2; }
+    .stat-card .label { font-size: 0.72rem; color: #5f6b7a; margin-top: 0.2rem; }
+    .stat-card.p0 .num { color: #dc2626; }
+    .stat-card.p1 .num { color: #d97706; }
+    .stat-card.p2 .num { color: #2563eb; }
+    .stat-card.ok .num { color: #059669; }
+    .issue-item { padding: 0.75rem 1rem; border: 1px solid #dde2e9; border-radius: 6px; margin-bottom: 0.5rem; background: #fff; }
+    .issue-item:hover { border-color: #7c3aed; }
+    .issue-title { font-weight: 700; font-size: 0.88rem; margin-bottom: 0.25rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .issue-desc { font-size: 0.82rem; color: #5f6b7a; }
+    .issue-desc code { font-family: 'JetBrainsMono', monospace; font-size: 0.76rem; background: #eef1f6; padding: 0.05rem 0.25rem; border-radius: 2px; }
+    .verdict { border-radius: 12px; padding: 1.5rem; margin: 1.5rem 0; }
+    .verdict.ok { background: #ecfdf5; border: 2px solid #059669; }
+    .verdict.ok h3 { color: #059669; margin: 0 0 0.5rem 0; font-size: 1.1rem; }
+    .verdict.warn { background: #fffbeb; border: 2px solid #d97706; }
+    .verdict.warn h3 { color: #d97706; margin: 0 0 0.5rem 0; font-size: 1.1rem; }
+    .verdict.danger { background: #fef2f2; border: 2px solid #dc2626; }
+    .verdict.danger h3 { color: #dc2626; margin: 0 0 0.5rem 0; font-size: 1.1rem; }
+    footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid #dde2e9; font-size: 0.8rem; color: #5f6b7a; }
+    @media (max-width: 768px) { html { font-size: 14px; } body { padding: 1rem 0.5rem; } .cover h1 { font-size: 1.4rem; } .stat-grid { grid-template-columns: repeat(2, 1fr); } }
+  </style>
+</head>
+<body>
+<article class="page">
+
+<header class="cover">
+  <h1>资产管理系统 — 统一最终审查报告</h1>
+  <p class="meta">合并来源：TRAE 自动审查 (V2) + MiMo 深度代码审查 | 审查日期：2026-07-14 | 后端 v9.1.0 / 前端 v9.3.0</p>
+</header>
+
+<nav class="toc">
+  <h2>目录</h2>
+  <ol>
+    <li><a href="#overview">审查概览与统计</a></li>
+    <li><a href="#critical">CRITICAL — 运行时崩溃/数据错误</a></li>
+    <li><a href="#high">HIGH — RBAC 缺失/功能断裂</a></li>
+    <li><a href="#medium">MEDIUM — 架构规范/一致性问题</a></li>
+    <li><a href="#low">LOW — 代码质量/美化</a></li>
+    <li><a href="#alignment">前后端对齐状态</a></li>
+    <li><a href="#ambiguity">有歧义的问题</a></li>
+    <li><a href="#roadmap">修复路线图</a></li>
+  </ol>
+</nav>
+
+<!-- ===== Section 1: Overview ===== -->
+<section id="overview">
+  <h2>1. 审查概览与统计</h2>
+
+  <div class="stat-grid">
+    <div class="stat-card p0"><div class="num">9</div><div class="label">CRITICAL</div></div>
+    <div class="stat-card p1"><div class="num">16</div><div class="label">HIGH</div></div>
+    <div class="stat-card p2"><div class="num">17</div><div class="label">MEDIUM</div></div>
+    <div class="stat-card ok"><div class="num">6</div><div class="label">LOW</div></div>
+    <div class="stat-card p0"><div class="num">48</div><div class="label">问题总数</div></div>
+  </div>
+
+  <h3>来源统计</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>来源</th><th>含义</th><th>发现问题数</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge badge-both">共同</span></td><td>两份报告一致认定</td><td>12</td></tr>
+        <tr><td><span class="badge badge-b">B 独有</span></td><td>仅 MiMo 深度审查发现</td><td>22</td></tr>
+        <tr><td><span class="badge badge-a">A 独有</span></td><td>仅 TRAE 审查发现</td><td>14</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="verdict warn">
+    <h3>综合评估：7.2 / 10 — 显著改善，但代码逻辑层有严重隐患</h3>
+    <p>上次审查的 8 个 P0 已全部修复（+1.6 分）。但 MiMo 深度审查发现了 <strong>9 个 CRITICAL 运行时 bug</strong>（重复方法名覆盖、RBAC 过滤缺失、NameError），这些是 TRAE 静态审查未能发现的。两份报告互补后，项目健康画像更加完整。</p>
+  </div>
+</section>
+
+<!-- ===== Section 2: CRITICAL ===== -->
+<section id="critical">
+  <h2>2. CRITICAL — 运行时崩溃/数据错误（9 项）</h2>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p0">CRIT-1</span>
+      <span class="badge badge-b">B 独有</span>
+      <span class="badge badge-fixed">待修复</span>
+    </div>
+    <div class="issue-desc">
+      <strong>asset_view.py 重复方法名 mark_broken 覆盖正确实现</strong><br>
+      文件定义了两个 <code>mark_broken</code> 方法（action）。第一个（~line 336）正确调用 <code>AssetService.mark_asset_broken</code>；第二个（~line 516）调用不存在的 <code>mixin.mark_broken</code>。Python 后定义覆盖前定义，正确实现成为死代码，运行时 AttributeError。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p0">CRIT-2</span>
+      <span class="badge badge-b">B 独有</span>
+      <span class="badge badge-fixed">待修复</span>
+    </div>
+    <div class="issue-desc">
+      <strong>asset_view.py 重复方法名 mark_lost 覆盖正确实现</strong><br>
+      同 CRIT-1，<code>mark_lost</code> 也被第二个定义覆盖，调用不存在的 <code>mixin.mark_lost</code>。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p0">CRIT-3</span>
+      <span class="badge badge-b">B 独有</span>
+      <span class="badge badge-fixed">待修复</span>
+    </div>
+    <div class="issue-desc">
+      <strong>asset_view.py mark_broken/mark_lost 参数名错误</strong><br>
+      重复定义传 <code>description=</code>，但 <code>AssetLifecycleMixin.mark_asset_broken</code> 需要 <code>broken_reason=</code>（必填），<code>mark_asset_lost</code> 需要 <code>lost_reason=</code>（必填）。TypeError。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p0">CRIT-4</span>
+      <span class="badge badge-b">B 独有</span>
+      <span class="badge badge-fixed">待修复</span>
+    </div>
+    <div class="issue-desc">
+      <strong>out_asset_view.py 重复 get_queryset 导致 RBAC 行级隔离失效</strong><br>
+      第一个 <code>get_queryset</code>（~line 88）正确调用 <code>OutAssetSelector.get_queryset_for_user()</code> 做 RBAC 过滤。第二个定义（~line 110）覆盖了它且无 RBAC 过滤。所有出库查询绕过行级数据隔离，任何用户可看全部出库记录。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p0">CRIT-5</span>
+      <span class="badge badge-b">B 独有</span>
+      <span class="badge badge-fixed">待修复</span>
+    </div>
+    <div class="issue-desc">
+      <strong>4 个 View 文件 ValidationError 未导入 → 运行时 NameError</strong><br>
+      <code>asset_view.py:245,268</code>、<code>out_asset_view.py:203</code>、<code>recycle_asset_view.py:131</code>、<code>contract_view.py:79,171</code> 的 catch 块使用 <code>ValidationError</code>，但文件仅导入了 <code>AppValidationError</code>。<code>ValidationError</code> 在这些模块中未定义，触发 except 时将抛出 NameError。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p0">CRIT-6</span>
+      <span class="badge badge-a">A 独有</span>
+      <span class="badge badge-fixed">待修复</span>
+    </div>
+    <div class="issue-desc">
+      <strong>二维码展示与下载功能完全缺失</strong><br>
+      Asset 模型有 <code>qr_code</code> 字段（JSON 格式，unique 约束），但无自动生成逻辑。资产详情页无二维码区域，无下载/打印功能。需求规格中的核心交互缺失。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p0">CRIT-7</span>
+      <span class="badge badge-a">A 独有</span>
+      <span class="badge badge-fixed">待修复</span>
+    </div>
+    <div class="issue-desc">
+      <strong>扫码页面未实现数据脱敏</strong><br>
+      ScanAssetView.vue 直接展示原始字段（价格、联系电话），设计文档要求价格显示 ****、电话脱敏（前3后4）。存在信息泄露风险。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p0">CRIT-8</span>
+      <span class="badge badge-both">共同</span>
+      <span class="badge badge-fixed">待修复</span>
+    </div>
+    <div class="issue-desc">
+      <strong>测试覆盖率远低于 CT-2 门槛</strong><br>
+      后端 34 tests（+RBAC 59 tests），前端仅 4 个测试文件。CT-2 要求整体 ≥80%，核心模块 ≥90%。状态机全路径测试几乎空白，违反 CT-3。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p0">CRIT-9</span>
+      <span class="badge badge-a">A 独有</span>
+      <span class="badge badge-fixed">待修复</span>
+    </div>
+    <div class="issue-desc">
+      <strong>8 个业务错误码未实现</strong><br>
+      规范定义的 2001(非法出库)/2002(资产已被领用)/2003(资产已登记)/3002(部门操作权限不足)/3003(超级管理员不可删除)/4002(部门下存在员工)/4003(部门下存在资产)/5001(数据库操作失败) 尚未定义。当前 BusinessCode 仅有 HTTP 状态码映射。
+    </div>
+  </div>
+</section>
+
+<!-- ===== Section 3: HIGH ===== -->
+<section id="high">
+  <h2>3. HIGH — RBAC 缺失/功能断裂（16 项）</h2>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p1">HIGH-1</span>
+      <span class="badge badge-b">B 独有</span>
+    </div>
+    <div class="issue-desc">
+      <strong>recycle_asset_view.py get_queryset 未调用 RBAC 过滤</strong><br>
+      使用 <code>RecycleAssetSelector.get_asset_recordcodes_for_list()</code> 返回无过滤数据，所有用户可看全部回收记录。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p1">HIGH-2</span>
+      <span class="badge badge-b">B 独有</span>
+    </div>
+    <div class="issue-desc">
+      <strong>damaged_asset_view.py 无 get_queryset 覆盖，无 RBAC 过滤</strong><br>
+      使用类级 queryset，所有用户可看全部待报废记录。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p1">HIGH-3</span>
+      <span class="badge badge-b">B 独有</span>
+    </div>
+    <div class="issue-desc">
+      <strong>waste_asset_view.py get_queryset 未调用 RBAC 过滤</strong><br>
+      使用 <code>WasteAsset.objects.for_list()</code> 返回无过滤数据。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p1">HIGH-4</span>
+      <span class="badge badge-b">B 独有</span>
+    </div>
+    <div class="issue-desc">
+      <strong>outasset_selector.py OutAssetSelector 方法返回 WasteAsset 查询集</strong><br>
+      <code>get_asset_recordcodes_for_list()</code> 和 <code>get_asset_recordcodes_with_asset_details()</code> 均返回 <code>WasteAsset.objects.for_list()</code>，明显是复制粘贴错误。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p1">HIGH-5</span>
+      <span class="badge badge-b">B 独有</span>
+    </div>
+    <div class="issue-desc">
+      <strong>Selector get_by_asset_code 使用错误字段名</strong><br>
+      RecycleAssetSelector 和 DamagedAssetSelector 的 <code>get_by_asset_code</code> 方法用 <code>asset_recordcode__recordcode</code> 过滤，应为 <code>asset_recordcode__asset_code</code>。业务编码永远匹配不到。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p1">HIGH-6</span>
+      <span class="badge badge-b">B 独有</span>
+    </div>
+    <div class="issue-desc">
+      <strong>useNotification.ts getJobcode() 永远返回 null</strong><br>
+      AuthInfo 存储对象仅有 auth_id/auth_username/isactive，无 employee_jobcode 字段。getJobcode() 查找该字段永远返回 undefined，WebSocket 永不连接，通知功能完全失效。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p1">HIGH-7</span>
+      <span class="badge badge-b">B 独有</span>
+    </div>
+    <div class="issue-desc">
+      <strong>暗色模式 CSS 变量冲突（6 个变量值不一致）</strong><br>
+      dark.css 和 variables.css 均定义 html.dark 块，6 个 --el-* 变量值不同。dark.css 在后加载所以覆盖 variables.css 的值，导致自定义组件与 Element Plus 组件边框颜色不一致。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p1">HIGH-8</span>
+      <span class="badge badge-a">A 独有</span>
+    </div>
+    <div class="issue-desc">
+      <strong>通讯录左树右联动布局完全缺失</strong><br>
+      设计文档要求 DepartmentTree + 部门信息区 + 人员区的完整交互，ContactsView.vue 仅为极简列表页（搜索框 + el-table + 分页）。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p1">HIGH-9</span>
+      <span class="badge badge-a">A 独有</span>
+    </div>
+    <div class="issue-desc">
+      <strong>出库弹窗交互未实现</strong><br>
+      设计文档要求出库为弹窗（含借用类型、预计归还日期），当前为独立表单页 OutAssetForm.vue，无"借用"类型选择和"预计归还"字段。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p1">HIGH-10</span>
+      <span class="badge badge-a">A 独有</span>
+    </div>
+    <div class="issue-desc">
+      <strong>公共组件 StatusTag/AssetSelect/EmployeeSelect 未封装</strong><br>
+      各页面重复内联 el-tag + 状态映射逻辑，违反 DR-2 组件原子化原则。资产选择器和员工选择器也未提取为公共组件。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p1">HIGH-11</span>
+      <span class="badge badge-both">共同</span>
+    </div>
+    <div class="issue-desc">
+      <strong>报废审批工作流前后端断裂</strong><br>
+      后端 DamagedAssetViewSet 有 approve/reject action，但前端 damagedAsset.ts 无对应 API 方法。审批按钮无绑定 API，端到端工作流断裂。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p1">HIGH-12</span>
+      <span class="badge badge-a">A 独有</span>
+    </div>
+    <div class="issue-desc">
+      <strong>数据导入导出仅部分实现</strong><br>
+      前端有 9 个 BatchImport 组件，后端有 batch_create 端点，但仅 Asset 模块配置了 ExportExcelMixin 导出列。其余模块无导出配置。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p1">HIGH-13</span>
+      <span class="badge badge-a">A 独有</span>
+    </div>
+    <div class="issue-desc">
+      <strong>Service/Selector 层覆盖率约 65%</strong><br>
+      FoundAsset/RepairAsset/WasteAsset/AssetType/Storage/Contract 缺少独立 Service 层，OperationLog/RepairAsset/AuthUser 缺少独立 Selector 层。业务逻辑散落在 View 层。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p1">HIGH-14</span>
+      <span class="badge badge-a">A 独有</span>
+    </div>
+    <div class="issue-desc">
+      <strong>找回后创建新资产 vs 恢复原资产</strong><br>
+      需求 AC-6 要求恢复原有资产状态为 in_store，当前实现创建新的 Asset 记录（或需确认 perform_create 具体逻辑）。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p1">HIGH-15</span>
+      <span class="badge badge-a">A 独有</span>
+    </div>
+    <div class="issue-desc">
+      <strong>二维码无图片生成能力</strong><br>
+      Asset 模型有 qr_code JSON 字段但无自动生成二维码图片的逻辑，扫码接口返回 JSON 而非图片。
+    </div>
+  </div>
+
+  <div class="issue-item">
+    <div class="issue-title">
+      <span class="badge badge-p1">HIGH-16</span>
+      <span class="badge badge-a">A 独有</span>
+    </div>
+    <div class="issue-desc">
+      <strong>取消出库/取消回收 API 端点缺失</strong><br>
+      AssetFSM 定义了 cancel_outasset() 和 cancel_recycle()，但无 View action 暴露这些操作。用户无法撤回出库/回收操作。
+    </div>
+  </div>
+</section>
+
+<!-- ===== Section 4: MEDIUM ===== -->
+<section id="medium">
+  <h2>4. MEDIUM — 架构规范/一致性问题（17 项）</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>ID</th><th>来源</th><th>问题</th><th>状态</th></tr></thead>
+      <tbody>
+        <tr><td>MED-1</td><td><span class="badge badge-b">B</span></td><td>storage_view.py / contract_view.py / hard_disk_sn_view.py 无 RBAC get_queryset</td><td>待修复</td></tr>
+        <tr><td>MED-2</td><td><span class="badge badge-b">B</span></td><td>waste_asset_service.py 绕过 FSM 强制 scrapped→in_store</td><td>待确认</td></tr>
+        <tr><td>MED-3</td><td><span class="badge badge-b">B</span></td><td>recycle_asset_service.py 无字段白名单，可设置任意模型属性</td><td>待修复</td></tr>
+        <tr><td>MED-4</td><td><span class="badge badge-b">B</span></td><td>core/pagination.py OpenAPI schema 写 "msg" 但实际返回 "message"</td><td>待修复</td></tr>
+        <tr><td>MED-5</td><td><span class="badge badge-b">B</span></td><td>多个 View OpenAPI 示例仍用 code:200 和 "msg"</td><td>待修复</td></tr>
+        <tr><td>MED-6</td><td><span class="badge badge-b">B</span></td><td>waste_asset_service.py FK 字段名错误（recordcode → asset_code）</td><td>待修复</td></tr>
+        <tr><td>MED-7</td><td><span class="badge badge-b">B</span></td><td>dashboard_view.py recent_recycle_assets 调用错误方法</td><td>待修复</td></tr>
+        <tr><td>MED-8</td><td><span class="badge badge-b">B</span></td><td>stores/app.ts setTheme() 用 data-theme 属性，CSS 用 .dark 类</td><td>待修复</td></tr>
+        <tr><td>MED-9</td><td><span class="badge badge-b">B</span></td><td>types/authuser.ts LogoutResponse/VerifyTokenResponse 用 msg 字段</td><td>待修复</td></tr>
+        <tr><td>MED-10</td><td><span class="badge badge-b">B</span></td><td>api/outAsset.ts 生产代码残留 console.log</td><td>待修复</td></tr>
+        <tr><td>MED-11</td><td><span class="badge badge-a">A</span></td><td>路由路径与规范文档不符（26 条仅 6 条一致）</td><td>待确认</td></tr>
+        <tr><td>MED-12</td><td><span class="badge badge-a">A</span></td><td>8 个业务错误码未定义（2001-5001）</td><td>待修复</td></tr>
+        <tr><td>MED-13</td><td><span class="badge badge-a">A</span></td><td>Token 刷新路径不一致（规范 /auth/refresh/ vs 实际 /auth/token/refresh/）</td><td>待确认</td></tr>
+        <tr><td>MED-14</td><td><span class="badge badge-a">A</span></td><td>找回逻辑与需求矛盾（创建新资产 vs 恢复原资产）</td><td>待确认</td></tr>
+        <tr><td>MED-15</td><td><span class="badge badge-a">A</span></td><td>前端 assetLifecycleService.ts 修改状态后未刷新</td><td>待修复</td></tr>
+        <tr><td>MED-16</td><td><span class="badge badge-a">A</span></td><td>Contract 合同状态链仅 3 个状态（规范要求 8 个）</td><td>待确认</td></tr>
+        <tr><td>MED-17</td><td><span class="badge badge-a">A</span></td><td>RecycleAssetViewSet 缺少"重新发放"独立 action</td><td>待确认</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== Section 5: LOW ===== -->
+<section id="low">
+  <h2>5. LOW — 代码质量/美化（6 项）</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>ID</th><th>来源</th><th>问题</th><th>状态</th></tr></thead>
+      <tbody>
+        <tr><td>LOW-1</td><td><span class="badge badge-b">B</span></td><td>router/guards.ts RBAC 白名单有冗余条目</td><td>可选修复</td></tr>
+        <tr><td>LOW-2</td><td><span class="badge badge-b">B</span></td><td>types/asset.ts AssetStatistics 用 camelCase，其余 snake_case</td><td>可选修复</td></tr>
+        <tr><td>LOW-3</td><td><span class="badge badge-b">B</span></td><td>stores/brokenAssetStore displayName 用英文而非中文</td><td>可选修复</td></tr>
+        <tr><td>LOW-4</td><td><span class="badge badge-b">B</span></td><td>usePermission.ts hasRole() 非响应式</td><td>可选修复</td></tr>
+        <tr><td>LOW-5</td><td><span class="badge badge-a">A</span></td><td>api/index.ts 未导出 brokenAssetAPI/foundAssetAPI/auditLogAPI</td><td>可选修复</td></tr>
+        <tr><td>LOW-6</td><td><span class="badge badge-a">A</span></td><td>router/index.ts Login 组件重复 import</td><td>可选修复</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== Section 6: Alignment ===== -->
+<section id="alignment">
+  <h2>6. 前后端对齐状态</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>契约项</th><th>上次状态</th><th>当前状态</th><th>结论</th></tr></thead>
+      <tbody>
+        <tr><td>响应格式 code 值</td><td>后端 200 vs 契约 0</td><td><span class="badge badge-ok">统一为 0</span></td><td>✅ 已对齐</td></tr>
+        <tr><td>响应 message 字段名</td><td>后端 msg vs 契约 message</td><td><span class="badge badge-ok">统一为 message</span></td><td>✅ 已对齐</td></tr>
+        <tr><td>错误码体系</td><td>HTTP 状态码</td><td>新增 1xxx/2xxx/3xxx/4xxx</td><td>⚠️ 已定义但未全部实现</td></tr>
+        <tr><td>API 版本前缀</td><td>无 v1</td><td><span class="badge badge-ok">/api/v1/ 已添加</span></td><td>✅ 已对齐</td></tr>
+        <tr><td>公开扫码接口</td><td>缺失</td><td><span class="badge badge-ok">已实现</span></td><td>✅ 已对齐</td></tr>
+        <tr><td>状态枚举</td><td>前端冗余 5 值中文</td><td><span class="badge badge-ok">统一 8 值英文</span></td><td>✅ 已对齐</td></tr>
+        <tr><td>JWT Token</td><td>无 role 字段</td><td><span class="badge badge-ok">注入 role + department_code</span></td><td>✅ 已对齐</td></tr>
+        <tr><td>分页参数</td><td>page/page_size</td><td><span class="badge badge-ok">一致</span></td><td>✅ 已对齐</td></tr>
+        <tr><td>PaginatedResponse 类型</td><td>缺 total_pages/page/page_size</td><td><span class="badge badge-fixed">已补充</span></td><td>✅ 已对齐</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout callout-ok">
+    <strong>对齐结论</strong>：核心跨端契约（响应格式/状态枚举/Token/分页）已完全对齐。剩余差异为 OpenAPI 文档示例中的 code:200/msg 残留（MED-4/MED-5），不影响运行时行为。
+  </div>
+</section>
+
+<!-- ===== Section 7: Ambiguity ===== -->
+<section id="ambiguity">
+  <h2>7. 有歧义的问题</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>问题</th><th>报告 A 的判断</th><th>报告 B 的判断</th><th>实际情况</th><th>结论</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>WebSocket 通知是否已实现</td>
+          <td>"完全缺失"</td>
+          <td>"已实现"</td>
+          <td>已实现 channels + consumer + 前端组件，但通知覆盖面窄（仅 damaged approve/reject）</td>
+          <td><strong>报告 A 错误</strong>。B 正确。但覆盖面需扩大。</td>
+        </tr>
+        <tr>
+          <td>数据导入是否缺失</td>
+          <td>"完全缺失"</td>
+          <td>"9 个 BatchImport 组件已实现"</td>
+          <td>前端批量导入 + 后端 batch_create 已实现，但无原生 Excel 解析</td>
+          <td><strong>报告 A 错误</strong>。B 正确。导入功能已通过前端 xlsx 库实现。</td>
+        </tr>
+        <tr>
+          <td>找回逻辑是否创建新资产</td>
+          <td>"创建新资产而非恢复"</td>
+          <td>"恢复原有资产状态"</td>
+          <td>需确认 FoundAssetViewSet.perform_create 具体实现</td>
+          <td><strong>待确认</strong>。两个报告都不确定。</td>
+        </tr>
+        <tr>
+          <td>测试覆盖率严重程度</td>
+          <td>P0，"估计 30-40%"</td>
+          <td>P0，"后端 34+59 tests"</td>
+          <td>RBAC 59 tests 是新增的，整体仍低于 80%</td>
+          <td><strong>部分改善</strong>。B 的数据更精确。</td>
+        </tr>
+        <tr>
+          <td>P1-3 FoundAsset CASCADE</td>
+          <td>"未确认"</td>
+          <td>"已改为 PROTECT"</td>
+          <td>已修复</td>
+          <td><strong>B 已修复，A 未验证</strong></td>
+        </tr>
+        <tr>
+          <td>P1-12 Token 有效期</td>
+          <td>"未确认"</td>
+          <td>"已改为 7 天"</td>
+          <td>已修复</td>
+          <td><strong>B 已修复，A 未验证</strong></td>
+        </tr>
+        <tr>
+          <td>重复方法名覆盖 bug</td>
+          <td>未发现</td>
+          <td>发现 2 个 CRITICAL</td>
+          <td>asset_view.py 中 mark_broken/mark_lost 被重复定义覆盖</td>
+          <td><strong>B 发现了 A 遗漏的严重 bug</strong></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== Section 8: Roadmap ===== -->
+<section id="roadmap">
+  <h2>8. 修复路线图</h2>
+
+  <div class="callout callout-danger">
+    <strong>第一阶段（立即）— 修复运行时崩溃</strong><em>预计 0.5 天</em>
+    <ol>
+      <li><strong>CRIT-1/2/3</strong>：删除 asset_view.py 重复的 mark_broken/mark_lost 方法，保留正确版本并修正参数名</li>
+      <li><strong>CRIT-4</strong>：删除 out_asset_view.py 重复的 get_queryset，保留 RBAC 版本</li>
+      <li><strong>CRIT-5</strong>：4 个文件的 catch 块用 <code>AppValidationError</code> 替代 <code>ValidationError</code></li>
+    </ol>
+  </div>
+
+  <div class="callout callout-warn">
+    <strong>第二阶段（1 周内）— 修复 RBAC 缺失 + 前端断裂</strong><em>预计 2-3 天</em>
+    <ol>
+      <li><strong>HIGH-1/2/3</strong>：RecycleAsset/DamagedAsset/WasteAsset 的 View 补充 get_queryset RBAC 调用</li>
+      <li><strong>HIGH-4/5</strong>：修复 Selector 中的错误方法名和字段名</li>
+      <li><strong>HIGH-6</strong>：修复 useNotification.ts getJobcode()，改为从 authInfo.auth_username 关联</li>
+      <li><strong>HIGH-11</strong>：damagedAsset.ts 添加 approveDamagedAsset/rejectDamagedAsset 方法</li>
+      <li><strong>HIGH-7</strong>：统一暗色模式 CSS 变量到 variables.css</li>
+    </ol>
+  </div>
+
+  <div class="callout callout-info">
+    <strong>第三阶段（2-4 周）— 功能补全 + 质量提升</strong><em>预计 1-2 周</em>
+    <ol>
+      <li><strong>CRIT-6/7</strong>：二维码图片生成（qrcode 库集成）+ 扫码页面脱敏</li>
+      <li><strong>CRIT-9</strong>：补齐 8 个业务错误码</li>
+      <li><strong>HIGH-8/9</strong>：通讯录左树右联动 + 出库弹窗交互</li>
+      <li><strong>HIGH-10</strong>：提取公共组件 StatusTag/AssetSelect/EmployeeSelect</li>
+      <li><strong>HIGH-12/13</strong>：补齐 Service/Selector 层 + 导出配置</li>
+      <li><strong>CRIT-8</strong>：测试覆盖率提升至 80%</li>
+    </ol>
+  </div>
+
+  <div class="callout callout-ok">
+    <strong>第四阶段（4-8 周）— 架构优化</strong><em>长期</em>
+    <ol>
+      <li><strong>MED-11/13</strong>：统一路由路径与规范文档对齐</li>
+      <li><strong>MED-12</strong>：实现全部业务错误码</li>
+      <li><strong>MED-16</strong>：合同状态链补全（3→8 状态）</li>
+      <li>前端组件迁移至 script setup lang="ts"（如需）</li>
+      <li>性能测试和并发测试</li>
+    </ol>
+  </div>
+</section>
+
+<footer>
+  <p>本报告合并了 TRAE 自动审查（V2）和 MiMo 深度代码审查的结果。TRAE 擅长需求覆盖度和 UI 交互审查，MiMo 擅长代码逻辑和运行时 bug 审查。</p>
+  <p>审查日期：2026-07-14 | 报告版本：Final（合并版）</p>
+</footer>
+
+</article>
+</body>
+</html>

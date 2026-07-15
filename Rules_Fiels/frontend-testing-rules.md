@@ -1,10 +1,10 @@
 
 ---
 
-### 📄 文档 7：前端测试细则 `/Rules_Fiels/frontend-testing-rules.md` (v1.3)
+### 📄 文档 7：前端测试细则 `/Rules_Fiels/frontend-testing-rules.md` (v1.5)
 
 # 前端测试细则 (Frontend Testing Rules)
-> 版本：v1.4 | 最后更新：2026-07-09
+> 版本：v1.5 | 最后更新：2026-07-10
 > 适用范围：Vitest + Vue Test Utils + Vue 3.5 + Vitest 变异测试插件
 
 ## 一、测试文件位置 [T9]
@@ -63,7 +63,21 @@ npx vitest --mutate
 ```
 若通过率 < 80%，触发 `[HALT]` 并补充/完善测试用例。
 
-## 九、变更日志
+## 九、代码质量三项检查 [T17]
+代码提交前**必须**依次执行以下三项检查，任一失败触发 `[HALT]`：
+
+| 序号 | 命令 | 工具 | 检查内容 | 失败处理 |
+|:----:|:-----|:-----|:---------|:---------|
+| 1 | `npm run type-check` | vue-tsc | TypeScript 类型错误 | 修复类型错误后重新执行 |
+| 2 | `npm run lint` | ESLint | 代码风格与规范 | 修复 lint 错误后重新执行 |
+| 3 | `npm run format:check` | Prettier | 代码格式统一性 | 执行 `npm run format` 自动修复后重新检查 |
+
+> **执行顺序**：type-check → lint → format:check，前一项通过后才执行下一项。
+> **自动修复**：lint 可通过 `npm run lint`（含 `--fix`）自动修复部分问题；format 可通过 `npm run format`（含 `--write`）自动格式化。
+
+## 十、变更日志
+- **v1.5 (2026-07-10)**：新增 T17 代码质量三项检查规范（type-check / lint / format:check）。
+
 - **v1.4 (2026-07-09)**：修复 T8 ID 冲突——规则编号从 T8-T15 重编号为 T9-T16，消除与后端 T8 的重叠。
 
 - **v1.3 (2026-07-09)**：修复 S-6——拆分 T13/T14 为独立规则，消除编号歧义；明确前端变异测试工具选型为 Vitest 插件，禁止引入 Stryker。

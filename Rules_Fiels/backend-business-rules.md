@@ -99,7 +99,65 @@ repairing ──repair_done──┘                    │                  │
 3. 进入 `repairing` 状态必须同时创建 `RepairAsset` 维修记录。
 4. 维修完成时必须更新资产的 `physical_grade` 字段。
 
-## 四、后端代码复用与量化规范（DRY 落地）
+## 四、RBAC 权限与行级数据隔离（B11-B14）
+
+> 本节对应 P1-4 / P2-11 修复，基于 `01-需求规格说明书.md` §2.2 RBAC 权限矩阵。
+
+### 4.1 角色定义（Employee.role 枚举）
+
+| 角色 | 枚举值 | 说明 |
+|:---|:---|:---|
+| 系统管理员 | `system_admin` | 拥有全部权限，`is_superuser` 绕过所有检查 |
+| 部门经理 | `dept_manager` | 本部门+下级部门的资产操作+审批权限 |
+| 资产管理员 | `asset_admin` | 本部门的资产操作权限（无审批权） |
+| 普通用户 | `regular_user` | 本部门资产只读 |
+| 审计员 | `auditor` | 全部数据只读（审计日志+资产历史） |
+
+### 4.2 功能权限矩阵
+
+| 模块 | 操作 | system_admin | dept_manager | asset_admin | regular_user | auditor |
+|:---|:---|:---:|:---:|:---:|:---:|:---:|
+| 资产管理 | 列表/详情 | ✅ 全部 | ✅ 本部门+下级 | ✅ 本部门 | ✅ 本部门 | ✅ 全部 |
+| 资产管理 | 新增/编辑/删除 | ✅ | ✅ 本部门+下级 | ✅ 本部门 | ❌ | ❌ |
+| 资产管理 | 批量删除 | ✅ 逐条校验 | ✅ 本部门+下级 逐条 | ✅ 本部门 逐条 | ❌ | ❌ |
+| 出库/回收 | 操作 | ✅ | ✅ 本部门+下级 | ✅ 本部门 | ❌ | ❌ |
+| 损坏/遗失 | 登记/找回/送修 | ✅ | ✅ 本部门+下级 | ✅ 本部门 | ❌ | ❌ |
+| 报废审批 | 审批通过/拒绝 | ✅ | ✅ 本部门+下级 | ❌ | ❌ | ❌ |
+| 未登记资产 | 处理审批 | ✅ | ✅ 本部门+下级 | ❌ | ❌ | ❌ |
+| 系统配置 | 类型/仓库/合同/员工/部门/用户 | ✅ | ❌ | ❌ | ❌ | ❌ |
+| 审计日志 | 查看 | ✅ | ❌ | ❌ | ❌ | ✅ |
+| 操作日志 | 查看 | ✅ | ✅ 本部门 | ✅ 本部门 | ✅ 本部门 | ✅ 全部 |
+| 仪表盘 | 查看 | ✅ | ✅ 本部门+下级 | ✅ 本部门 | ✅ 本部门 | ✅ 全部 |
+| 导出 | Excel | ✅ | ✅ 本部门+下级 | ✅ 本部门 | ❌ | ✅ 全部 |
+| 扫码查看 | 公开查询 | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+### 4.3 行级数据隔离
+
+| 角色 | 数据范围 | Selector 过滤方式 |
+|:---|:---|:---|
+| system_admin | 全部 | 无过滤 |
+| auditor | 全部 | 无过滤 |
+| dept_manager | 本部门+所有下级部门 | `department_code__in = dept_codes`（含子孙） |
+| asset_admin | 本部门 | `department_code = user_dept_code` |
+| regular_user | 本部门 | `department_code = user_dept_code` |
+
+### 4.4 资产部门归属（动态解析，无冗余字段）
+
+资产归属部门通过运行时动态解析，不存储冗余字段。回退链：
+
+1. `asset_manager_recordcode.employee_department` — 保管人/使用人部门
+2. `asset_entry_person_recordcode.employee_department` — 入库人部门
+3. `asset_storage_recordcode.storage_manager.employee_department` — 仓库管理员部门
+4. `None` — 仅 system_admin 和 auditor 可见
+
+| ID | 规范项 | 约束内容 | 违规补救 |
+|:---|:---|:---|:---|
+| B11 | **RBAC 权限检查** | 所有写操作（create/update/destroy）**必须**通过权限类校验角色，**禁止**仅用 `IsAdminUser` 作为唯一写权限控制 | 补充角色权限类 |
+| B12 | **行级数据隔离** | Selector 层**必须**实现 `get_queryset_for_user(user)` 方法，根据用户角色和部门范围过滤查询结果 | 补充 Selector 方法 |
+| B13 | **部门归属动态解析** | 资产的部门归属**禁止**使用冗余字段存储，**必须**通过 `resolve_asset_department_codes()` 动态解析 | 删除冗余字段，改用动态解析 |
+| B14 | **批量操作逐条校验** | 批量删除/批量更新**必须**逐条校验权限，无权限的条目跳过并返回错误，**禁止**整体校验 | 改为逐条校验 |
+
+## 五、后端代码复用与量化规范（DRY 落地）
 本细则对应宪法级规则 DR-1、DR-3、DR-5、DR-6，所有后端代码必须遵守。
 
 | ID	| 规范项	| 约束内容	| 违规补救 |
@@ -112,7 +170,8 @@ repairing ──repair_done──┘                    │                  │
 | BR-6	| **文件行数限制** |	单个 .py 文件（不含迁移文件）不得超过 500 行。超过时，按职责拆分（如 services.py → services/checkout.py + services/recycle.py）。|	拆分为模块包 |
 | BR-7	| **调用链验证** |	视图（View）→ 服务（Service）→ 选择器（Selector）的纵深不得超过 3 层（View→Service→Selector 为标准深度）。若出现 View→Service→Service→Selector 等 4 层+，必须扁平化或使用事件驱动解耦。|	合并中间层或引入事件 |
 
-## 五、变更日志
+## 六、变更日志
+- v1.4 (2026-07-14): 新增第四节 RBAC 权限与行级数据隔离（B11-B14），包含 5 角色定义、功能权限矩阵、行级隔离策略、资产部门动态解析规则。
 - v1.3 (2026-07-08): 新增 `repairing`（维修中）状态，更新状态机图，添加 `broken→repairing→in_store/damaged` 转换路径，同步设计文档 V2.1。
 
 - v1.2 (2026-07-07): 增加对根级安全/可观测性契约的引用（已在设计思路中体现），无实质条款变更。

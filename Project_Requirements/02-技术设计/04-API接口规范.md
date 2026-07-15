@@ -1,6 +1,6 @@
 # 资产管理系统后端API接口规范
 
-**版本：V2.5**
+**版本：V2.6**
 **日期：2026-07-09**
 **状态：草案**
 
@@ -23,56 +23,56 @@
 
 ## 2. API端点清单
 
-### 2.1 资产类型管理 `/api/v1/asset-types/`
+### 2.1 资产类型管理 `/api/v1/assets/asset-types/`
 
 | 方法 | 路径 | 功能 | 请求序列化器 | 响应序列化器 |
 |------|------|------|-------------|-------------|
-| GET | `/asset-types/` | 类型列表 | - | AssetTypeListSerializer |
-| GET | `/asset-types/simple/` | 下拉选单 | - | AssetTypeSimpleSerializer |
-| POST | `/asset-types/` | 创建类型 | AssetTypeCreateSerializer | AssetTypeDetailSerializer |
-| GET | `/asset-types/{recordcode}/` | 类型详情 | - | AssetTypeDetailSerializer |
-| GET | `/asset-types/{recordcode}/full-path/` | 获取完整类型编码和名称路径 | - | AssetTypeFullPathSerializer |
-| GET | `/asset-types/tree/` | 获取树形结构数据 | - | AssetTypeTreeNodeSerializer |
-| PUT | `/asset-types/{recordcode}/` | 更新类型 | AssetTypeUpdateSerializer | AssetTypeDetailSerializer |
-| DELETE | `/asset-types/{recordcode}/` | 删除类型 | - | - |
-| POST | `/asset-types/batch-create/` | 批量创建 | AssetTypeBatchCreateSerializer | AssetTypeDetailSerializer (list) |
-| POST | `/asset-types/batch-delete/` | 批量删除 | AssetTypeBatchDeleteSerializer | - |
-| POST | `/asset-types/filter/` | 多条件联合筛选 | AssetTypeFilterSerializer | AssetTypeListSerializer |
+| GET | `/assets/asset-types/` | 类型列表 | - | AssetTypeListSerializer |
+| GET | `/assets/asset-types/simple/` | 下拉选单（暂不实现） | - | AssetTypeSimpleSerializer |
+| POST | `/assets/asset-types/` | 创建类型 | AssetTypeCreateSerializer | AssetTypeDetailSerializer |
+| GET | `/assets/asset-types/{recordcode}/` | 类型详情 | - | AssetTypeDetailSerializer |
+| GET | `/assets/asset-types/{recordcode}/full-path/` | 获取完整类型编码和名称路径 | - | AssetTypeFullPathSerializer |
+| GET | `/assets/asset-types/tree/` | 获取树形结构数据 | - | AssetTypeTreeNodeSerializer |
+| PUT | `/assets/asset-types/{recordcode}/` | 更新类型 | AssetTypeUpdateSerializer | AssetTypeDetailSerializer |
+| DELETE | `/assets/asset-types/{recordcode}/` | 删除类型 | - | - |
+| POST | `/assets/asset-types/batch-create/` | 批量创建 | AssetTypeBatchCreateSerializer | AssetTypeDetailSerializer (list) |
+| POST | `/assets/asset-types/batch-delete/` | 批量删除 | AssetTypeBatchDeleteSerializer | - |
+| POST | `/assets/asset-types/filter/` | 多条件联合筛选 | AssetTypeFilterSerializer | AssetTypeListSerializer |
 
-### 2.2 仓库管理 `/api/v1/storages/`
-
-| 方法 | 路径 | 功能 | 请求序列化器 | 响应序列化器 |
-|------|------|------|-------------|-------------|
-| GET | `/storages/` | 仓库列表 | - | StorageListSerializer |
-| GET | `/storages/simple/` | 下拉选单 | - | StorageSimpleSerializer |
-| POST | `/storages/` | 创建仓库 | StorageCreateSerializer | StorageDetailSerializer |
-| GET | `/storages/{recordcode}/` | 仓库详情 | - | StorageDetailSerializer |
-| PUT | `/storages/{recordcode}/` | 更新仓库 | StorageUpdateSerializer | StorageDetailSerializer |
-| DELETE | `/storages/{recordcode}/` | 删除仓库 | - | - |
-| POST | `/storages/batch-create/` | 批量创建 | StorageBatchCreateSerializer | StorageDetailSerializer (list) |
-| POST | `/storages/batch-delete/` | 批量删除 | StorageBatchDeleteSerializer | - |
-| POST | `/storages/filter/` | 多条件联合筛选 | StorageFilterSerializer | StorageListSerializer |
-
-### 2.3 合同管理 `/api/v1/contracts/`
+### 2.2 仓库管理 `/api/v1/assets/storages/`
 
 | 方法 | 路径 | 功能 | 请求序列化器 | 响应序列化器 |
 |------|------|------|-------------|-------------|
-| GET | `/contracts/` | 合同列表 | - | ContractListSerializer |
-| GET | `/contracts/simple/` | 下拉选单 | - | ContractSimpleSerializer |
-| POST | `/contracts/` | 创建合同 | ContractCreateSerializer | ContractDetailSerializer |
-| GET | `/contracts/{recordcode}/` | 合同详情 | - | ContractDetailSerializer |
-| PUT | `/contracts/{recordcode}/` | 更新合同 | ContractUpdateSerializer | ContractDetailSerializer |
-| DELETE | `/contracts/{recordcode}/` | 删除合同 | - | - |
-| POST | `/contracts/batch-create/` | 批量创建 | ContractBatchCreateSerializer | ContractDetailSerializer (list) |
-| POST | `/contracts/batch-delete/` | 批量删除 | ContractBatchDeleteSerializer | - |
-| POST | `/contracts/filter/` | 多条件联合筛选（支持合同编号、名称、供应商、签订年份等） | ContractFilterSerializer | ContractListSerializer |
+| GET | `/assets/storages/` | 仓库列表 | - | StorageListSerializer |
+| GET | `/assets/storages/simple/` | 下拉选单（暂不实现） | - | StorageSimpleSerializer |
+| POST | `/assets/storages/` | 创建仓库 | StorageCreateSerializer | StorageDetailSerializer |
+| GET | `/assets/storages/{recordcode}/` | 仓库详情 | - | StorageDetailSerializer |
+| PUT | `/assets/storages/{recordcode}/` | 更新仓库 | StorageUpdateSerializer | StorageDetailSerializer |
+| DELETE | `/assets/storages/{recordcode}/` | 删除仓库 | - | - |
+| POST | `/assets/storages/batch-create/` | 批量创建 | StorageBatchCreateSerializer | StorageDetailSerializer (list) |
+| POST | `/assets/storages/batch-delete/` | 批量删除 | StorageBatchDeleteSerializer | - |
+| POST | `/assets/storages/filter/` | 多条件联合筛选 | StorageFilterSerializer | StorageListSerializer |
+
+### 2.3 合同管理 `/api/v1/assets/contracts/`
+
+| 方法 | 路径 | 功能 | 请求序列化器 | 响应序列化器 |
+|------|------|------|-------------|-------------|
+| GET | `/assets/contracts/` | 合同列表 | - | ContractListSerializer |
+| GET | `/assets/contracts/simple/` | 下拉选单（暂不实现） | - | ContractSimpleSerializer |
+| POST | `/assets/contracts/` | 创建合同 | ContractCreateSerializer | ContractDetailSerializer |
+| GET | `/assets/contracts/{recordcode}/` | 合同详情 | - | ContractDetailSerializer |
+| PUT | `/assets/contracts/{recordcode}/` | 更新合同 | ContractUpdateSerializer | ContractDetailSerializer |
+| DELETE | `/assets/contracts/{recordcode}/` | 删除合同 | - | - |
+| POST | `/assets/contracts/batch-create/` | 批量创建 | ContractBatchCreateSerializer | ContractDetailSerializer (list) |
+| POST | `/assets/contracts/batch-delete/` | 批量删除 | ContractBatchDeleteSerializer | - |
+| POST | `/assets/contracts/filter/` | 多条件联合筛选（支持合同编号、名称、供应商、签订年份等） | ContractFilterSerializer | ContractListSerializer |
 
 ### 2.4 资产管理 `/api/v1/assets/`
 
 | 方法 | 路径 | 功能 | 请求序列化器 | 响应序列化器 |
 |------|------|------|-------------|-------------|
 | GET | `/assets/` | 资产列表 | - | AssetListSerializer |
-| GET | `/assets/simple/` | 下拉选单 | - | AssetSimpleSerializer |
+| GET | `/assets/simple/` | 下拉选单（暂不实现） | - | AssetSimpleSerializer |
 | POST | `/assets/` | 创建资产 | AssetCreateSerializer | AssetDetailSerializer |
 | GET | `/assets/{recordcode}/` | 资产详情 | - | AssetDetailSerializer |
 | PUT | `/assets/{recordcode}/` | 更新资产 | AssetUpdateSerializer | AssetDetailSerializer |
@@ -92,106 +92,106 @@
 | POST | `/assets/filter/` | 多条件联合筛选（支持编码、名称、规格、品牌、合同、保管人、部门、状态、使用性质、仓库等） | AssetFilterSerializer | AssetListSerializer |
 | GET | `/assets/export/` | 导出资产列表（Excel） | - | 文件流 |
 
-### 2.4a 公开接口（无需认证） `/api/v1/public/`
+### 2.4a 公开接口（无需认证） `/api/v1/assets/public/`
 
 | 方法 | 路径 | 功能 | 说明 |
 |------|------|------|------|
-| GET | `/public/scan/{recordcode}/` | 扫码查看资产详情 | 无需 JWT 认证；返回脱敏后的资产信息（价格显示"****"，联系电话前3后4脱敏） |
+| GET | `/assets/public/scan/{recordcode}/` | 扫码查看资产详情 | 无需 JWT 认证；返回脱敏后的资产信息（价格显示"****"，联系电话前3后4脱敏） |
 
-### 2.5 出库记录 `/api/v1/out-assets/`
-
-| 方法 | 路径 | 功能 | 请求序列化器 | 响应序列化器 |
-|------|------|------|-------------|-------------|
-| GET | `/out-assets/` | 出库列表 | - | OutAssetListSerializer |
-| POST | `/out-assets/` | 创建出库 | OutAssetCreateSerializer | OutAssetDetailSerializer |
-| GET | `/out-assets/{recordcode}/` | 出库详情 | - | OutAssetDetailSerializer |
-| DELETE | `/out-assets/{recordcode}/` | 取消出库 | - | - |
-| POST | `/out-assets/batch-create/` | 批量创建 | OutAssetBatchCreateSerializer | OutAssetDetailSerializer (list) |
-| POST | `/out-assets/batch-delete/` | 批量删除 | OutAssetBatchDeleteSerializer | - |
-| POST | `/out-assets/filter/` | 多条件联合筛选 | OutAssetFilterSerializer | OutAssetListSerializer |
-| GET | `/out-assets/export/` | 导出出库记录（Excel） | - | 文件流 |
-
-### 2.6 回收记录 `/api/v1/recycle-assets/`
+### 2.5 出库记录 `/api/v1/assets/out-assets/`
 
 | 方法 | 路径 | 功能 | 请求序列化器 | 响应序列化器 |
 |------|------|------|-------------|-------------|
-| GET | `/recycle-assets/` | 回收列表 | - | RecycleAssetListSerializer |
-| POST | `/recycle-assets/` | 创建回收 | RecycleAssetCreateSerializer | RecycleAssetDetailSerializer |
-| GET | `/recycle-assets/{recordcode}/` | 回收详情 | - | RecycleAssetDetailSerializer |
-| DELETE | `/recycle-assets/{recordcode}/` | 取消回收 | - | - |
-| POST | `/recycle-assets/batch-create/` | 批量创建 | RecycleAssetBatchCreateSerializer | RecycleAssetDetailSerializer (list) |
-| POST | `/recycle-assets/filter/` | 多条件联合筛选 | RecycleAssetFilterSerializer | RecycleAssetListSerializer |
-| GET | `/recycle-assets/export/` | 导出回收记录（Excel） | - | 文件流 |
+| GET | `/assets/out-assets/` | 出库列表 | - | OutAssetListSerializer |
+| POST | `/assets/out-assets/` | 创建出库 | OutAssetCreateSerializer | OutAssetDetailSerializer |
+| GET | `/assets/out-assets/{recordcode}/` | 出库详情 | - | OutAssetDetailSerializer |
+| DELETE | `/assets/out-assets/{recordcode}/` | 取消出库 | - | - |
+| POST | `/assets/out-assets/batch-create/` | 批量创建 | OutAssetBatchCreateSerializer | OutAssetDetailSerializer (list) |
+| POST | `/assets/out-assets/batch-delete/` | 批量删除 | OutAssetBatchDeleteSerializer | - |
+| POST | `/assets/out-assets/filter/` | 多条件联合筛选 | OutAssetFilterSerializer | OutAssetListSerializer |
+| GET | `/assets/out-assets/export/` | 导出出库记录（Excel） | - | 文件流 |
+
+### 2.6 回收记录 `/api/v1/assets/recycle-assets/`
+
+| 方法 | 路径 | 功能 | 请求序列化器 | 响应序列化器 |
+|------|------|------|-------------|-------------|
+| GET | `/assets/recycle-assets/` | 回收列表 | - | RecycleAssetListSerializer |
+| POST | `/assets/recycle-assets/` | 创建回收 | RecycleAssetCreateSerializer | RecycleAssetDetailSerializer |
+| GET | `/assets/recycle-assets/{recordcode}/` | 回收详情 | - | RecycleAssetDetailSerializer |
+| DELETE | `/assets/recycle-assets/{recordcode}/` | 取消回收 | - | - |
+| POST | `/assets/recycle-assets/batch-create/` | 批量创建 | RecycleAssetBatchCreateSerializer | RecycleAssetDetailSerializer (list) |
+| POST | `/assets/recycle-assets/filter/` | 多条件联合筛选 | RecycleAssetFilterSerializer | RecycleAssetListSerializer |
+| GET | `/assets/recycle-assets/export/` | 导出回收记录（Excel） | - | 文件流 |
 
 ### 2.7 损坏/遗失/找回/维修记录
 
 | 模块 | 路径前缀 | 列表序列化器 | 详情序列化器 | 创建序列化器 | 筛选序列化器 |
 |------|---------|-------------|-------------|-------------|-------------|
-| 损坏记录 | `/api/v1/broken-assets/` | BrokenAssetListSerializer | BrokenAssetDetailSerializer | BrokenAssetCreateSerializer | BrokenAssetFilterSerializer |
-| 遗失记录 | `/api/v1/lost-assets/` | LostAssetListSerializer | LostAssetDetailSerializer | LostAssetCreateSerializer | LostAssetFilterSerializer |
-| 找回记录 | `/api/v1/found-assets/` | FoundAssetListSerializer | FoundAssetDetailSerializer | FoundAssetCreateSerializer | FoundAssetFilterSerializer |
-| 维修记录 | `/api/v1/repair-assets/` | RepairAssetListSerializer | RepairAssetDetailSerializer | RepairAssetCreateSerializer | RepairAssetFilterSerializer |
+| 损坏记录 | `/api/v1/assets/broken-assets/` | BrokenAssetListSerializer | BrokenAssetDetailSerializer | BrokenAssetCreateSerializer | BrokenAssetFilterSerializer |
+| 遗失记录 | `/api/v1/assets/lost-assets/` | LostAssetListSerializer | LostAssetDetailSerializer | LostAssetCreateSerializer | LostAssetFilterSerializer |
+| 找回记录 | `/api/v1/assets/found-assets/` | FoundAssetListSerializer | FoundAssetDetailSerializer | FoundAssetCreateSerializer | FoundAssetFilterSerializer |
+| 维修记录 | `/api/v1/assets/repair-assets/` | RepairAssetListSerializer | RepairAssetDetailSerializer | RepairAssetCreateSerializer | RepairAssetFilterSerializer |
 
 **端点清单（以损坏记录为例，其余类似）**：
-- `GET /broken-assets/`
-- `POST /broken-assets/`
-- `GET /broken-assets/{recordcode}/`
-- `DELETE /broken-assets/{recordcode}/`
-- `POST /broken-assets/batch-create/`
-- `POST /broken-assets/filter/`
+- `GET /assets/broken-assets/`
+- `POST /assets/broken-assets/`
+- `GET /assets/broken-assets/{recordcode}/`
+- `DELETE /assets/broken-assets/{recordcode}/`
+- `POST /assets/broken-assets/batch-create/`
+- `POST /assets/broken-assets/filter/`
 
-### 2.8 报废流程 `/api/v1/damaged-assets/`
-
-| 方法 | 路径 | 功能 | 请求序列化器 | 响应序列化器 |
-|------|------|------|-------------|-------------|
-| GET | `/damaged-assets/` | 待报废列表 | - | DamagedAssetListSerializer |
-| POST | `/damaged-assets/` | 提交申请 | DamagedAssetCreateSerializer | DamagedAssetDetailSerializer |
-| GET | `/damaged-assets/{recordcode}/` | 详情 | - | DamagedAssetDetailSerializer |
-| POST | `/damaged-assets/{recordcode}/approve/` | 审批通过 | - | WasteAssetDetailSerializer |
-| POST | `/damaged-assets/{recordcode}/reject/` | 审批拒绝 | - | DamagedAssetDetailSerializer |
-| POST | `/damaged-assets/{recordcode}/cancel/` | 取消申请 | - | DamagedAssetDetailSerializer |
-| POST | `/damaged-assets/filter/` | 多条件联合筛选 | DamagedAssetFilterSerializer | DamagedAssetListSerializer |
-
-### 2.9 未登记资产 `/api/v1/unregistered-assets/`
+### 2.8 报废流程 `/api/v1/assets/damaged-assets/`
 
 | 方法 | 路径 | 功能 | 请求序列化器 | 响应序列化器 |
 |------|------|------|-------------|-------------|
-| GET | `/unregistered-assets/` | 列表 | - | UnregisteredAssetListSerializer |
-| POST | `/unregistered-assets/` | 提交发现 | UnregisteredAssetCreateSerializer | UnregisteredAssetDetailSerializer |
-| GET | `/unregistered-assets/{recordcode}/` | 详情 | - | UnregisteredAssetDetailSerializer |
-| POST | `/unregistered-assets/{recordcode}/approve/` | 审批 | - | UnregisteredAssetDetailSerializer |
-| POST | `/unregistered-assets/{recordcode}/reject/` | 拒绝 | - | UnregisteredAssetDetailSerializer |
-| POST | `/unregistered-assets/filter/` | 多条件联合筛选 | UnregisteredAssetFilterSerializer | UnregisteredAssetListSerializer |
+| GET | `/assets/damaged-assets/` | 待报废列表 | - | DamagedAssetListSerializer |
+| POST | `/assets/damaged-assets/` | 提交申请 | DamagedAssetCreateSerializer | DamagedAssetDetailSerializer |
+| GET | `/assets/damaged-assets/{recordcode}/` | 详情 | - | DamagedAssetDetailSerializer |
+| POST | `/assets/damaged-assets/{recordcode}/approve/` | 审批通过 | - | WasteAssetDetailSerializer |
+| POST | `/assets/damaged-assets/{recordcode}/reject/` | 审批拒绝 | - | DamagedAssetDetailSerializer |
+| POST | `/assets/damaged-assets/{recordcode}/cancel/` | 取消申请 | - | DamagedAssetDetailSerializer |
+| POST | `/assets/damaged-assets/filter/` | 多条件联合筛选 | DamagedAssetFilterSerializer | DamagedAssetListSerializer |
 
-### 2.10 部门管理 `/api/v1/departments/`
-
-| 方法 | 路径 | 功能 | 请求序列化器 | 响应序列化器 |
-|------|------|------|-------------|-------------|
-| GET | `/departments/` | 部门列表 | - | DepartmentListSerializer |
-| GET | `/departments/simple/` | 下拉选单 | - | DepartmentSimpleSerializer |
-| GET | `/departments/tree/` | 树形数据 | - | DepartmentDetailSerializer |
-| POST | `/departments/` | 创建部门 | DepartmentCreateSerializer | DepartmentDetailSerializer |
-| GET | `/departments/{recordcode}/` | 详情 | - | DepartmentDetailSerializer |
-| PUT | `/departments/{recordcode}/` | 更新部门 | DepartmentUpdateSerializer | DepartmentDetailSerializer |
-| DELETE | `/departments/{recordcode}/` | 删除部门 | - | - |
-| POST | `/departments/batch-create/` | 批量创建 | DepartmentBatchCreateSerializer | DepartmentDetailSerializer (list) |
-| POST | `/departments/batch-delete/` | 批量删除 | DepartmentBatchDeleteSerializer | - |
-| POST | `/departments/filter/` | 多条件联合筛选 | DepartmentFilterSerializer | DepartmentListSerializer |
-
-### 2.11 员工管理 `/api/v1/employees/`
+### 2.9 未登记资产 `/api/v1/unregisteredassets/unregistered-assets/`
 
 | 方法 | 路径 | 功能 | 请求序列化器 | 响应序列化器 |
 |------|------|------|-------------|-------------|
-| GET | `/employees/` | 员工列表 | - | EmployeeListSerializer |
-| GET | `/employees/simple/` | 下拉选单 | - | EmployeeSimpleSerializer |
-| GET | `/employees/by-department/{dept_code}/` | 按部门查询 | - | EmployeeListSerializer |
-| POST | `/employees/` | 创建员工 | EmployeeCreateSerializer | EmployeeDetailSerializer |
-| GET | `/employees/{recordcode}/` | 详情 | - | EmployeeDetailSerializer |
-| PUT | `/employees/{recordcode}/` | 更新员工 | EmployeeUpdateSerializer | EmployeeDetailSerializer |
-| DELETE | `/employees/{recordcode}/` | 删除员工 | - | - |
-| POST | `/employees/batch-create/` | 批量创建 | EmployeeBatchCreateSerializer | EmployeeDetailSerializer (list) |
-| POST | `/employees/batch-delete/` | 批量删除 | EmployeeBatchDeleteSerializer | - |
-| POST | `/employees/filter/` | 多条件联合筛选 | EmployeeFilterSerializer | EmployeeListSerializer |
+| GET | `/unregisteredassets/unregistered-assets/` | 列表 | - | UnregisteredAssetListSerializer |
+| POST | `/unregisteredassets/unregistered-assets/` | 提交发现 | UnregisteredAssetCreateSerializer | UnregisteredAssetDetailSerializer |
+| GET | `/unregisteredassets/unregistered-assets/{recordcode}/` | 详情 | - | UnregisteredAssetDetailSerializer |
+| POST | `/unregisteredassets/unregistered-assets/{recordcode}/approve/` | 审批 | - | UnregisteredAssetDetailSerializer |
+| POST | `/unregisteredassets/unregistered-assets/{recordcode}/reject/` | 拒绝 | - | UnregisteredAssetDetailSerializer |
+| POST | `/unregisteredassets/unregistered-assets/filter/` | 多条件联合筛选 | UnregisteredAssetFilterSerializer | UnregisteredAssetListSerializer |
+
+### 2.10 部门管理 `/api/v1/users/departments/`
+
+| 方法 | 路径 | 功能 | 请求序列化器 | 响应序列化器 |
+|------|------|------|-------------|-------------|
+| GET | `/users/departments/` | 部门列表 | - | DepartmentListSerializer |
+| GET | `/users/departments/simple/` | 下拉选单（暂不实现） | - | DepartmentSimpleSerializer |
+| GET | `/users/departments/tree/` | 树形数据 | - | DepartmentDetailSerializer |
+| POST | `/users/departments/` | 创建部门 | DepartmentCreateSerializer | DepartmentDetailSerializer |
+| GET | `/users/departments/{recordcode}/` | 详情 | - | DepartmentDetailSerializer |
+| PUT | `/users/departments/{recordcode}/` | 更新部门 | DepartmentUpdateSerializer | DepartmentDetailSerializer |
+| DELETE | `/users/departments/{recordcode}/` | 删除部门 | - | - |
+| POST | `/users/departments/batch-create/` | 批量创建 | DepartmentBatchCreateSerializer | DepartmentDetailSerializer (list) |
+| POST | `/users/departments/batch-delete/` | 批量删除 | DepartmentBatchDeleteSerializer | - |
+| POST | `/users/departments/filter/` | 多条件联合筛选 | DepartmentFilterSerializer | DepartmentListSerializer |
+
+### 2.11 员工管理 `/api/v1/users/employees/`
+
+| 方法 | 路径 | 功能 | 请求序列化器 | 响应序列化器 |
+|------|------|------|-------------|-------------|
+| GET | `/users/employees/` | 员工列表 | - | EmployeeListSerializer |
+| GET | `/users/employees/simple/` | 下拉选单（暂不实现） | - | EmployeeSimpleSerializer |
+| GET | `/users/employees/by-department/{dept_code}/` | 按部门查询 | - | EmployeeListSerializer |
+| POST | `/users/employees/` | 创建员工 | EmployeeCreateSerializer | EmployeeDetailSerializer |
+| GET | `/users/employees/{recordcode}/` | 详情 | - | EmployeeDetailSerializer |
+| PUT | `/users/employees/{recordcode}/` | 更新员工 | EmployeeUpdateSerializer | EmployeeDetailSerializer |
+| DELETE | `/users/employees/{recordcode}/` | 删除员工 | - | - |
+| POST | `/users/employees/batch-create/` | 批量创建 | EmployeeBatchCreateSerializer | EmployeeDetailSerializer (list) |
+| POST | `/users/employees/batch-delete/` | 批量删除 | EmployeeBatchDeleteSerializer | - |
+| POST | `/users/employees/filter/` | 多条件联合筛选 | EmployeeFilterSerializer | EmployeeListSerializer |
 
 ### 2.12 用户认证 `/api/v1/auth/`
 
@@ -199,12 +199,12 @@
 |------|------|------|-------------|-------------|
 | POST | `/auth/login/` | 登录 | LoginSerializer | LoginResponseSerializer |
 | POST | `/auth/logout/` | 登出 | - | - |
-| POST | `/auth/refresh/` | 刷新令牌 | RefreshTokenSerializer | LoginResponseSerializer |
+| POST | `/auth/token/refresh/` | 刷新令牌 | RefreshTokenSerializer | LoginResponseSerializer |
 | POST | `/auth/change-password/` | 修改密码 | ChangePasswordSerializer | - |
 | GET | `/auth/profile/` | 获取当前用户 | - | AuthUserDetailSerializer |
 | PUT | `/auth/profile/` | 更新个人信息 | AuthUserUpdateSerializer | AuthUserDetailSerializer |
 | GET | `/auth/users/` | 用户列表 | - | AuthUserListSerializer |
-| GET | `/auth/users/simple/` | 下拉选单 | - | AuthUserSimpleSerializer |
+| GET | `/auth/users/simple/` | 下拉选单（暂不实现） | - | AuthUserSimpleSerializer |
 | POST | `/auth/users/` | 创建用户 | AuthUserCreateSerializer | AuthUserDetailSerializer |
 | PUT | `/auth/users/{id}/` | 更新用户 | AuthUserUpdateSerializer | AuthUserDetailSerializer |
 | DELETE | `/auth/users/{id}/` | 删除用户 | - | - |
@@ -322,3 +322,4 @@ ws://api.example.com/ws/notifications/
 | V2.3 | 2026-07-08 | 新增部门/员工/认证端点 |
 | V2.4 | 2026-07-08 | 补充AssetType/Storage/Contract端点；关联序列化器 |
 | V2.5 | 2026-07-09 | 新增 AssetType 全路径和树形接口；为所有核心模块增加 `/filter/` 多条件联合筛选端点；新增对应 FilterSerializer 序列化器 |
+| V2.6 | 2026-07-11 | 以实际实现路径为准更新所有API路径前缀；标注 `/simple/` 端点为暂不实现 |
