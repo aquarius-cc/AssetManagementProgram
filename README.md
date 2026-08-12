@@ -40,6 +40,7 @@ AssetManagementProgram/
 │   ├── apps/                     # 业务应用
 │   │   ├── assetmanagement/      # 资产核心模块
 │   │   ├── authusermanagement/   # 认证授权模块
+│   │   ├── notification/         # 通知服务模块（HTTP + WebSocket）
 │   │   ├── usermanagement/       # 用户管理模块
 │   │   └── unregisteredasset/    # 未登记资产模块
 │   ├── core/                     # 公共基类和工具
@@ -59,7 +60,7 @@ AssetManagementProgram/
 │   │   └── types/                # TypeScript 类型定义
 │   └── package.json
 │
-├── Tolaria_Fiels/                # 项目规范文档
+├── Rules_Fiels/                 # 项目规范文档
 ├── AGENTS.md                     # AI 执行引擎配置
 └── README.md                     # 本文件
 ```
@@ -126,7 +127,7 @@ npm run dev
 | 文档 | 说明 |
 |------|------|
 | [01-需求规格说明书.md](Project_Requirements/01-业务需求/01-需求规格说明书.md) | 项目概览、架构、RBAC 权限、功能模块清单 |
-| [07-功能需求与验收标准.md](Project_Requirements/01-业务需求/07-功能需求与验收标准.md) | 17 模块 84 条 Given/When/Then 验收条件 |
+| [07-功能需求与验收标准.md](Project_Requirements/01-业务需求/07-功能需求与验收标准.md) | 15 模块 84 条 Given/When/Then 验收条件 |
 | [08-前端页面与交互设计.md](Project_Requirements/01-业务需求/08-前端页面与交互设计.md) | 页面路由、交互规范、组件规范 |
 | [09-数据导入导出规范.md](Project_Requirements/01-业务需求/09-数据导入导出规范.md) | 导入模板、导出规则、脱敏策略 |
 | [10-用户培训手册.md](Project_Requirements/01-业务需求/10-用户培训手册.md) | 各角色操作指南、FAQ |
@@ -199,15 +200,31 @@ Model → Serializer → Service → Selector → View
 ### 状态流转（资产）
 
 ```
-in_store ──outasset──→ in_use ──recycle──→ recycled_pending
-    │                    │                    │
-    └──broken/lost───────┴──broken/lost───────┘
-              │
-              ▼
-           damaged ──approve──→ scrapped
-              │
-              └──reject──→ broken/lost
+                              ┌─────────────────────────────────────┐
+                              │                                     │
+in_store ──outasset──→ in_use ──recycle──→ recycled_pending        │
+    │                    │                    │                     │
+    │ mark_broken        │ mark_broken        │ mark_broken         │
+    │ mark_lost          │ mark_lost          │ mark_lost           │
+    ▼                    ▼                    ▼                     │
+ broken/lost         broken/lost          broken/lost              │
+    │                    │                    │                     │
+    │ repair             │                    │                     │
+    ▼                    │                    │                     │
+ repairing ──repair_done──┘                    │                     │
+    │                                         │                     │
+    │ repair_failed                           │                     │
+    └─────────────────────────────────────────┘                     │
+              │                                                    │
+              ▼                                                    │
+           damaged ──approve──→ scrapped                           │
+              │                                                    │
+              └──reject──→ broken/lost ────────────────────────────┘
+
+找回: lost ──found_and_return──→ recycled_pending（重新进入发放池）
 ```
+
+> 语义约定：维修完成/找回的资产（已使用过）回到 `recycled_pending` 待发放池；`in_store` 仅表示首次入库的新资产。
 
 ---
 
