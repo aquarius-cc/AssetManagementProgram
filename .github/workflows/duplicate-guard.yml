@@ -1,0 +1,16 @@
+name: Duplicate Code Regression Guard
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  duplicate-guard:
+    name: "重复代码回归护栏"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 运行重复代码回归护栏
+        run: python scripts/check_duplicate_invariants.py
