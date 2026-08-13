@@ -1,0 +1,6 @@
+[submodule "asset_management_backend"]
+	path = asset_management_backend
+	url = https://github.com/aquarius-cc/asset_management_backend.git
+[submodule "vue-assetmanagement"]
+	path = vue-assetmanagement
+	url = https://github.com/aquarius-cc/vue-assetmanagement.git
