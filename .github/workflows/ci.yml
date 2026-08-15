@@ -217,9 +217,9 @@ jobs:
           cache-dependency-path: vue-assetmanagement/package-lock.json
       - run: npm ci
       - name: 整体覆盖率检查（红线 80%）
-        run: npx vitest run --coverage --threshold 80
+        run: npx vitest run --coverage --coverage.threshold=80
       - name: 核心 Store 层覆盖率专项检查（红线 90%）
-        run: npx vitest run --coverage --coverage.include="src/stores/**/*.ts"
+        run: npx vitest run --coverage --coverage.include="src/stores/**/*.ts" --coverage.threshold=90
       - name: 上传覆盖率报告
         if: always()
         uses: actions/upload-artifact@v4
@@ -258,7 +258,7 @@ jobs:
           echo "Backend Test: ${{ needs.backend-test.result }}"
           echo "Backend Mutation: ${{ needs.backend-mutation.result }}"
           echo "Frontend Test: ${{ needs.frontend-test.result }}"
-          echo "Frontend Mutation: ${{ needs.frontmutation.result }}"
+          echo "Frontend Mutation: ${{ needs.frontend-mutation.result }}"
           if [ "${{ needs.backend-test.result }}" != "success" ] || \
              [ "${{ needs.frontend-test.result }}" != "success" ]; then
             echo "CI 检查未通过，阻止合并"
