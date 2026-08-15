@@ -1,7 +1,7 @@
 # 资产管理系统后端API接口规范
 
-**版本：V2.6**
-**日期：2026-07-09**
+**版本：V2.7**
+**日期：2026-08-12**
 **状态：草案**
 
 ---
@@ -88,7 +88,7 @@
 | POST | `/assets/{recordcode}/repair-done/` | 维修完成 | RepairAssetUpdateSerializer | RepairAssetDetailSerializer |
 | POST | `/assets/{recordcode}/repair-failed/` | 维修失败 | RepairAssetUpdateSerializer | RepairAssetDetailSerializer |
 | POST | `/assets/{recordcode}/apply-scrap/` | 申请报废 | DamagedAssetCreateSerializer | DamagedAssetDetailSerializer |
-| GET | `/assets/{recordcode}/logs/` | 状态日志 | - | AssetStateLogListSerializer |
+| GET | `/assets/{recordcode}/logs/` | 状态日志 | - | AssetOperationLogListSerializer |
 | POST | `/assets/filter/` | 多条件联合筛选（支持编码、名称、规格、品牌、合同、保管人、部门、状态、使用性质、仓库等） | AssetFilterSerializer | AssetListSerializer |
 | GET | `/assets/export/` | 导出资产列表（Excel） | - | 文件流 |
 
@@ -323,3 +323,4 @@ ws://api.example.com/ws/notifications/
 | V2.4 | 2026-07-08 | 补充AssetType/Storage/Contract端点；关联序列化器 |
 | V2.5 | 2026-07-09 | 新增 AssetType 全路径和树形接口；为所有核心模块增加 `/filter/` 多条件联合筛选端点；新增对应 FilterSerializer 序列化器 |
 | V2.6 | 2026-07-11 | 以实际实现路径为准更新所有API路径前缀；标注 `/simple/` 端点为暂不实现 |
+| V2.7 | 2026-08-12 | 状态日志接口 `/assets/{recordcode}/logs/` 序列化器由 AssetStateLogListSerializer 更正为 AssetOperationLogListSerializer（与实际实现一致） |
