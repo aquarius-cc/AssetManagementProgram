@@ -1,0 +1,29 @@
+# =============================================================================
+# .gitignore - 根仓库忽略规则
+# =============================================================================
+# 治理目标：nul 重定向残留、运行时产物、生成报告、会话审计报告、
+#           graphify 产物、定时任务运行时锁一律不入库。
+# =============================================================================
+
+# Windows 重定向残留（`> nul` 在 PowerShell 下会生成名为 nul 的文件）
+nul
+
+# 运行时/日志产物
+*.log
+.coverage
+django.log
+
+# 生成的审计报告产物（停止跟踪，本地保留）
+project-audit-report/
+project-audit-v3/
+document-review-report/
+.trae-html-share-packages/
+
+# 会话审计报告
+docs/compose/reports/
+
+# graphify 生成产物
+docs/knowledge-graph.html
+
+# 定时任务运行时锁
+.mimocode/.cron-lock
