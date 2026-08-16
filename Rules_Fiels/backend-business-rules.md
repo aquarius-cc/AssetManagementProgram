@@ -5,7 +5,7 @@
 
 # 后端业务规范与设计思路 (Backend Business Rules)
 > 版本：v1.8 | 最后更新：2026-07-21
-> 适用范围：Django 6.0 + DRF 3.16 + MySQL 8.0
+> 适用范围：Django 6.0 + DRF 3.16 + PostgreSQL 16
 
 ## 一、设计思路（防腐与一致性）
 

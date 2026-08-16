@@ -41,7 +41,7 @@
 | 请求量 | QPS、总请求数 | Prometheus |
 | 响应时间 | P50/P90/P95/P99 | Prometheus |
 | 错误率 | 4xx/5xx 比例 | Prometheus |
-| 数据库 | 连接数、慢查询数、锁等待 | MySQL metrics |
+| 数据库 | 连接数、慢查询数、锁等待 | PostgreSQL metrics |
 | 业务 | 出库/回收/报废操作量 | 自定义指标 |
 
 ### 3.2 告警通知渠道
@@ -103,8 +103,8 @@ groups:
 ### 4.1 API 响应时间劣化
 
 ```
-1. 检查是否有慢查询 → SHOW PROCESSLIST
-2. 检查数据库连接数 → SHOW STATUS LIKE 'Threads_connected'
+1. 检查是否有慢查询 → SELECT pid, state, query FROM pg_stat_activity WHERE state = 'active';
+2. 检查数据库连接数 → SELECT numbackends FROM pg_stat_database;
 3. 检查是否有大批量操作 → 查看最近的批量导入/导出任务
 4. 检查 Redis 是否正常 → redis-cli ping
 5. 如无法定位 → 扩容应用实例 / 重启服务
@@ -113,10 +113,10 @@ groups:
 ### 4.2 数据库连接池耗尽
 
 ```
-1. 检查是否有长事务 → SELECT * FROM information_schema.innodb_trx
-2. 检查是否有锁等待 → SHOW ENGINE INNODB STATUS
+1. 检查是否有长事务 → SELECT pid, now() - xact_start AS duration FROM pg_stat_activity WHERE state = 'active';
+2. 检查是否有锁等待 → SELECT * FROM pg_locks WHERE NOT granted;
 3. 检查应用是否有连接泄漏 → 监控连接数变化趋势
-4. 紧急处理 → KILL 长事务 / 重启应用
+4. 紧急处理 → SELECT pg_terminate_backend(pid); / 重启应用
 ```
 
 ### 4.3 服务健康检查失败

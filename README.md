@@ -26,7 +26,7 @@
 | **前端构建** | Vite + TypeScript | Vite 8.0+ / TypeScript 6.0+ |
 | **状态管理** | Pinia | 3.0+ |
 | **后端框架** | Django REST Framework | Django 6.0 / DRF 3.16 |
-| **数据库** | MySQL | 8.0+ |
+| **数据库** | PostgreSQL | 16+ |
 | **认证** | JWT (SimpleJWT) | - |
 | **API文档** | drf-spectacular | - |
 
@@ -71,7 +71,7 @@ AssetManagementProgram/
 
 ### 环境要求
 
-- **后端**: Python 3.12+ / MySQL 8.0+
+- **后端**: Python 3.12+ / PostgreSQL 16+
 - **前端**: Node.js 20.19+ 或 22.12+ / npm 或 pnpm
 
 ### 后端启动
