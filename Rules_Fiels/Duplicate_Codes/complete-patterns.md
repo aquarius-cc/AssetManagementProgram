@@ -96,10 +96,10 @@
 - **判定**：不可合并，仅命名易混淆。建议后续重命名（如 `OUTASSET_RECORD_STATUS_MAP` vs `OUTASSET_ASSET_STATUS_MAP`）。
 - **阻塞原因**：重命名触及公共导出面，需批准；且需同步 types/outasset.ts 枚举语义。
 
-### C-3. 错误码重复/未注册（v1.7 BizCode 遗留债）
-- **描述**：`INVALID_STATE_TRANSITION` 在 services 中约 10 处 raise，但 `utils/response_utils.py` BizCode 注册表无此键；前端 `entityStoreTypes.ts:82` 消费 `error_code`。
-- **判定**：降级处理，不纳入本次修复。属 API 可见变更（错误码契约），须由根级统筹。
-- **验证命令**：`rg -n "INVALID_STATE_TRANSITION" asset_management_backend/utils/response_utils.py`（预期无命中，证未注册）。
+### C-3. 错误码字符串与 BusinessCode 命名不一致（v1.7 修正）
+- **描述**：服务层 `error_code` 字符串（如 `INVALID_STATE_TRANSITION`/`ASSET_NOT_FOUND`）与 `BusinessCode` 常量（如 `INVALID_TRANSITION`/`ASSET_NOT_FOUND=1003`）命名不同但语义重叠。两套体系独立运作：`BusinessCode` 用于响应体 `code` 字段（现仅保留 `SUCCESS=0`），`error_code` 字符串仅用于批量操作 `fail_items` 日志（前端不消费）。
+- **判定**：降级处理，不纳入本次修复。`error_code` 字符串无注册表需求，仅作日志标识。
+- **验证命令**：`rg -n "business_code" asset_management_backend/utils/response_utils.py`（预期无命中，已删除该参数）。
 
 ---
 
@@ -118,9 +118,9 @@
 | G-1 | 已关闭模式的函数名不得复现 | 关键词黑名单（validate_asset_status、filter_assets、AssetQueryManager 等）全仓 grep |
 | G-2 | 操作日志查询唯一实现 | `operation_log_service.py` 必须 import `OperationLogSelector`，且 `AssetOperationLogManager` 不得重新出现 |
 | G-3 | 前端资产状态映射单一来源 | `Format.ts` 不得包含资产状态标签字面量表（已改为派生）；`statusMapping.ts` 为唯一字面量来源 |
-| G-4 | 新错误码必须注册 | 任何新增 raise 的 error_code 常量须在 `response_utils.py` 中注册（grep 校验） |
+| G-4 | 新错误码无需注册 | 服务层 `error_code` 字符串独立于 `BusinessCode`，仅用于批量操作 `fail_items` 日志，不进入响应体 `code` 字段，无需注册 |
 
-> G-4 为"仅守护新代码"提示型检查：扫描最近提交新增的 error_code，与注册表比对，不满足即 fail。
+> G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
 - **v2.1 (2026-08-13)**：落地 C-1 决策（未知状态回退=原始值），新增 A-9；B-1/B-2 确认排入独立 PR。

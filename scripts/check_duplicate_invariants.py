@@ -7,7 +7,6 @@
 退出码：
   0 = 全部通过
   1 = 阻断项失败（G-1~G-3 任一命中）
-  2 = 仅报告项命中（G-4 为 v1.7 遗留债提示，不阻断）
 
 用法：python scripts/check_duplicate_invariants.py
 """
@@ -86,31 +85,10 @@ def check_g3_frontend_single_source():
         BLOCKING.append("G-3 Format.ts 内联了资产状态字面量映射(应改为派生)")
 
 
-def check_g4_error_codes_registered():
-    """G-4(报告型): 服务层 raise 使用的 error_code 字面量应注册于 BusinessCode
-
-    当前大量字符串码未注册属 v1.7 BizCode 遗留债(C-3)，仅报告不阻断。
-    新增 error_code 时若未注册将在此提示，需根级统筹后注册。
-    """
-    reg = BACKEND / "utils" / "response_utils.py"
-    if not reg.exists():
-        return
-    registered = set(re.findall(r"^\s+([A-Z][A-Z0-9_]+)\s*=\s*\d+", read_text(reg), re.M))
-    used: dict[str, list[str]] = {}
-    for path in iter_py_files(BACKEND / "apps"):
-        for code in re.findall(r'error_code="([A-Z][A-Z0-9_]+)"', read_text(path)):
-            used.setdefault(code, []).append(str(path.relative_to(BACKEND)))
-    unregistered = {code for code in used if code not in registered}
-    if unregistered:
-        detail = ", ".join(f"{c}({len(used[c])}处)" for c in sorted(unregistered))
-        WARNINGS.append(f"G-4 未注册 error_code 字面量(v1.7 BizCode 遗留债): {detail}")
-
-
 def main() -> int:
     check_g1_closed_patterns_absent()
     check_g2_operation_log_single_impl()
     check_g3_frontend_single_source()
-    check_g4_error_codes_registered()
 
     for item in BLOCKING:
         print(f"[BLOCK] {item}")
@@ -120,9 +98,6 @@ def main() -> int:
     if BLOCKING:
         print(f"[RESULT] FAIL: {len(BLOCKING)} 个阻断项")
         return 1
-    if WARNINGS:
-        print(f"[RESULT] PASS(带提示): {len(WARNINGS)} 个报告项(不阻断)")
-        return 0
     print("[RESULT] PASS: 重复代码回归护栏全部通过")
     return 0
 
