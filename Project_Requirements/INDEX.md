@@ -1,6 +1,6 @@
 # 资产管理系统 — 文档总览索引
 
-> 版本：V2.3 | 最后更新：2026-07-13
+> 版本：V2.4 | 最后更新：2026-08-19
 > 本文档是项目全部文档的唯一入口索引，按类别组织，提供快速定位链接。
 
 ---
@@ -78,7 +78,7 @@ Project_Requirements/
 
 | 文件 | 版本 | 核心内容 | 适用读者 |
 |:---|:---:|:---|:---|
-| [backend-business-rules.md](../Rules_Fiels/backend-business-rules.md) | v1.3 | 后端业务规范 B1-B10、状态转换规则表、代码复用与量化规范 BR-1~BR-7 | 后端开发 |
+| [backend-business-rules.md](../Rules_Fiels/backend-business-rules.md) | v1.8 | 后端业务规范 B1-B10、状态转换规则表、代码复用与量化规范 BR-1~BR-7 | 后端开发 |
 | [backend-testing-rules.md](../Rules_Fiels/backend-testing-rules.md) | v1.3 | 后端测试规范 T1-T8、变异测试（覆盖 4 个 App）、迁移验证三步法、覆盖率命令汇总 | 后端开发、测试 |
 | [frontend-business-rules.md](../Rules_Fiels/frontend-business-rules.md) | v1.2 | 前端设计令牌 F1-F15、暗色模式、代码复用与量化规范 FR-1~FR-7 | 前端开发 |
 | [frontend-testing-rules.md](../Rules_Fiels/frontend-testing-rules.md) | v1.5 | 前端测试规范 T9-T17（含代码质量三项检查）、Store 层覆盖、Vitest 变异测试（禁止 Stryker） | 前端开发、测试 |
@@ -89,7 +89,7 @@ Project_Requirements/
 
 | 文件 | 版本 | 核心内容 |
 |:---|:---:|:---|
-| [AGENTS.md](../AGENTS.md) | v3.4.1 | 根级配置：跨端契约、宪法级规则（CT/DR/SC/OC/AR）、AI交互与写作规范（Fact/Style）、审计票制度 |
+| [AGENTS.md](../AGENTS.md) | v3.5.0 | 根级配置：跨端契约、宪法级规则（CT/DR/SC/OC/AR）、AI交互与写作规范（Fact/Style）、审计票制度 |
 | [asset_management_backend/AGENTS.md](../asset_management_backend/AGENTS.md) | v9.2.1 | 后端子引擎：五层架构、复杂度门禁（ruff C90）、测试门禁（pytest + mutmut）、审计票同步根级 |
 | [vue-assetmanagement/AGENTS.md](../vue-assetmanagement/AGENTS.md) | v9.5.1 | 前端子引擎：技术栈硬约束、设计令牌、Vitest 变异测试（T9-T17，禁止 Stryker）、审计票同步根级 |
 
@@ -201,6 +201,6 @@ Project_Requirements/
 | 技术设计 | 7 | 已完成（09 数据字典覆盖 17 张表） |
 | 安全与运维 | 5 | 已完成（含 Prometheus/Grafana 配置） |
 | 开发规范 | 4 | 已完成（变异测试覆盖 4 个 App） |
-| AI 引擎配置 | 3 | 已完成（v3.4.1/v9.2.1/v9.5.1，含 AI 交互与写作规范） |
+| AI 引擎配置 | 3 | 已完成（v3.5.0/v9.2.1/v9.5.1，含 AI 交互与写作规范） |
 | 总览索引 | 1 | 本文件 |
 | **合计** | **25** | **全部就绪** |
