@@ -27,3 +27,8 @@ docs/knowledge-graph.html
 
 # 定时任务运行时锁
 .mimocode/.cron-lock
+
+# 环境变量文件（含数据库密码、密钥等敏感信息）
+.env
+.env.local
+.env.*.local
