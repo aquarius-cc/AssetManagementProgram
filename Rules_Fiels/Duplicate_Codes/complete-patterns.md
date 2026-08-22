@@ -122,8 +122,14 @@
 - **证据**：`EmployeeService.batch_create_employee` 将 validated_data 原样放入 fail_items[].input_data；当条目含 employee_department_code 时 validated_data 中 employee_department 为 Department 模型对象，DRF JSON 渲染抛 `TypeError: Object of type Department is not JSON serializable` → 500。
 - **位置**：apps/usermanagement/services/employee_service.py:289-342（input_data 组装处）。
 - **修复建议**：input_data 改存原始请求 dict（serializer.initial_data）或对模型对象做序列化降级；需人工确认后单独 PR。
-- **优先级**：高（用户可触发的 500）。**状态**：待决策。
-- **验证命令**：构造含重复工号+合法部门编码的 batch-create 请求观察 500。
+- **优先级**：高（用户可触发的 500）。**状态**：✅ 已关闭（2026-08-24，commits 8403b10/bb5c785）。
+  采用 BatchResponseHelper.create_response 新增 request_items 参数方案：失败条目 input_data 以
+  serializer.initial_data 按 index 回写（键名/值与用户提交逐字一致，天然可序列化）。
+  受影响 4 端点（employees/assets/out-assets/recycle-assets batch-create）全部接入；
+  排查确认 departments/lifecycle/contract/asset_type/storage 无 SlugRelatedField 不受影响。
+  遗留：unregisteredasset 的 CREATE_FAILED 变体另行登记治理。
+- **验证命令**：`python -m pytest apps/assetmanagement/tests/test_batch_contract_snapshot.py -q`
+  （含 B-8 回归屏障用例：移除 request_items 传参即精确复现修复前 500）
 
 ---
 
