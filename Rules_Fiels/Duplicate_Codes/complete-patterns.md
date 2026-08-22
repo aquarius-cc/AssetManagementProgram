@@ -86,36 +86,36 @@
 - **判定**：克隆（batch_delete/batch_create/by_asset/get_queryset/get_serializer_class/get_permissions 90% 同构）。
 - **位置**：`apps/assetmanagement/views/asset_lifecycle_view.py`（338 行，三 ViewSet 各 ~105 行）。
 - **修复建议**：提取 `AssetLifecycleViewSetBase` 基类，子类声明化（batch_create 按方案 A 留在子类）。
-- **优先级**：高。**排期**：DR-1 治理 Commit 5。
-- **验证命令**：`python -m pytest apps/assetmanagement/tests/test_batch_contract_snapshot.py apps/assetmanagement/tests/test_lifecycle_view_api.py -q`
+- **状态**：✅ 已关闭（2026-08-24，commit 0259664）。asset_lifecycle_view.py 338→127 行 + 基类 _lifecycle_base.py 145 行；batch_create 按方案 A 留在 Broken/Lost 子类。
+- **验证命令**：`python -m pytest apps/assetmanagement/tests/test_lifecycle_view_api.py apps/assetmanagement/tests/test_batch_contract_snapshot.py -q`（48+ 用例锁定契约）
 
 ### B-4. MAX_BATCH_SIZE=100 重复定义（31 处/17 文件）
 - **判定**：常量重复（另有 core/batch_mixins.py DEFAULT_MAX_BATCH_SIZE=100 存量定义）。
 - **位置**：apps/assetmanagement/serializers/*、apps/usermanagement/services/employee_service.py、department_service.py 等。
 - **修复建议**：收敛至 core/constants.py::MAX_BATCH_SIZE；序列化器 validate 方法体去重列为后续独立提交。
-- **优先级**：高（机械替换，零行为风险）。**排期**：DR-1 治理 Commit 1。
-- **验证命令**：`rg -c "MAX_BATCH_SIZE = 100" --glob "*.py" | grep -v constants`（预期仅 batch_mixins fallback 残留）
+- **状态**：✅ 已关闭（2026-08-24，commit 550a9af）。常量收敛至 core/constants.py；batch_mixins fallback 改为常量引用；字面量残留 0 处。序列化器 validate 方法体去重列为后续独立提交。
+- **验证命令**：`rg -n "MAX_BATCH_SIZE = 100" --glob "*.py" asset_management_backend`（预期无命中）
 
 ### B-5. batch-result dict 手写组装（Service 层 10+ / View 层 10+）
 - **判定**：克隆（循环 + try/except AppValidationError 取 error_code + 兜底 INTERNAL_ERROR + 结果 dict 组装）。
 - **位置**：employee_service.py:289-342 等；View 层 batch_create/batch_delete action 二次搬运。
 - **修复建议**：复用既有 core/batch_mixins.py::batch_execute/batch_delete_execute；View 层新增 BatchResponseHelper（message 必须由调用方显式传入，禁止默认兜底文案）。
-- **优先级**：高。**排期**：DR-1 治理 Commit 3/4/6。
-- **验证命令**：`python -m pytest apps/assetmanagement/tests/test_batch_contract_snapshot.py apps/usermanagement/tests/test_department_service.py apps/usermanagement/tests/test_employee_view_api.py -q`
+- **状态**：🔶 部分关闭（2026-08-24，commits 4350df5/d0a78dc/3b72847）。Service 层(employee/department)与 View 层(employee/department/lifecycle)已收敛；未迁移：asset_type(逐条序列化推导式)、damaged/out/recycle/repair/waste/contract/storage/unregistered View(形态需逐个 diff)。
+- **验证命令**：`python -m pytest apps -q`（848 全绿）
 
 ### B-6. employee_service / department_service 批量方法镜像结构
 - **判定**：克隆（batch_create_*/batch_delete_* 循环骨架逐行同构，仅模型与单条方法名不同）。
 - **位置**：apps/usermanagement/services/employee_service.py vs department_service.py。
 - **修复建议**：随 B-5 迁移至 batch_execute 自动解决，不额外抽泛型实体函数（避免 mypy 类型推断退化）。
-- **优先级**：高。**排期**：随 B-5。
+- **状态**：✅ 已关闭（随 B-5，commit d0a78dc）。循环框架已收敛至 batch_execute，两 Service 仅剩声明式闭包差异。
 - **验证命令**：同 B-5。
 
 ### B-7. throttles.py 登录用户名提取逻辑三重复制
 - **判定**：克隆（LoginRateThrottle.get_cache_key 与 LoginLockoutThrottle._get_username/get_cache_key 完全相同，含相同 silent except）。
 - **位置**：core/throttles.py。
 - **修复建议**：提取模块级 `_extract_login_username(request, owner)`；**日志前缀按类名保留原文**（LoginRateThrottle/LoginLockoutThrottle 各自文案不变）。
-- **优先级**：中。**排期**：DR-1 治理 Commit 2。
-- **验证命令**：`rg -n "无法读取请求数据" core/throttles.py`（重构后仍应存在且前缀区分）
+- **状态**：✅ 已关闭（2026-08-24，commit 76b0180）。提取模块级 _extract_login_username(request, owner)，日志前缀按类名保留原文。
+- **验证命令**：`rg -n "无法读取请求数据" core/throttles.py`
 
 ### B-8. 【新发现】员工批量创建失败条目携带部门时响应 500
 - **判定**：存量缺陷（非重复代码，但由 B-5 快照测试暴露）。
