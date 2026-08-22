@@ -100,8 +100,15 @@
 - **判定**：克隆（循环 + try/except AppValidationError 取 error_code + 兜底 INTERNAL_ERROR + 结果 dict 组装）。
 - **位置**：employee_service.py:289-342 等；View 层 batch_create/batch_delete action 二次搬运。
 - **修复建议**：复用既有 core/batch_mixins.py::batch_execute/batch_delete_execute；View 层新增 BatchResponseHelper（message 必须由调用方显式传入，禁止默认兜底文案）。
-- **状态**：🔶 部分关闭（2026-08-24，commits 4350df5/d0a78dc/3b72847）。Service 层(employee/department)与 View 层(employee/department/lifecycle)已收敛；未迁移：asset_type(逐条序列化推导式)、damaged/out/recycle/repair/waste/contract/storage/unregistered View(形态需逐个 diff)。
-- **验证命令**：`python -m pytest apps -q`（848 全绿）
+- **状态**：✅ 已关闭（2026-08-24，commits e85b6cf/90adf24/d7d2351，第二阶段收编剩余 10 处）。
+  - damaged/waste：View 手写循环下沉至 Service.batch_delete_*（错误码透传修正漂移，
+    前端证据 b5-frontend-error-code-search.md）
+  - asset_type/contract/storage/out_asset/recycle batch_delete → delete_response
+  - asset_type batch_create 逐条推导式 → create_response（many=True 等价性实证锁定）
+  - unregistered：CREATE_FAILED 单码制消灭（三层异常分层）、MAX_BATCH_SIZE 常量化、
+    组装迁移 delete_response；**400 超限契约按原样保留**
+  - 例外保留：repair_asset 静态 message"批量删除完成"；unregistered 400 超限契约
+- **验证命令**：`python -m pytest apps -q`（864 全绿）+ 基线快照 test_b5_baseline_snapshot.py
 
 ### B-6. employee_service / department_service 批量方法镜像结构
 - **判定**：克隆（batch_create_*/batch_delete_* 循环骨架逐行同构，仅模型与单条方法名不同）。
