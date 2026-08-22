@@ -133,6 +133,17 @@
 
 ---
 
+### B-10. 【新发现】unregistered batch-create 早退分支误用 error_response 参数致 500
+- **判定**：存量缺陷（2026-08-24 B-5 基线快照测试暴露）。
+- **证据**：`error_response()` 签名为 (message, errors, status_code)，无 data 参数；
+  空 items 与超限两分支调用 `error_response(data={"message": ...})` 抛 TypeError，
+  被全局异常兜底转为 500（代码意图为 400）。
+- **位置**：apps/unregisteredasset/views.py L243、L245-247。
+- **修复**：commit d784848 改为正确 message= 传参，恢复 400 契约；基线快照锁定。
+- **状态**：✅ 已关闭。
+
+---
+
 ## C — 降级/待决策（Downgraded / Decision Gate）
 
 ### C-1. 前端资产状态回退行为三态分歧（已解决）
