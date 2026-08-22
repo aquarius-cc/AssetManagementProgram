@@ -82,6 +82,49 @@
 - **优先级**：低。**未执行**。
 - **排期（2026-08-13 用户确认）**：纳入独立 PR 实施。
 
+### B-3. asset_lifecycle_view.py 三重复制 ViewSet（Broken/Lost/Found）
+- **判定**：克隆（batch_delete/batch_create/by_asset/get_queryset/get_serializer_class/get_permissions 90% 同构）。
+- **位置**：`apps/assetmanagement/views/asset_lifecycle_view.py`（338 行，三 ViewSet 各 ~105 行）。
+- **修复建议**：提取 `AssetLifecycleViewSetBase` 基类，子类声明化（batch_create 按方案 A 留在子类）。
+- **优先级**：高。**排期**：DR-1 治理 Commit 5。
+- **验证命令**：`python -m pytest apps/assetmanagement/tests/test_batch_contract_snapshot.py apps/assetmanagement/tests/test_lifecycle_view_api.py -q`
+
+### B-4. MAX_BATCH_SIZE=100 重复定义（31 处/17 文件）
+- **判定**：常量重复（另有 core/batch_mixins.py DEFAULT_MAX_BATCH_SIZE=100 存量定义）。
+- **位置**：apps/assetmanagement/serializers/*、apps/usermanagement/services/employee_service.py、department_service.py 等。
+- **修复建议**：收敛至 core/constants.py::MAX_BATCH_SIZE；序列化器 validate 方法体去重列为后续独立提交。
+- **优先级**：高（机械替换，零行为风险）。**排期**：DR-1 治理 Commit 1。
+- **验证命令**：`rg -c "MAX_BATCH_SIZE = 100" --glob "*.py" | grep -v constants`（预期仅 batch_mixins fallback 残留）
+
+### B-5. batch-result dict 手写组装（Service 层 10+ / View 层 10+）
+- **判定**：克隆（循环 + try/except AppValidationError 取 error_code + 兜底 INTERNAL_ERROR + 结果 dict 组装）。
+- **位置**：employee_service.py:289-342 等；View 层 batch_create/batch_delete action 二次搬运。
+- **修复建议**：复用既有 core/batch_mixins.py::batch_execute/batch_delete_execute；View 层新增 BatchResponseHelper（message 必须由调用方显式传入，禁止默认兜底文案）。
+- **优先级**：高。**排期**：DR-1 治理 Commit 3/4/6。
+- **验证命令**：`python -m pytest apps/assetmanagement/tests/test_batch_contract_snapshot.py apps/usermanagement/tests/test_department_service.py apps/usermanagement/tests/test_employee_view_api.py -q`
+
+### B-6. employee_service / department_service 批量方法镜像结构
+- **判定**：克隆（batch_create_*/batch_delete_* 循环骨架逐行同构，仅模型与单条方法名不同）。
+- **位置**：apps/usermanagement/services/employee_service.py vs department_service.py。
+- **修复建议**：随 B-5 迁移至 batch_execute 自动解决，不额外抽泛型实体函数（避免 mypy 类型推断退化）。
+- **优先级**：高。**排期**：随 B-5。
+- **验证命令**：同 B-5。
+
+### B-7. throttles.py 登录用户名提取逻辑三重复制
+- **判定**：克隆（LoginRateThrottle.get_cache_key 与 LoginLockoutThrottle._get_username/get_cache_key 完全相同，含相同 silent except）。
+- **位置**：core/throttles.py。
+- **修复建议**：提取模块级 `_extract_login_username(request, owner)`；**日志前缀按类名保留原文**（LoginRateThrottle/LoginLockoutThrottle 各自文案不变）。
+- **优先级**：中。**排期**：DR-1 治理 Commit 2。
+- **验证命令**：`rg -n "无法读取请求数据" core/throttles.py`（重构后仍应存在且前缀区分）
+
+### B-8. 【新发现】员工批量创建失败条目携带部门时响应 500
+- **判定**：存量缺陷（非重复代码，但由 B-5 快照测试暴露）。
+- **证据**：`EmployeeService.batch_create_employee` 将 validated_data 原样放入 fail_items[].input_data；当条目含 employee_department_code 时 validated_data 中 employee_department 为 Department 模型对象，DRF JSON 渲染抛 `TypeError: Object of type Department is not JSON serializable` → 500。
+- **位置**：apps/usermanagement/services/employee_service.py:289-342（input_data 组装处）。
+- **修复建议**：input_data 改存原始请求 dict（serializer.initial_data）或对模型对象做序列化降级；需人工确认后单独 PR。
+- **优先级**：高（用户可触发的 500）。**状态**：待决策。
+- **验证命令**：构造含重复工号+合法部门编码的 batch-create 请求观察 500。
+
 ---
 
 ## C — 降级/待决策（Downgraded / Decision Gate）
