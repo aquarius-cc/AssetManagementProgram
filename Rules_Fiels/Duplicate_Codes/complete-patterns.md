@@ -63,6 +63,43 @@
   - `Format.spec.ts` 同步断言（CT-4）。
 - **验证命令**：`npx vitest run src/utils/__tests__/Format.spec.ts`、`npm run type-check`。
 
+### A-10. Selector 死方法簇×7 + 专属测试（F-6）
+- **状态**：✅ 已关闭 | 关闭日期：2026-08-24 | commit b5091d5
+- **修复内容**：删除 `out_asset_selector.py` 5 个死方法 + `recycle_asset_selector.py` 2 个死方法 + 对应 5 个专属测试方法。净减 102 行。
+- **验证命令**：`ruff check apps/assetmanagement/selectors/` + `pytest apps/assetmanagement/tests/ -q`
+
+### A-11. dashboard STATUS_LABELS 硬编码字典（F-3）
+- **状态**：✅ 已关闭 | 关闭日期：2026-08-24 | commit 9b15833
+- **修复内容**：`dashboard_selector.py` 中 `STATUS_LABELS` 硬编码 dict 替换为 `Asset.ASSET_STATUS_CHOICES`（验证 14 项完全匹配，零填充语义保持）。净减 10 行。
+- **验证命令**：`ruff check apps/assetmanagement/selectors/dashboard_selector.py`
+
+### A-12. 审计适配器 exc_info 漂移（F-2 附带）
+- **状态**：✅ 已关闭 | 关闭日期：2026-08-24 | commit a7fb4ca
+- **修复内容**：department adapter 3 处 + role adapter 3 处 `exc_info=True` 漂移修复（原 exc_info 条件分支在 `except Exception` 之后，永远不会执行）。合并入 F-2 safe_audit_log 提交。
+- **验证命令**：`ruff check apps/usermanagement/audit_adapter.py apps/usermanagement/role_audit_adapter.py`
+
+### A-13. 手写批量创建循环×3 → batch_execute（F-1）
+- **状态**：✅ 已关闭 | 关闭日期：2026-08-24 | commit 7439ed7
+- **修复内容**：`storage_service.batch_create_storage`、`contract_service.batch_create_contract`、`asset_type_service.batch_create_asset_type` 三处手写循环收敛至 `BatchOperationMixin.batch_execute`。净减 81 行。
+- **行为等价**：deepcopy 保留在闭包内，error_code BATCH_SIZE_EXCEEDED 不变，新增 `_normalize_input_data` 防御（B-8）。
+- **例外**：F-5（unregisteredasset batch_create）因 7 处行为差异暂不收敛，已登记 D-1。
+- **验证命令**：`pytest apps/assetmanagement/tests/ -q`
+
+### A-14. exception_handler IntegrityError + View try/except 清理（F-7）
+- **状态**：✅ 已关闭 | 关闭日期：2026-08-24 | commit 0aa99f9
+- **修复内容**：
+  - `core/exception_handler.py` 新增 `IntegrityError → 400` 映射（unique/foreign_key/not_null/check），消除 IntegrityError 暴露为 500。
+  - `views.py` 删除 3 处冗余 `try/except AppValidationError`（DRF handler 已转为 400）+ 1 处残留 debug `print`。
+  - 保留 13 处有 `except Exception` fallback 的块（删除会变 500）+ 19 处 DoesNotExist/ValueError 块。
+- **净变化**：+13 行（exception_handler）-17 行（views.py）
+- **验证命令**：`mypy . --config-file pyproject.toml` + `ruff check core/exception_handler.py apps/assetmanagement/views.py`
+
+### A-15. BatchDeleteValidationMixin 收敛 validate_ids×11（F-4）
+- **状态**：✅ 已关闭 | 关闭日期：2026-08-24 | commit 2022814
+- **修复内容**：新增 `core/batch_mixins.py::BatchDeleteValidationMixin`，替换 11 个 BatchDeleteSerializer 中完全相同的 `validate_ids`。净减 47 行。
+- **validate_items 不收敛**：每个模块唯一性字段不同（contract_code/storage_code/type_code/asset_code/employee_jobcode/department_code），不适合统一 mixin。
+- **验证命令**：`mypy . --config-file pyproject.toml` + `pytest apps/ -q`
+
 ---
 
 ## B — 待修复（To Fix）
@@ -71,9 +108,8 @@
 - **判定**：克隆（结构同构：try/except + GenericAuditService 委托 + record_code/app_label/description 模式），差异仅为模型字段与 app_label；Employee 版多一个 `log_state_change`。
 - **位置**：`apps/usermanagement/audit_adapter.py` vs `apps/usermanagement/employee_audit_adapter.py`（log_create/log_update/log_delete 三方法同构）。
 - **修复建议**：抽公共基类 `BaseAuditAdapter`（参数化 app_label/实体名/快照字段），约省 150 行。
-- **优先级**：低（两适配器均小于 DR-5 上限，无行为差异风险）。**未执行**，留待独立 PR。
-- **排期（2026-08-13 用户确认）**：纳入独立 PR 实施。
-- **验证命令**：对比两文件方法体（已人工核验，2026-08-13）。
+- **状态**：✅ 已关闭（2026-08-24，commit a7fb4ca）。提取 `safe_audit_log()` 辅助函数，3 个适配器（department/employee/role）全部收敛；修复 exc_info 漂移（6 处）。净减 29 行。
+- **验证命令**：`ruff check apps/usermanagement/audit_adapter.py apps/usermanagement/employee_audit_adapter.py apps/usermanagement/role_audit_adapter.py apps/usermanagement/audit_helper.py`
 
 ### B-2. types/outasset.ts::outassetStatusMapping 死副本
 - **位置**：`src/types/outasset.ts:47`，与 `src/utils/Format.ts::outassetStatusMapping` 内容完全一致。
@@ -172,7 +208,18 @@
 
 ## D — 待核查（To Verify）
 
-- **当前为空**。新发现重复模式请在此登记后再决定流向（关闭/修复/降级）。
+### D-1. unregisteredasset batch_create 手写循环（F-5 暂不收敛）
+- **判定**：与 `batch_execute` 不同构，有 7 处独特行为差异：
+  1. 空列表 → 400（batch_execute 处理空列表为零计数结果）
+  2. 超限 → 400 响应（非异常，batch_execute 抛 AppValidationError）
+  3. DRF `ValidationError` → `VALIDATION_ERROR`（第三异常层级）
+  4. 无 `row_number` 键（batch_execute 添加）
+  5. 无 logger.error 日志
+  6. View 层调用（非 Service 层）
+  7. 无 deepcopy / `_normalize_input_data`
+- **位置**：`apps/unregisteredasset/views.py` L246-299
+- **决策**：强行收敛会改变 400/500 行为边界，引入回归风险。暂不收敛，后续独立 PR 按方案 A（移到 Service 层 + 逐项对齐差异）处理。
+- **登记日期**：2026-08-24
 
 ---
 
@@ -190,5 +237,6 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.2 (2026-08-24)**：关闭 F-1~F-4/F-6/F-7 共 6 项（A-10~A-15）；B-1 标记已关闭；登记 D-1（F-5 暂不收敛）。
 - **v2.1 (2026-08-13)**：落地 C-1 决策（未知状态回退=原始值），新增 A-9；B-1/B-2 确认排入独立 PR。
 - **v2.0 (2026-08-13)**：由静态清单重构为四区活账本。关闭原 A-1~F-1 全部 11 条（含证据）；登记本次 2 项修复（A-7/A-8）、2 项待修复（B-1/B-2）、3 项降级/决策门（C-1/C-2/C-3）；新增回归护栏不变量（G-1~G-4）。
