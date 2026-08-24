@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.0 | **最后更新**：2026-08-13 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.3 | **最后更新**：2026-08-24 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -221,6 +221,17 @@
 - **决策**：强行收敛会改变 400/500 行为边界，引入回归风险。暂不收敛，后续独立 PR 按方案 A（移到 Service 层 + 逐项对齐差异）处理。
 - **登记日期**：2026-08-24
 
+### D-2. init_production_data 管理命令 3 个字段名 bug（CT-4 测试发现）
+- **判定**：存量缺陷（非重复代码，但由新增测试暴露）。
+- **证据**：
+  1. `create_superuser(username=...)` → 应为 `auth_username=...`（自定义管理器参数名不匹配）
+  2. `Employee.objects.get_or_create(department="系统管理")` → `department` 字段不存在（应删除或改为其他逻辑）
+  3. `UserRole.objects.get_or_create(user=employee)` → `auth_user` FK 需要 `AuthUser` 实例，不能传 `Employee` 字符串
+- **位置**：`apps/usermanagement/management/commands/init_production_data.py`
+- **修复**：commit 2b36f8e，3 个 bug 全部修复。
+- **状态**：✅ 已关闭 | 关闭日期：2026-08-24
+- **验证命令**：`pytest apps/usermanagement/tests/test_init_production_data.py -v`（8 passed）
+
 ---
 
 ## 附：回归护栏（可验证不变量）
@@ -237,6 +248,7 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.3 (2026-08-24)**：登记 D-2（init_production_data 管理命令 3 个字段名 bug，测试发现并修复）。
 - **v2.2 (2026-08-24)**：关闭 F-1~F-4/F-6/F-7 共 6 项（A-10~A-15）；B-1 标记已关闭；登记 D-1（F-5 暂不收敛）。
 - **v2.1 (2026-08-13)**：落地 C-1 决策（未知状态回退=原始值），新增 A-9；B-1/B-2 确认排入独立 PR。
 - **v2.0 (2026-08-13)**：由静态清单重构为四区活账本。关闭原 A-1~F-1 全部 11 条（含证据）；登记本次 2 项修复（A-7/A-8）、2 项待修复（B-1/B-2）、3 项降级/决策门（C-1/C-2/C-3）；新增回归护栏不变量（G-1~G-4）。
