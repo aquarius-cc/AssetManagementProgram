@@ -100,6 +100,45 @@ jobs:
           fi
           echo "✅ 未发现硬编码密钥"
 
+      - name: 扫描文档与环境文件中的 env 式裸赋值密钥（2026-08 泄露事故补丁）
+        run: |
+          echo "=== 扫描 md/yml/env/txt 中的裸赋值密钥 ==="
+          # 背景: 真实密码曾经 docs 审查报告进入 git 历史，原扫描器不覆盖 markdown 且引号模式漏检 env 裸赋值
+          MATCHES=$(rg -n '^[\s\-*>#]{0,8}[A-Za-z_]*(PASSWORD|SECRET|TOKEN|API_KEY)[A-Za-z_]*\s*[=:]\s*["']?[A-Za-z0-9@#*_\-+/]{8,}["']?\s*$' \
+            -g '!node_modules' -g '!*.lock' -g '!venv/' -g '!dist/' -g '!*.svg' \
+            -g '*.md' -g '*.yml' -g '*.yaml' -g '*.env' -g '*.txt' -g '*.sh' . 2>/dev/null \
+            | rg -v -i 'changeme|change-me|your[-_]?(password|secret|key)|example|placeholder|请替换|占位|x{5,}|\*{3,}' || true)
+          if [ -n "$MATCHES" ]; then
+            echo "⚠️ 发现文档/环境文件中的裸赋值疑似密钥:"
+            echo "$MATCHES"
+            echo "❌ 请脱敏后重新提交；若为误报请在 PR 描述中说明"
+            exit 1
+          fi
+          echo "✅ 文档与环境文件未发现裸赋值密钥"
+
+      - name: 已轮换泄露凭据残留检查（黑名单）
+        run: |
+          echo "=== 检查历史事故凭据是否回流 ==="
+          # 2026-08-26 事故轮换的凭据指纹，禁止再次出现在仓库任何位置
+          BLACKLIST=(
+            'PostgresTerminal@8348'
+            'dev_asset_mgmt_xk9f'
+            'prod_asset_mgmt_r7t4'
+          )
+          FOUND=0
+          for item in "${BLACKLIST[@]}"; do
+            MATCHES=$(rg -n -F "$item" -g '!node_modules' -g '!dist/' . 2>/dev/null | rg -v '已脱敏|已轮换失效' || true)
+            if [ -n "$MATCHES" ]; then
+              echo "❌ 发现已轮换泄露凭据指纹回流: $item"
+              echo "$MATCHES"
+              FOUND=1
+            fi
+          done
+          if [ "$FOUND" -eq 1 ]; then
+            exit 1
+          fi
+          echo "✅ 无历史泄露凭据回流"
+
   # ==================== 周报生成 (SC-8 落地) ====================
   weekly-report:
     name: "每周安全报告"

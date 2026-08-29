@@ -87,3 +87,26 @@ jobs:
           else
             echo "✅ 未发现危险迁移操作"
           fi
+
+      - name: "步骤④ 不可逆数据迁移硬门禁 (BF-005)"
+        run: |
+          MIGRATION_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -- "*/migrations/*.py" || true)
+          if [ -z "$MIGRATION_FILES" ]; then
+            echo "✅ 未发现迁移文件变更"
+            exit 0
+          fi
+          FOUND_NOOP=0
+          for file in $MIGRATION_FILES; do
+            [ -f "$file" ] || continue
+            if grep -q "RunPython.noop" "$file" && ! grep -q "ROLLBACK_NOOP_REASON:" "$file"; then
+              echo "❌ $file 含不可逆数据迁移(RunPython.noop 反向)但未标注 ROLLBACK_NOOP_REASON"
+              FOUND_NOOP=1
+            fi
+          done
+          if [ "$FOUND_NOOP" = 1 ]; then
+            echo ""
+            echo "修复方式：在 RunPython.noop 所在文件内添加注释标记："
+            echo "  # ROLLBACK_NOOP_REASON: <为何反向为 noop 的业务理由>"
+            exit 1
+          fi
+          echo "✅ 新增迁移的不可逆点均已登记理由"

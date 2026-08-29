@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.3 | **最后更新**：2026-08-24 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.4 | **最后更新**：2026-08-26 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -93,6 +93,14 @@
   - 保留 13 处有 `except Exception` fallback 的块（删除会变 500）+ 19 处 DoesNotExist/ValueError 块。
 - **净变化**：+13 行（exception_handler）-17 行（views.py）
 - **验证命令**：`mypy . --config-file pyproject.toml` + `ruff check core/exception_handler.py apps/assetmanagement/views.py`
+
+### A-16. Python 依赖清单双份维护（pyproject.toml vs requirements/base.txt）
+- **状态**：✅ 已关闭 | 关闭日期：2026-08-26 | 来源：H-1 上线七维审查整改
+- **判定**：同一组运行时依赖在两处声明且版本漂移 6 处（Django 6.0.5 vs 5.2.17-LTS、pillow 11.3.0 vs 12.3.0、requests 2.32.5 vs 2.33.0、PyJWT 2.10.1 vs 2.13.0、drf-spectacular 0.28 vs 0.29、sidecar 2025.1.24 vs 2026.4.14），另缺失 channels/daphne/channels-redis/redis/prometheus-client/sentry-sdk/urllib3/chardet 共 8 包。
+- **修复内容**：删除 pyproject.toml `[project] dependencies` 整块（原位注明唯一事实源为 requirements/base.txt）；classifiers 由 `Framework :: Django :: 6.0` 修正为 `:: 5.2`。requirements/base.txt 成为唯一事实源（DR-1）。
+- **证据**：Dockerfile 与全部 CI workflow 均从 requirements/*.txt 安装，全仓无 `pip install -e .` 使用方。
+- **验证命令**：`python -c "import tomllib; tomllib.load(open('pyproject.toml','rb'))"`（解析通过）；`pip install -e . --dry-run`（仅安装项目自身元数据）；`python -m ruff check .`（通过）。
+- **回滚风险**：若未来恢复 pip install -e . 用法，须先恢复 dependencies 并与 base.txt 逐项核对版本。
 
 ### A-15. BatchDeleteValidationMixin 收敛 validate_ids×11（F-4）
 - **状态**：✅ 已关闭 | 关闭日期：2026-08-24 | commit 2022814
@@ -219,7 +227,19 @@
   7. 无 deepcopy / `_normalize_input_data`
 - **位置**：`apps/unregisteredasset/views.py` L246-299
 - **决策**：强行收敛会改变 400/500 行为边界，引入回归风险。暂不收敛，后续独立 PR 按方案 A（移到 Service 层 + 逐项对齐差异）处理。
-- **登记日期**：2026-08-24
+
+### D-3. vite.config.ts 注释态插件配置副本
+- **判定**：死代码/配置残留（visualizer 与 compression 插件各存在一份被整块注释的历史配置，与生产启用的配置同构，约 30 行）。
+- **位置**：`vue-assetmanagement/vite.config.ts`（visualizer/compression 相关注释块）。
+- **修复建议**：直接删除注释块（git 历史可追溯），避免误启用或误导维护者。
+- **优先级**：低。
+- **登记日期**：2026-08-26 | 来源：H-1~H-3 整改期间审查发现
+
+### D-4. API 详细文档双份维护（前端/后端子仓各一份）
+- **判定**：文档克隆（`API详细文档0608.md` 同时存在于 `vue-assetmanagement/docs/` 与 `asset_management_backend/docs/`，内容高度一致，存在漂移风险）。
+- **修复建议**：保留单份权威来源（建议随 OpenAPI 契约快照走后端侧），另一份删除或改为链接引用；触及跨端文档归属，需人工决策。
+- **优先级**：低。
+- **登记日期**：2026-08-26 | 来源：H-1~H-3 整改期间审查发现
 
 ### D-2. init_production_data 管理命令 3 个字段名 bug（CT-4 测试发现）
 - **判定**：存量缺陷（非重复代码，但由新增测试暴露）。
@@ -248,6 +268,7 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.4 (2026-08-26)**：H-1 整改落地——新增 A-16（Python 依赖清单双份维护，已收敛单一事实源）；登记 D-3（vite.config.ts 注释态配置副本）、D-4（API 文档双份维护）。
 - **v2.3 (2026-08-24)**：登记 D-2（init_production_data 管理命令 3 个字段名 bug，测试发现并修复）。
 - **v2.2 (2026-08-24)**：关闭 F-1~F-4/F-6/F-7 共 6 项（A-10~A-15）；B-1 标记已关闭；登记 D-1（F-5 暂不收敛）。
 - **v2.1 (2026-08-13)**：落地 C-1 决策（未知状态回退=原始值），新增 A-9；B-1/B-2 确认排入独立 PR。

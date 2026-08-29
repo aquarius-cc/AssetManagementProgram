@@ -1,0 +1,117 @@
+# =============================================================================
+# GitHub Actions CI/CD - 持续部署部分 (BF-005: 自子目录迁移至仓库根)
+# =============================================================================
+# 背景: 原文件位于 asset_management_backend/.github/workflows/, GitHub Actions
+# 只识别仓库根 .github/workflows/, 该流水线从未被执行过(审计 BF-005 疏漏1)。
+#
+# 职责划分(与根 ci.yml 去重):
+#   - ci.yml      = CI(lint/test/mutation), 触发于 push/PR → master|develop
+#   - 本文件       = CD(docker build/push + 镜像保留策略), 仅 master push
+#
+# 前置要求(Secrets):
+#   - DOCKERHUB_USERNAME / DOCKERHUB_TOKEN(token 权限必须含 Read & Delete,
+#     默认 Read Only token 无法执行 prune 的删除操作)
+# Variables:
+#   - PROD_IMAGE_SHA: deploy 成功后由部署方写入, prune 时排除以防回滚无镜像可用
+# =============================================================================
+
+name: CD Pipeline
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  docker:
+    name: Docker Build & Push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: asset_management_backend/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/asset-management-backend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/asset-management-backend:${{ github.sha }}
+
+  prune-images:
+    name: Prune Old Images (keep last 5 + latest + prod current)
+    runs-on: ubuntu-latest
+    needs: [docker]
+    steps:
+      - name: Remove old sha tags from Docker Hub (keep 5 most recent)
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          REPO: ${{ secrets.DOCKERHUB_USERNAME }}/asset-management-backend
+          # 生产当前运行版本由部署流程写入 repo variable; 无值时仅按时间保留
+          PROD_SHA: ${{ vars.PROD_IMAGE_SHA || '' }}
+        run: |
+          set -euo pipefail
+          KEEP=5
+          HUB_URL="https://hub.docker.com/v2/repositories/${REPO}/tags?page_size=100"
+
+          TOKEN=$(curl -sf -X POST "https://hub.docker.com/v2/users/login" \
+            -H "Content-Type: application/json" \
+            -d "{\"username\": \"${DOCKERHUB_USERNAME}\", \"password\": \"${DOCKERHUB_TOKEN}\"}" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+          PAGE="$HUB_URL"
+          SHA_TAGS=()
+          while [ -n "$PAGE" ]; do
+            RESP=$(curl -sf -H "Authorization: Bearer ${TOKEN}" "$PAGE")
+            PAGE=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('next') or '')")
+            BATCH=$(echo "$RESP" | PROD_SHA="${PROD_SHA}" python3 -c "
+              import sys, json, os
+              prod = os.environ.get('PROD_SHA', '')
+              out = []
+              for r in json.load(sys.stdin)['results']:
+                  names = {t['name'] for t in r.get('tags', [])}
+                  if 'latest' in names:
+                      continue
+                  if prod and prod in names:
+                      continue
+                  out.append(r['name'])
+              print('\n'.join(out))
+            ")
+            if [ -n "$BATCH" ]; then
+              mapfile -t BATCH_ARR <<< "$BATCH"
+              SHA_TAGS+=("${BATCH_ARR[@]}")
+            fi
+          done
+
+          TOTAL=${#SHA_TAGS[@]}
+          echo "候选 sha 标签共 ${TOTAL} 个"
+          if [ "$TOTAL" -le "$KEEP" ]; then
+            echo "✅ 数量未超限, 无需清理"
+            exit 0
+          fi
+
+          # 最旧的在前(Docker Hub 按时间倒序返回), 删除前 TOTAL-KEEP 个
+          for tag in "${SHA_TAGS[@]:$KEEP}"; do
+            echo "删除过期镜像标签: ${tag}"
+            curl -sf -X DELETE \
+              -H "Authorization: Bearer ${TOKEN}" \
+              "https://hub.docker.com/v2/repositories/${REPO}/tags/${tag}" \
+              || echo "⚠️ 删除 ${tag} 失败(可能已被删或权限不足)"
+          done
+          echo "✅ 清理完成, 已保留最近 ${KEEP} 个 + latest + 生产当前版本"
+
+  # =============================================================================
+  # 部署到预发布环境 —— 决策记录(BF-005): staging 从未落地(原为 echo 占位),
+  # 在真实部署方案确定前此 job 不注册; 回滚演练延后, 见 docs/RollbackSOP.md §5
+  # =============================================================================
