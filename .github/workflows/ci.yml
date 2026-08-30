@@ -20,6 +20,8 @@ jobs:
         working-directory: asset_management_backend
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -37,6 +39,8 @@ jobs:
         working-directory: asset_management_backend
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -52,6 +56,8 @@ jobs:
         working-directory: asset_management_backend
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -59,10 +65,43 @@ jobs:
       - name: 圈复杂度检查（上限10）
         run: ruff check . --select C90 --max-complexity 10
 
+  api-schema-check:
+    name: "M-3 - API Schema Diff (oasdiff)"
+    runs-on: ubuntu-latest
+    needs: [backend-lint]
+    defaults:
+      run:
+        working-directory: asset_management_backend
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.production
+      SECRET_KEY: dummy-key-for-schema-generation
+      ALLOWED_HOSTS: localhost
+      DB_PASSWORD: ci-dummy-not-real
+      REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          submodules: true
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -r requirements/dev.txt
+      - name: Install oasdiff
+        run: |
+          curl -fsSL "https://github.com/oasdiff/oasdiff/releases/download/v1.29.1/oasdiff_1.29.1_linux_amd64.tar.gz" | tar -xz
+          sudo mv oasdiff /usr/local/bin/
+      - name: Generate schema
+        run: |
+          python manage.py spectacular --format openapi --file api-schema-current.json --validate
+      - name: Diff against baseline
+        run: oasdiff breaking api-schema-baseline.json api-schema-current.json
+
   backend-test:
     name: "后端 - 测试 + 覆盖率"
     runs-on: ubuntu-latest
-    needs: [backend-lint, backend-type-check, backend-complexity]
+    needs: [backend-lint, backend-type-check, backend-complexity, api-schema-check]
     services:
       postgres:
         image: postgres:16
@@ -87,6 +126,8 @@ jobs:
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -137,6 +178,8 @@ jobs:
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -158,6 +201,8 @@ jobs:
         working-directory: vue-assetmanagement
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -175,6 +220,8 @@ jobs:
         working-directory: vue-assetmanagement
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -192,6 +239,8 @@ jobs:
         working-directory: vue-assetmanagement
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -199,7 +248,8 @@ jobs:
           cache-dependency-path: vue-assetmanagement/package-lock.json
       - run: npm ci
       - name: 复杂度检查（上限10）
-        run: npx eslint . --ext .vue,.ts --rule "complexity: ['error', 10]"
+        run: >
+          npx eslint . --ext .vue,.ts --rule 'complexity: [2, 10]'
 
   frontend-test:
     name: "前端 - 测试 + 覆盖率"
@@ -210,6 +260,8 @@ jobs:
         working-directory: vue-assetmanagement
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -236,6 +288,8 @@ jobs:
         working-directory: vue-assetmanagement
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
