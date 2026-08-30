@@ -18,6 +18,8 @@ jobs:
         working-directory: asset_management_backend
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -45,6 +47,8 @@ jobs:
         working-directory: vue-assetmanagement
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -69,6 +73,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
         with:
           fetch-depth: 0
       - name: 检查硬编码密钥（AK/SK/Token/密码）
@@ -147,6 +153,8 @@ jobs:
     if: github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - name: 汇总本周安全发现
         run: |
           echo "# 每周安全审计报告" > security-weekly-report.md
