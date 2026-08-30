@@ -2,7 +2,7 @@ name: Migration Safety Check
 
 on:
   pull_request:
-    branches: [master, develop]
+    branches: [master]
     paths:
       - "**/migrations/**"
 

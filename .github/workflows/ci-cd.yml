@@ -5,7 +5,6 @@
 # 只识别仓库根 .github/workflows/, 该流水线从未被执行过(审计 BF-005 疏漏1)。
 #
 # 职责划分(与根 ci.yml 去重):
-#   - ci.yml      = CI(lint/test/mutation), 触发于 push/PR → master|develop
 #   - 本文件       = CD(docker build/push + 镜像保留策略), 仅 master push
 #
 # 前置要求(Secrets):

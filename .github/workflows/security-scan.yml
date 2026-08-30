@@ -2,9 +2,9 @@ name: Dependency Security Scan
 
 on:
   push:
-    branches: [master, develop]
+    branches: [master]
   pull_request:
-    branches: [master, develop]
+    branches: [master]
   schedule:
     # 每周一凌晨 3:07 执行全量扫描（SC-8 落地）
     - cron: "7 3 * * 1"
