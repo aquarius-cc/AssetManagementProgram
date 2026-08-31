@@ -19,8 +19,15 @@ project-audit-v3/
 document-review-report/
 .trae-html-share-packages/
 
+# 过程性文件（审查中间产物，不入库）
+audit_report.md
+
 # 会话审计报告
 docs/compose/reports/
+
+# 过程性审查文件（不入库）
+docs/*对抗核验*.md
+docs/*修复完成*.md
 
 # graphify 生成产物
 docs/knowledge-graph.html
