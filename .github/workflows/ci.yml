@@ -66,6 +66,22 @@ jobs:
       - name: 圈复杂度检查（上限10）
         run: ruff check . --select C90 --max-complexity 10
 
+  backend-permission-check:
+    name: "后端 - 权限码同步检查 (M-6)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: asset_management_backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: 权限码同步校验
+        run: python scripts/generate_permission_codes.py --check
+
   api-schema-check:
     name: "M-3 - API Schema Diff (oasdiff)"
     runs-on: ubuntu-latest
