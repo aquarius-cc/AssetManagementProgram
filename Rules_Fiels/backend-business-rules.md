@@ -89,6 +89,7 @@ repairing ──repair_done──┘    │               │                  �
 | `damaged` | `lost` | 审批拒绝（原状态为lost） |
 | `damaged` | `in_use` | 审批拒绝（原状态为in_use） |
 | `damaged` | `recycled_pending` | 审批拒绝（原状态为recycled_pending） |
+| `damaged` | `repairing` | 审批拒绝（原状态为repairing） |
 | `scrapped` | *无* | 终态，不可转出 |
 
 > **V2.8 业务决策**：`in_use` 状态不可直接申请报废（`in_use → damaged` 已移除）。在用资产须先回收至 `recycled_pending`，再从 `recycled_pending` 申请报废。正确路径：`in_use → recycled_pending → damaged`。
