@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.4 | **最后更新**：2026-09-09 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.6 | **最后更新**：2026-09-09 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -234,12 +234,12 @@
 
 ---
 
-### B-13. 【新发现 2026-09-09】UserBatchImport 模板导出第 9 处的残留内联实现
+### B-13. 【已修复 2026-09-09】UserBatchImport 模板导出第 9 处的残留内联实现
 - **判定**：克隆（`src/components/componentsdetails/detils/UserBatchImport.vue::downloadTemplate` 与 A-17 收敛的同构现有第 9 处，依旧内联 `new ExcelJS.Workbook()`，未走 `downloadExcelTemplate`）。
-- **证据**：`UserBatchImport.vue:295-325` 手写创建工作簿/表头/示例行/下载；导出的 `userTemplateData` 单元格含**非字符串值**（`排序: 100` 数字），强行走 `downloadExcelTemplate`（签名 `Record<string, string>[]`）会产生类型不匹配，需先规范数据映射。
-- **修复建议**：后续将 `userTemplateData` 全部值规范为字符串（排序、数字字段先 String()），再迁移至 `downloadExcelTemplate`，删除内联实现与 `import ExcelJS`。
-- **优先级**：低（与 A-17 同构但无功能缺陷）。
-- **验证命令**：`rg -n "new ExcelJS.Workbook" src/components/componentsdetails/detils/UserBatchImport.vue`（预期 1 命中，迁移后 0）。
+- **证据（修复前）**：`UserBatchImport.vue:295-325` 手写创建工作簿/表头/示例行/下载；导出的 `userTemplateData` 单元格含**非字符串值**（`排序: 100` 数字），强行走 `downloadExcelTemplate`（签名 `Record<string, string>[]`）会产生类型不匹配，需先规范数据映射。
+- **修复方式（2026-09-09 实施）**：`downloadTemplate` 迁移至 `downloadExcelTemplate`（改名 `handleExportTemplate`，与其余 8 组件一致），删除内联实现与 `import ExcelJS`；`templateExport.ts` 参数类型从 `Record<string, string>[]` 拓宽为 `Record<string, TemplateCellValue>[]`（`TemplateCellValue = string | number`），非字符串单元格（`排序: 100`）原样直通，缺失/空值统一补空字符串。配套新增 `src/utils/batchImport/__tests__/templateExport.spec.ts` 4 条用例（CT-4 回归护栏：数值保留 / 空值补空 / 触发下载+成功提示 / 写入失败提示）。
+- **优先级**：低（与 A-17 同构但无功能缺陷）。**状态**：✅ 已关闭（2026-09-09，任务清单 ① 合并 PR）。
+- **验证命令**：`rg -n "new ExcelJS.Workbook" src/components/componentsdetails/detils/UserBatchImport.vue`（预期 0 命中，实测 0）；`rg -n "import ExcelJS" src/components/componentsdetails/detils`（预期 0，实测 0）；`npx vitest run src/utils/batchImport/__tests__/templateExport.spec.ts`（4 passed）。
 
 ---
 
@@ -341,12 +341,13 @@
 - **位置**：`apps/unregisteredasset/views.py` L246-299
 - **决策**：强行收敛会改变 400/500 行为边界，引入回归风险。暂不收敛，后续独立 PR 按方案 A（移到 Service 层 + 逐项对齐差异）处理。
 
-### D-3. vite.config.ts 注释态插件配置副本
+### D-3. ✅ 已修复 2026-09-09 —— vite.config.ts 注释态插件配置副本
 - **判定**：死代码/配置残留（visualizer 与 compression 插件各存在一份被整块注释的历史配置，与生产启用的配置同构，约 30 行）。
 - **位置**：`vue-assetmanagement/vite.config.ts`（visualizer/compression 相关注释块）。
-- **修复建议**：直接删除注释块（git 历史可追溯），避免误启用或误导维护者。
-- **优先级**：低。
+- **修复方式（2026-09-09 实施）**：删除整块注释态副本（含被注释的 visualizer/compression 调用）。**注意**：`vite.config.ts` 另有**在用**的 production 块（`...(mode === 'production' ? [ ANALYZE 触发的 visualizer + 两处 compression ] : [])`，约 L62-89）持续引用 `rollup-plugin-visualizer` / `vite-plugin-compression` 导入——**导入必须保留**，实施前勿按"死导入"误删（本次曾误删后立即恢复，已复核）。
+- **优先级**：低。**状态**：✅ 已关闭（2026-09-09，任务清单 ① 合并 PR）。
 - **登记日期**：2026-08-26 | 来源：H-1~H-3 整改期间审查发现
+- **验证命令**：`rg -n "visualizer|compression" vite.config.ts`（预期仅导入 2 行 + 在用 production 块 3 处引用，无注释残留，实测相符）。
 
 ### D-4. API 详细文档双份维护（前端/后端子仓各一份）
 - **判定**：文档克隆（`API详细文档0608.md` 同时存在于 `vue-assetmanagement/docs/` 与 `asset_management_backend/docs/`，内容高度一致，存在漂移风险）。
@@ -391,6 +392,67 @@
 
 ---
 
+## B-19. 【执行顺序清单】Bug 修复优先级排序（按复杂度分级）
+
+> **登记日期**：2026-09-09 | **来源**：用户提供的 Bug 修复顺序清单（按复杂度分级）
+> **判定**：执行路线图，非独立 Bug 条目。各条目已在 A/B/C/D 区登记，此处仅标注执行顺序与前置条件。
+
+### 优先级一：低复杂度（单人单文件，≤30 分钟，无契约风险）— 建议合并为一个小 PR
+
+- **D-3**：`vite.config.ts` L93-115 visualizer/compression 注释态配置块（死配置，误导维护者）
+  - 修复建议：直接删除 3 个注释块（git 历史可追溯），删后跑一次 `vite build`
+  - 前置条件：无
+  - 风险：无（零行为变更）
+- **B-13**：`UserBatchImport.vue:300` 第 9 处内联 ExcelJS 模板导出
+  - 修复建议：前置将 `userBatchImport.config.ts:260` 的 `排序: 100` 数值改字符串；然后换 `downloadExcelTemplate`、删 `import ExcelJS`
+  - 前置条件：数据规范化（排序字段 String()）
+  - 风险：低（与 A-17 同构，无功能缺陷）
+  - **两者都碰批导入域，互不冲突，合并为一个小 PR 一次清掉**
+
+### 优先级二：中复杂度（跨文件/需设计，需排期）
+
+- **面包屑 UI**：数据层完备（`guards.ts` `generateBreadcrumbs` + `stores/app.ts` `setBreadcrumbs`），`.vue` 消费方 0 命中
+  - 修复建议：新建全局 `AppBreadcrumb.vue` 消费 `appStore.breadcrumbs`，挂 `MainView` 页头下方；纯新增组件，零存量改动；注意与 `showPageHeader` meta 的显隐联动
+  - 风险：低（新增组件，不改存量）
+- **C-10 专项（第一阶段）**：63 处 `!important` 覆盖战争
+  - 分布：6 个详情页样式文件各 8 处（48）+ `CommonList.vue` 8 + `common-forms.scss` 6 + `MainView.vue` 1
+  - 修复建议：先消解 `common-forms.scss` 6 处与 `CommonList` `:deep` 的冗余（确定单一事实层），再从 6 个详情页中选 2 个试点换共享 mixin；每批需样式回归（明/暗双主题）
+  - 风险：中（涉及样式回归验证，需明/暗双主题确认）
+
+### 优先级三：高复杂度 / 需单独评估确认（动契约或架构，未获批不动）
+
+- **D-1 !**：`unregisteredasset` 手写 `batch_create`（`views.py` L247/L262/L349），不走 `batch_execute`
+  - 证据：2026-08-24 分析结论（7 处行为差异），**差异明细未经逐条 diff 复核**（已在账本标注）
+  - 修复建议：先人工 diff 逐项确认差异 > 按方案 A 移 Service 层 > 差异项逐一对齐或显式保留；全程基线快照测试锁定
+  - 风险：高（强行收敛可能改坏 400/500 契约边界，如空列表 400、超限 400）
+  - **前置条件：逐条 diff 复核完成，用户批准后执行**
+- **D-4**：API 详细文档双份维护（后端 docs 25 文件 vs 前端 docs 32 文件并存）
+  - 修复建议：跨端文档归属是组织决策——删哪份、谁做唯一事实源，需你拍板；建议后端侧为权威（随 OpenAPI 契约快照），前端改链接引用；或直接引入文档托管统一出口
+  - 风险：中（涉及跨端文档归属决策）
+  - **前置条件：用户决策唯一事实源**
+- **D-5**：后端 `getassetbyrecordcode` 纯路径调用必 400（路径参数被 L184 query 读取遮蔽）
+  - 证据：你已决策 Q4=a：只登记不动后端，等后端排期；且前端 0 调用方、无实际影响面
+  - 修复建议（供后端排期）：后端改为优先路径参数、query 兜底；补纯路径集成测试
+  - 风险：低（无前端影响面）
+  - **状态：⏳ 已登记待后端处理**
+- **路由直连 API**：39 个 `.vue` 直接 `import @/api/*` 绕过 Pinia Store
+  - 修复建议：架构分层问题，涉及 39 文件的行为面重构；分域迁移（asset/contract/user…），每域先补 store 层缺方法，再改组件消费 store；vitest 回归
+  - 风险：高（此前已明确“不搭 DRY 顺车，单独评估”）
+  - **前置条件：专项评估批准，制定分域迁移计划**
+
+### 冻结项（用户已决策不重构，列出仅为完整性）
+
+- **C-5**（双标题结构）、**C-6**（列表页骨架无底座）、**C-7**（form-actions 浮层模式）、**C-4** 的 `.upload-tip` 8 处——均为 09-08 决策“仅登记不重构”，除非未来 `ListPageShell` 底座立项。
+
+### 建议执行顺序
+
+> 1. **两个小活合并一个 PR**（D-3 + B-13，随时可做）
+> 2. **面包屑 UI**（独立小特性，纯新增组件）
+> 3. **C-10 试点**（需专项排期，明/暗双主题回归）
+> 4. **四项待逐一拍板**（D-1 最急，因其证据链最弱，先 diff 再决策）
+
+---
+
 ## 附：回归护栏（可验证不变量）
 
 由 `scripts/check_duplicate_invariants.py` 守护，CI job `duplicate-guard.yml` 触发：
@@ -405,6 +467,8 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.6 (2026-09-09)**：任务清单 ①（两个小活合并单 PR）落地——关闭 B-13（UserBatchImport 第 9 处内联导出迁移至 `downloadExcelTemplate`，工具类型拓宽 `TemplateCellValue = string | number`，新增 4 条单元测试）；关闭 D-3（删除 vite.config.ts 注释态 visualizer/compression 副本，**记录"在用 production 块持续引用，导入必须保留"**，防止后续误删）。前端三项检查 + 全量 vitest（105 files / 1446 tests）通过。
+- **v2.9.5 (2026-09-09)**：新增 B-19 执行顺序清单（按复杂度分级：低/中/高/冻结四项，含执行顺序建议与前置条件标记），登记用户提供的 Bug 修复顺序清单作为活账本条目。
 - **v2.9.4 (2026-09-09)**：全账本状态复核——B-2 确认已修复（`bbccfbe` M-7 删除死副本，原"未执行"标记过时）；C-2 证据同步（types/outasset.ts 副本已删，仅剩 Format.ts）；B-13 复核确认仍待修复（`new ExcelJS.Workbook` 1 命中）；D-3 复核确认仍待修复（vite.config.ts L94-110 注释块仍在）；D-4 复核确认仍待决策（两份 API 文档并存）；C-9/C-10/D-6/C-11 及 Phase 1/2 执行结果复核全部与代码一致（裸引用 0、!important 63 未变属预期、ECharts 硬编码 0、useChartTheme 含 isDark 依赖）。另同步核验文档：修正 Phase 1.3"重建实例"过时表述（与 §2.4 修正一致）、更新后续专项表（层级令牌/表单按钮/分页配置已完成，61 文件归属已决断）。
 - **v2.9.3 (2026-09-09)**：登记 C-11（bottom-buttons sticky 悬浮遮盖内容 → App 壳式布局根治，已修复）——共享层 8 处改动（list-container/table-container/bottom-buttons 三 mixin + responsive 两处残留 + MainView/CommonList/SmartListContainer/SearchBar flex 链），16 个列表页零模板改动自动生效；--z-sticky-bar 令牌退役；对抗审核确认例外页（UserDetails/DamagedAssetDetails/OperationLogDetails）经外链 .scss 同样走共享 mixin、无断链；Dashboard/子路由详情/全屏遮罩边界不受影响。同日 D-6 条目追加 sticky-bar 退役说明。
 - **v2.9.2 (2026-09-09)**：B 状态同步核实——B-11 确认已修复（后端 `c64675c` 删除 5 个被包遮蔽的死文件）；B-12 确认已修复（前端 `2ced9dd` userStatusMapping 派生化，dismissed 未补系枚举仅三态、派生源为本地图而非 statusMapping 表，两点偏差均记录为合理）；B-13 保持待修复不动。
