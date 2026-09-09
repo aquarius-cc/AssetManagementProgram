@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.1 | **最后更新**：2026-09-09 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.3 | **最后更新**：2026-09-09 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -221,7 +221,7 @@
   存在"改了不生效"的误导风险；均超 500 行且无 TECHNICAL_DEBT 标记（DR-5 风险面）。
 - **验证命令**：`DJANGO_SETTINGS_MODULE=config.settings.test python -c "import django; django.setup(); import apps.assetmanagement.serializers as s; print(s.__file__)"`
 - **修复建议**：确认无 importlib 按路径加载后，直接删除 5 个死文件（零行为变更，1063 测试回归验证）。
-- **优先级**：高（维护成本与误导风险）。**状态**：待修复。
+- **优先级**：高（维护成本与误导风险）。**状态**：✅ 已修复（2026-09-09 核实，后端 commit `c64675c` "删除5个被包遮蔽的死文件（~4800行不可达代码）"）——5 个根级死 .py（serializers/views/operation_log_service/services/selectors）已全部删除，根级仅剩正常模块（admin/apps/audit/urls 等）。
 
 ---
 
@@ -231,7 +231,7 @@
   与 `src/utils/Format.ts:247-252` `userStatusMapping`（active/left/retirement/dismissed → 在职员工/
   离职员工/退休员工/辞退员工）键集与文案均不一致，两份独立维护。
 - **修复建议**：Format 侧改为从 `EMPLOYEE_STATUS_MAP` 派生并补 dismissed 键，收敛单一来源。
-- **优先级**：低。**状态**：待修复。
+- **优先级**：低。**状态**：✅ 已修复（2026-09-09 核实，前端 commit `2ced9dd`）——Format.ts `userStatusMapping` 已改为从本地 `USER_STATUS_DISPLAY_MAPPING` 派生（Object.fromEntries + '员工' 后缀，L272-274，注释明示单一事实源），双源文案维护问题消除。实现与原建议有两点偏差，均合理：① dismissed 键未补——`EmployeeStatus` 枚举本身仅 active/left/retirement 三态，原报告所称 dismissed 分支已不存在于类型层；② 派生源为 Format.ts 本地表而非 statusMapping.ts 的 `EMPLOYEE_STATUS_MAP`——后者是带 tag type 的 UI 标签映射，与纯文案表用途不同，语义上不构成双源。
 
 ---
 
@@ -317,6 +317,15 @@
 - **验证命令**：`rg -c "!important" vue-assetmanagement/src --glob "*.vue" --glob "*.scss" | awk -F: '{s+=$NF} END {print s}'`（预期 63）；`rg -c ":deep\(\.el-table" vue-assetmanagement/src --glob "*.vue"`（预期 CommonList 8 + 详情页 2×4）
 - **登记日期**：2026-09-09 | 来源：前端设计与质量审计核验
 
+### C-11. bottom-buttons sticky 悬浮遮盖列表内容（布局范式问题，非层级问题）
+- **判定**：交互遮盖缺陷（`position: sticky + z-index: 50` 使按钮组悬浮盖住从其下方滑过的表格内容；调 z-index/令牌无法解决，已按 App 壳式布局根治）。
+- **证据（2026-09-09）**：`bottom-buttons` mixin（common-forms.scss）原为 sticky 悬浮方案；`table-container` 有 `margin-bottom: 100px` sticky 预留 hack；`.common-list` `min-height: calc(100vh - 120px)` 整页滚动范式。
+- **修复（已实施）**：改为 App 壳式布局（页面名/筛选不压缩 + 表格区 `flex:1; min-height:0; overflow:auto` 自滚 + 分页/按钮组流内页脚常驻）——共享层 8 处改动（list-container/table-container/bottom-buttons 三 mixin + responsive 两处 bottom 残留 + MainView/CommonList/SmartListContainer/SearchBar flex 链），16 个列表页经共享 mixin 零模板改动自动生效；`--z-sticky-bar` 令牌退役（D-6 阶梯同步更新）。
+- **边界（不参与）**：Dashboard/通讯录/通知/独立视图页；子路由详情（child-router-container 200）与全屏遮罩（router-mask 1000）行为不变。
+- **对抗审核结论**：UserDetails/DamagedAssetDetails/OperationLogDetails 三页初判"无 list-container 链路"系误报（实经外链 .scss `@include` 走共享 mixin，无断链）；组件内 6 处自写 `.bottom-buttons` 覆盖均无 sticky/z-index 残留；el-table fixed 列（5 文件）位于 overflow:auto 容器内表现正常；sass 编译/lint 通过。
+- **优先级**：中（用户可见交互缺陷，已根治）。
+- **登记日期**：2026-09-09 | 来源：用户复审方案（第②点遮盖问题）+ 对抗审核
+
 ---
 
 ## D — 待核查（To Verify）
@@ -376,7 +385,7 @@
 - **非 z-index 问题（勿误治）**：`.common-list`（CommonList.vue:307）无 position/z-index → 非 stacking context，永远被 sticky bottom-buttons(z=50) 悬浮压住——这是设计意图，令牌化不改变也不应改变；若按钮栏被遮挡，根因在祖先 stacking context（transform/filter）或 el-table fixed 列，令牌化无效。
 - **触发条件**：并列 1000 两浮层（详情遮罩 vs 消息铃铛）同屏时遮盖靠 DOM 顺序；新增浮层可能意外互遮。
 - **修复建议**：建立层级令牌阶梯（`--z-sticky-bar:50 / --z-mask:100 / --z-child-container:200 / --z-router-mask / --z-bell / --z-view-overlay`），收敛 4 文件 8 处 + AuditLogDetails 游离值；令牌取值按实际绘制顺序约定，避免并列。
-- **状态**：✅ 已修复（2026-09-09）——variables.css 新增 `--z-*` 阶梯（content:1 / sticky-bar:50 / mask:100 / child-container:200 / notification:900 / router-mask:1000 / view-overlay:2000，主题无关仅 :root 定义），4 文件 8 处手写 z-index 全部收敛为 var() 引用（common-forms.scss 4 处 mixin、MainView 2000、NotificationBell 1000→**900 有意变更**：消除并列，详情遮罩明确盖过侧边栏铃铛、AuditLogDetails 游离值 100/1 归入 mask/content）。验证：sass 编译通过、裸 z-index 残留 0、var() 引用恰 8 处、对抗审核（暗色块零冲突/无重复定义/scoped 上下文完整/测试零依赖/铃铛挂载于 AsideMenu 不在遮罩内，900<1000 语义成立）全部通过。
+- **状态**：✅ 已修复（2026-09-09）——variables.css 新增 `--z-*` 阶梯（content:1 / mask:100 / child-container:200 / notification:900 / router-mask:1000 / view-overlay:2000，主题无关仅 :root 定义），4 文件 8 处手写 z-index 全部收敛为 var() 引用（common-forms.scss 4 处 mixin、MainView 2000、NotificationBell 1000→**900 有意变更**：消除并列，详情遮罩明确盖过侧边栏铃铛、AuditLogDetails 游离值 100/1 归入 mask/content）。验证：sass 编译通过、裸 z-index 残留 0、var() 引用恰 8 处、对抗审核（暗色块零冲突/无重复定义/scoped 上下文完整/测试零依赖/铃铛挂载于 AsideMenu 不在遮罩内，900<1000 语义成立）全部通过。**后续演进（同日）**：bottom-buttons 随 App 壳式布局改造改为普通流内页脚（见 C-11），`--z-sticky-bar:50` 令牌退役删除——"令牌化不是遮盖问题的解药，改布局才是"的判定落地验证。
 - **优先级**：低（暂无用户可见缺陷，收敛属预防性治理）。
 - **登记日期**：2026-09-09 | 二次核验修正：2026-09-09 | 来源：前端设计与质量审计核验
 - **验证命令**：`rg -n "z-index" vue-assetmanagement/src --glob "*.vue" --glob "*.scss"`（预期 4 文件 8 处）
@@ -397,6 +406,8 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.3 (2026-09-09)**：登记 C-11（bottom-buttons sticky 悬浮遮盖内容 → App 壳式布局根治，已修复）——共享层 8 处改动（list-container/table-container/bottom-buttons 三 mixin + responsive 两处残留 + MainView/CommonList/SmartListContainer/SearchBar flex 链），16 个列表页零模板改动自动生效；--z-sticky-bar 令牌退役；对抗审核确认例外页（UserDetails/DamagedAssetDetails/OperationLogDetails）经外链 .scss 同样走共享 mixin、无断链；Dashboard/子路由详情/全屏遮罩边界不受影响。同日 D-6 条目追加 sticky-bar 退役说明。
+- **v2.9.2 (2026-09-09)**：B 状态同步核实——B-11 确认已修复（后端 `c64675c` 删除 5 个被包遮蔽的死文件）；B-12 确认已修复（前端 `2ced9dd` userStatusMapping 派生化，dismissed 未补系枚举仅三态、派生源为本地图而非 statusMapping 表，两点偏差均记录为合理）；B-13 保持待修复不动。
 - **v2.9.1 (2026-09-09)**：D-6 二次核验修正——z-index 实为 4 文件 8 处（初版漏 MainView:165=2000）；"子路由遮罩各页手写无共享 mixin"不实（实为 common-forms.scss 三个 mixin 经 @include 被 13 个详情页复用，仅 AuditLogDetails 游离）；补充"common-list/bottom-buttons 非层叠问题勿误治"边界说明。
 - **v2.9 (2026-09-09)**：前端设计审计修复落地——关闭 A-17（handleExportTemplate×8 → downloadExcelTemplate，含删除重复工具 exportImportTemplate.ts）、A-18（page-sizes 字面量×5 → PAGE_SIZE_OPTIONS）；C-4 局部收敛（Damaged/Department 手写 import-guide-card → BatchImportGuideCard，upload-tip 按 09-08 决策保留）；登记 B-13（UserBatchImport 第 9 处内联模板导出残留，待数据规范化后迁移）。
 - **v2.8.1 (2026-09-09)**：C-9 精化——dark.css 与 variables.css 的暗色主色（#4a90e2）实为同步（同值），"三源不同步"修正为"SCSS 编译期固化亮色值不随暗色切换"（真正的缺陷是裸引用，非三源值漂移）；修正 v2.8 记录中"LoginDialog.vue 不存在"的误判（该文件存在于 src/components/LoginDialog.vue:75，初核查错路径）。
