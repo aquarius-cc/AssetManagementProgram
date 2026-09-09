@@ -310,7 +310,7 @@
 
 ### C-10. 详情页 :deep(.el-table) 覆盖战争（全仓 63 处 !important）
 - **判定**：样式交叉覆盖（各详情页用 `!important` 对抗公共组件内部样式；改 `CommonList` 样式会被静默拦截或引发连锁回归）。
-- **证据（2026-09-09 核验）**：全仓 `!important` 共 **63 处**；Top 分布 `WasteAssetDetails.vue` / `UnregisteredAssetDetails.vue` / `OutAssetDetails.vue` / `OperationLogDetails.scss` / `HardDiskSNDetails.vue` 各 8 处。`:deep(.el-table)` 在 `CommonList.vue` 8 处 + 4 个详情页各 2 处重复（OutAsset/UnregisteredAsset/HardDiskSN/WasteAsset）。
+- **证据（2026-09-09 复验修正拆分）**：全仓 `!important` 共 **63 处**——6 个详情页样式文件各 8 处（WasteAsset/UnregisteredAsset/OutAsset/OperationLogDetails.scss/HardDiskSN/DamagedAssetDetails.scss，48 处）+ `CommonList.vue` 8 + `common-forms.scss` 6 + `MainView.vue` 1。`:deep(.el-table)` 为 `CommonList.vue` 8 处 + 4 个详情页各 2 处重复（OutAsset/UnregisteredAsset/HardDiskSN/WasteAsset）。
 - **修复建议**：提取共享 SCSS mixin 收敛 `:deep` 覆盖；以 CSS 变量/组件 props 传参替代 `!important`；与 Phase 3 DRY 重构合并为"表格样式覆盖"专项。
 - **决策（2026-09-09）**：登记不立即重构（涉及 5+ 文件样式回归验证，需独立专项）。
 - **验证命令**：`rg -c "!important" vue-assetmanagement/src --glob "*.vue" --glob "*.scss" | awk -F: '{s+=$NF} END {print s}'`（预期 63）；`rg -c ":deep\(\.el-table" vue-assetmanagement/src --glob "*.vue"`（预期 CommonList 8 + 详情页 2×4）
@@ -330,7 +330,7 @@
 ## D — 待核查（To Verify）
 
 ### D-1. unregisteredasset batch_create 手写循环（F-5 暂不收敛）
-- **判定**：与 `batch_execute` 不同构，有 7 处独特行为差异：
+- **判定**：与 `batch_execute` 不同构，存在多处行为差异（下述 7 项为 2026-08-24 分析结论，**差异明细未经逐条 diff 复核**——2026-09-09 复审仅实证"手写循环存在"（views.py L247/L262/L349），收敛前须先逐项人工 diff 确认）：
   1. 空列表 → 400（batch_execute 处理空列表为零计数结果）
   2. 超限 → 400 响应（非异常，batch_execute 抛 AppValidationError）
   3. DRF `ValidationError` → `VALIDATION_ERROR`（第三异常层级）
