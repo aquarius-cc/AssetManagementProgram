@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.3 | **最后更新**：2026-09-09 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.4 | **最后更新**：2026-09-09 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -139,8 +139,7 @@
 - **位置**：`src/types/outasset.ts:47`，与 `src/utils/Format.ts::outassetStatusMapping` 内容完全一致。
 - **证据**：全仓仅 `types/outasset.ts` 定义导出，无任何消费方 import 它（`@/types/outasset` 的 outassetStatusMapping）。
 - **修复建议**：删除该导出（属公共导出面变更，需批准后执行）；保留方为 `Format.ts`（被 useOutAssetDetailCards / OutAssetBasicDetails 消费）。
-- **优先级**：低。**未执行**。
-- **排期（2026-08-13 用户确认）**：纳入独立 PR 实施。
+- **优先级**：低。**状态**：✅ 已修复（2026-09-09 复核核实，前端 commit `bbccfbe` M-7 状态映射去重统一）——`types/outasset.ts` 的死副本导出已删除，保留方为 `Format.ts`；文件头注释仍提及该方法名（无害，指引至 Format.ts）。
 
 ### B-3. asset_lifecycle_view.py 三重复制 ViewSet（Broken/Lost/Found）
 - **判定**：克隆（batch_delete/batch_create/by_asset/get_queryset/get_serializer_class/get_permissions 90% 同构）。
@@ -252,7 +251,7 @@
 ### C-2. outasset 映射语义碰撞（命名冲突，不可合并）
 - **描述**：同名 `outassetStatusMapping` 实为两套不同域：
   - `statusMapping.ts::OUTASSET_STATUS_MAP`（active/returned/overdue = 出库单记录状态）
-  - `Format.ts:364` 与 `types/outasset.ts:47`（recycled_pending/in_use/damaged/scrapped = 资产当前状态）
+  - `Format.ts`（recycled_pending/in_use/damaged/scrapped = 资产当前状态；原 `types/outasset.ts:47` 死副本已随 B-2 删除）
 - **判定**：不可合并，仅命名易混淆。建议后续重命名（如 `OUTASSET_RECORD_STATUS_MAP` vs `OUTASSET_ASSET_STATUS_MAP`）。
 - **阻塞原因**：重命名触及公共导出面，需批准；且需同步 types/outasset.ts 枚举语义。
 
@@ -406,6 +405,7 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.4 (2026-09-09)**：全账本状态复核——B-2 确认已修复（`bbccfbe` M-7 删除死副本，原"未执行"标记过时）；C-2 证据同步（types/outasset.ts 副本已删，仅剩 Format.ts）；B-13 复核确认仍待修复（`new ExcelJS.Workbook` 1 命中）；D-3 复核确认仍待修复（vite.config.ts L94-110 注释块仍在）；D-4 复核确认仍待决策（两份 API 文档并存）；C-9/C-10/D-6/C-11 及 Phase 1/2 执行结果复核全部与代码一致（裸引用 0、!important 63 未变属预期、ECharts 硬编码 0、useChartTheme 含 isDark 依赖）。另同步核验文档：修正 Phase 1.3"重建实例"过时表述（与 §2.4 修正一致）、更新后续专项表（层级令牌/表单按钮/分页配置已完成，61 文件归属已决断）。
 - **v2.9.3 (2026-09-09)**：登记 C-11（bottom-buttons sticky 悬浮遮盖内容 → App 壳式布局根治，已修复）——共享层 8 处改动（list-container/table-container/bottom-buttons 三 mixin + responsive 两处残留 + MainView/CommonList/SmartListContainer/SearchBar flex 链），16 个列表页零模板改动自动生效；--z-sticky-bar 令牌退役；对抗审核确认例外页（UserDetails/DamagedAssetDetails/OperationLogDetails）经外链 .scss 同样走共享 mixin、无断链；Dashboard/子路由详情/全屏遮罩边界不受影响。同日 D-6 条目追加 sticky-bar 退役说明。
 - **v2.9.2 (2026-09-09)**：B 状态同步核实——B-11 确认已修复（后端 `c64675c` 删除 5 个被包遮蔽的死文件）；B-12 确认已修复（前端 `2ced9dd` userStatusMapping 派生化，dismissed 未补系枚举仅三态、派生源为本地图而非 statusMapping 表，两点偏差均记录为合理）；B-13 保持待修复不动。
 - **v2.9.1 (2026-09-09)**：D-6 二次核验修正——z-index 实为 4 文件 8 处（初版漏 MainView:165=2000）；"子路由遮罩各页手写无共享 mixin"不实（实为 common-forms.scss 三个 mixin 经 @include 被 13 个详情页复用，仅 AuditLogDetails 游离）；补充"common-list/bottom-buttons 非层叠问题勿误治"边界说明。
