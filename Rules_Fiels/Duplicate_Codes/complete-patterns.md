@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.4 | **最后更新**：2026-08-26 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9 | **最后更新**：2026-09-09 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -108,6 +108,22 @@
 - **validate_items 不收敛**：每个模块唯一性字段不同（contract_code/storage_code/type_code/asset_code/employee_jobcode/department_code），不适合统一 mixin。
 - **验证命令**：`mypy . --config-file pyproject.toml` + `pytest apps/ -q`
 
+### A-17. 前端批量导入模板导出收敛 handleExportTemplate×8 → downloadExcelTemplate（审计第 7 项）
+- **状态**：✅ 已关闭 | 关闭日期：2026-09-09 | 本次修复
+- **修复内容**：
+  - 8 个批导入组件（Asset/AssetType/Contract/OutAsset/Storage/Unregistered/Damaged/Department）的模板导出统一收敛至 `src/utils/batchImport/templateExport.ts::downloadExcelTemplate`，删除各组件的内联 ExcelJS 实现（各 ~30-40 行 → ~10 行数据声明）。
+  - 删除重复工具 `src/utils/exportImportTemplate.ts`（与 templateExport.ts 近同构的第二个实现，DR-1 内部双实现违规），Storage 由 exportImportTemplate 迁移至 downloadExcelTemplate。
+  - 相关组件清理孤儿 `import ExcelJS from 'exceljs'` 与 `InfoFilled` 未使用引用。
+- **证据**：`rg -n "new ExcelJS.Workbook" src/components/componentsdetails/detils --glob "*.vue"`（批导入组件 0 命中；UserBatchImport 除外，见 B-9）。
+- **验证命令**：`npm run type-check` + `npm run lint` + `npm run format:check`（通过）；`npx vitest run src/utils/__tests__/batchImportHelpers.spec.ts`（通过）。
+- **回滚风险**：若新增批导入组件，模板导出必须复用 `downloadExcelTemplate`。
+
+### A-18. 前端分页 page-sizes 字面量收敛 → PAGE_SIZE_OPTIONS（审计第 9 项）
+- **状态**：✅ 已关闭 | 关闭日期：2026-09-09 | 本次修复
+- **修复内容**：`[10, 20, 50]` 字面量在 5 个文件（ContactsView/AuthUserManage/RoleManage/NotificationList/DepartmentEmployeeList）重复，新建 `src/utils/pagination.ts::PAGE_SIZE_OPTIONS` 单一来源，全部改引用。
+- **范围说明**：CommonList 默认 `[20,50,100,200,500]` 是另一组分档，**不属于**本收敛目标，保持不变。
+- **验证命令**：`rg -n "page-sizes" src`（无 `[10, 20, 50]` 字面量）；`npx vitest run src/utils/__tests__/pagination.spec.ts`（3 passed）。
+
 ---
 
 ## B — 待修复（To Fix）
@@ -195,6 +211,39 @@
 
 ---
 
+### B-11. 【新发现 2026-09-01】后端同名模块死文件簇（模块被同名包遮蔽）
+- **判定**：死代码 + 维护误导（非双活实现，实际运行走包目录）。
+- **证据**：`apps/assetmanagement/` 下 5 个被 git 跟踪的根级 .py 与同名包共存，Python 导入系统
+  中包优先于同名模块（实测 `django.setup()` 后 `serializers.__file__` 等全部解析到包 `__init__.py`），
+  根级文件永不可达：`serializers.py`（1846 行）、`views.py`（1507 行）、`operation_log_service.py`
+  （612 行，全仓零引用）、`services.py`、`selectors.py`。且死文件仍在被持续维护
+  （serializers.py 最后修改 2026-08-23 `32a6eb9`，views.py / operation_log_service.py 2026-08-24），
+  存在"改了不生效"的误导风险；均超 500 行且无 TECHNICAL_DEBT 标记（DR-5 风险面）。
+- **验证命令**：`DJANGO_SETTINGS_MODULE=config.settings.test python -c "import django; django.setup(); import apps.assetmanagement.serializers as s; print(s.__file__)"`
+- **修复建议**：确认无 importlib 按路径加载后，直接删除 5 个死文件（零行为变更，1063 测试回归验证）。
+- **优先级**：高（维护成本与误导风险）。**状态**：待修复。
+
+---
+
+### B-12. 【新发现 2026-09-01】前端员工状态映射双源（键集与文案不一致）
+- **判定**：重复定义（DR-1 风险面，改标签易漏改一处）。
+- **证据**：`src/utils/statusMapping.ts` `EMPLOYEE_STATUS_MAP`（active/left/retirement → 在职/离职/退休）
+  与 `src/utils/Format.ts:247-252` `userStatusMapping`（active/left/retirement/dismissed → 在职员工/
+  离职员工/退休员工/辞退员工）键集与文案均不一致，两份独立维护。
+- **修复建议**：Format 侧改为从 `EMPLOYEE_STATUS_MAP` 派生并补 dismissed 键，收敛单一来源。
+- **优先级**：低。**状态**：待修复。
+
+---
+
+### B-13. 【新发现 2026-09-09】UserBatchImport 模板导出第 9 处的残留内联实现
+- **判定**：克隆（`src/components/componentsdetails/detils/UserBatchImport.vue::downloadTemplate` 与 A-17 收敛的同构现有第 9 处，依旧内联 `new ExcelJS.Workbook()`，未走 `downloadExcelTemplate`）。
+- **证据**：`UserBatchImport.vue:295-325` 手写创建工作簿/表头/示例行/下载；导出的 `userTemplateData` 单元格含**非字符串值**（`排序: 100` 数字），强行走 `downloadExcelTemplate`（签名 `Record<string, string>[]`）会产生类型不匹配，需先规范数据映射。
+- **修复建议**：后续将 `userTemplateData` 全部值规范为字符串（排序、数字字段先 String()），再迁移至 `downloadExcelTemplate`，删除内联实现与 `import ExcelJS`。
+- **优先级**：低（与 A-17 同构但无功能缺陷）。
+- **验证命令**：`rg -n "new ExcelJS.Workbook" src/components/componentsdetails/detils/UserBatchImport.vue`（预期 1 命中，迁移后 0）。
+
+---
+
 ## C — 降级/待决策（Downgraded / Decision Gate）
 
 ### C-1. 前端资产状态回退行为三态分歧（已解决）
@@ -211,6 +260,62 @@
 - **描述**：服务层 `error_code` 字符串（如 `INVALID_STATE_TRANSITION`/`ASSET_NOT_FOUND`）与 `BusinessCode` 常量（如 `INVALID_TRANSITION`/`ASSET_NOT_FOUND=1003`）命名不同但语义重叠。两套体系独立运作：`BusinessCode` 用于响应体 `code` 字段（现仅保留 `SUCCESS=0`），`error_code` 字符串仅用于批量操作 `fail_items` 日志（前端不消费）。
 - **判定**：降级处理，不纳入本次修复。`error_code` 字符串无注册表需求，仅作日志标识。
 - **验证命令**：`rg -n "business_code" asset_management_backend/utils/response_utils.py`（预期无命中，已删除该参数）。
+
+### C-4. 前端批量导入页「上传提示 + 导入指南」区块重复（P3 登记，部分收敛）
+- **判定**：克隆（`.upload-tip` 提示块 + `.import-guide-card` 区块在 8 个批量导入页逐字同构，含相同 CSS 与结构）。
+- **位置**：`AssetBatchImport.scss` / `StorageBatchImport.vue` / `ContractBatchImport.scss` / `OutAssetBatchImport.scss` / `UnregisteredAssetBatchImport.vue` / `DamagedAssetBatchImport.vue` / `DepartmentBatchImport.vue` / `AssetTypeBatchImport.vue`。
+- **证据**：8 处 `.upload-tip { margin-top: 8px; color: var(--text-secondary); ... }` 结构一致；`BatchImportGuideCard.vue` 已封装的指南卡片小于实际复用范围。
+- **用户决策（2026-09-08）**：`.upload-tip` 提示块整体**不重构**（8 处保留），未来若采用 `ListPageShell` 类底座随 P3 统一处理。
+- **局部收敛（2026-09-09，本次修复）**：2 处残留手写 `.import-guide-card`（`DamagedAssetBatchImport.vue` / `DepartmentBatchImport.vue`）改为复用已封装的 `BatchImportGuideCard` 组件（DR-2），净删 ~90 行重复模板；`.upload-tip` 提示块按 09-08 决策保留不动。
+- **验证命令**：`rg -n "import-guide-card" src/components/componentsdetails/detils --glob "*.vue"`（不再命中 Damaged/Department）；`rg -c "upload-tip" vue-assetmanagement/src --glob "*.vue" --glob "*.scss"`（预期 ≥8，保持）。
+
+### C-5. 前端详情页「页标题 + child-page-header」双结构（P3 登记，不重构）
+- **判定**：近重复（主容器 `@mixin child-router-container` 提供的 `child-page-header h2` 与详情组件自身的 `.page-title` 均为页标题；P0/P1 已将两者统一为 20px，结构未合并）。
+- **位置**：`assets/styles/common-forms.scss`（`child-page-header`、`detail-container .page-title`）与 `BasicAssetDetails.scss` 等详情组件。
+- **用户决策（2026-09-08）**：仅登记，**不重构**（结构合并涉及详情页模板重构，风险大于收益）。
+- **验证命令**：`rg -n "child-page-header|page-title" vue-assetmanagement/src/components --glob "*.vue" --glob "*.scss"`
+
+### C-6. 前端列表页骨架逐页组装（P3 登记，不重构）
+- **判定**：结构重复（各列表页自行组装：搜索栏 + 表格容器 + 分页 + 页面头声明；P0 已将页头收敛至 MainView 统一渲染，剩余骨架未见公共底座）。
+- **位置**：`views/` 与 `components/componentsdetails/` 下各列表页。
+- **用户决策（2026-09-08）**：仅登记，**不重构**。未来 `ListPageShell` 底座可作为独立架构项推进。
+- **验证命令**：`rg -l "SmartListContainer|CommonList" vue-assetmanagement/src/components/componentsdetails vue-assetmanagement/src/views`（预期多文件命中，印证无公共底座）。
+
+### C-7. 前端底部悬浮操作栏 form-actions 模式重复（P3 登记，不重构）
+- **判定**：样式克隆（`@mixin table-container form-actions` 底部浮层样式在表单/详情编辑场景重复出现）。
+- **位置**：`assets/styles/common-forms.scss`（form-actions 内联块）及各表单页组件。
+- **用户决策（2026-09-08）**：仅登记，**不重构**。
+- **验证命令**：`rg -ln "form-actions" vue-assetmanagement/src --glob "*.vue" --glob "*.scss"`
+
+### C-8. 资产/合同域「detail 路由 = recordcode，batch-delete = asset_code」双约定契约特性（ID-2 资产域实证，不可统一）
+- **判定**：跨端契约特性（非重复代码，登记以防后续"统一取键"引入回归）。后端对同一资源的两类端点使用**不同的定位键**，前端两套键不可互换。
+- **资产域实证（2026-09-09）**：
+  1. detail 路由（GET/PUT/DELETE `/assets/assets/{id}/`）：`AssetViewSet` `lookup_field="recordcode"`（`apps/assetmanagement/views/asset_view.py:57`）+ `RecordcodeLookupMixin.get_object`（`mixins/_mixins.py:24-42`，数字 pk → recordcode → 404）。前端传 `asset_code`（业务编码 "AST-A001"）必然 404——即 ID-2 根因（资产列表页编辑/单删曾传 asset_code）。
+  2. batch-delete 端点（`POST /assets/assets/batch-delete/`）：显式按业务编码处理——`filter(asset_code__in=ids)` 并按 asset_code 做 RBAC 范围校验（`asset_view.py:357-367`）。前端批删**必须**传 asset_code，若"统一"改 recordcode 会改坏。
+- **合同域同构**：detail 路由 = recordcode（ContractViewSet 同 lookup 机制）；`contract_code` 为纯展示字段，不参与定位（A-5 已落地 4 处修正：`ContractDetails.vue` L216/237/261/279）。
+- **合法例外（非 bug，勿误改）**：部门 `lookup_field="department_code"`（`apps/usermanagement/views.py:61`）、未登记资产 `lookup_field="unregistered_code"`（`apps/unregisteredasset/views.py:86`）——这两个域的 detail 路由以业务编码为键，与资产/合同的 recordcode 约定不同。
+- **前端防线（已落地）**：`api/asset.ts`（updateAsset/deleteAsset/getAssetByCode 入参语义 = recordcode，batchDeleteAssets 入参语义 = asset_code，均带契约注释）、`stores/assetStore.ts`（api 绑定行内注释）、`AssetContentDetails.vue`（编辑/单删取 row.recordcode，批删取 row.asset_code 并注释双约定）、`types/asset.ts::AssetUpdateForm`（recordcode 必填）。防回归断言：`assetStore.spec.ts`（批删原样透传 asset_code）、`asset.spec.ts`（recordcode URL 拼装 4 断言）。
+- **验证命令**：`rg -n "row\.asset_code" vue-assetmanagement/src/components/componentsdetails/AssetContentDetails.vue`（预期仅剩批删 1 处）；`rg -n "recordcode" vue-assetmanagement/src/api/asset.ts`（updateAsset URL/校验均用 recordcode）。
+- **登记日期**：2026-09-09 | 来源：前端展示 Bug 审核 · ID-2 独立核验（后端双约定实证）
+
+### C-9. 前端主色令牌三源不同步（亮色 CSS 变量 / 编译期 SCSS 变量 / 暗色 EP 变量）
+- **判定**：令牌契约特性（非可直接删除的重复，登记以防"统一取值"误改；同时是暗色模式修复的前置阻塞项）。
+- **证据（2026-09-09 核验）**：同一"主色"概念三处独立声明——
+  1. 亮色运行时：`src/styles/variables.css:4` `--color-primary: #2b5fd7`（CSS 变量，`html.dark` 中重定义 79 个变量）；
+  2. 编译期固化：`src/assets/styles/common-forms.scss:11` `$primary-color: #2b5fd7`（SCSS 变量编译为字面量，暗色不切换）；`AsideMenu.vue:171-215` 等 8+ 处直接引用 `$border-color/$text-primary/$primary-color`；
+  3. 暗色 EP 侧：`src/styles/dark.css:10` `--el-color-primary: #4a90e2`（Element Plus 变量，与亮色 #2b5fd7 色相不同）。
+- **影响**：暗色模式下 EP 组件主色（#4a90e2）与自定义组件固化亮色（#2b5fd7）并排呈现两种蓝；三源同值但独立维护，任一改色即漂移。ECharts（useDashboardCharts.ts/useDashboardPage.ts）硬编码 #333/#e5e7eb/#fff，不读任何令牌，暗色完全失效。
+- **决策**：暗色修复**须先收敛三源**（SCSS 变量改引用 CSS 变量；dark.css 主色与亮色对齐或声明暗色专用色阶——后者需产品决策）；组件级替换（AsideMenu/LogIn/Dashboard）在三源收敛后进行，否则白做。
+- **验证命令**：`rg -n "2b5fd7" vue-assetmanagement/src`；`rg -n '\$primary-color' vue-assetmanagement/src/assets/styles/common-forms.scss`；`rg -nE "#333|#e5e7eb|getComputedStyle" vue-assetmanagement/src/composables/useDashboardCharts.ts`
+- **登记日期**：2026-09-09 | 来源：前端设计与质量审计核验
+
+### C-10. 详情页 :deep(.el-table) 覆盖战争（全仓 63 处 !important）
+- **判定**：样式交叉覆盖（各详情页用 `!important` 对抗公共组件内部样式；改 `CommonList` 样式会被静默拦截或引发连锁回归）。
+- **证据（2026-09-09 核验）**：全仓 `!important` 共 **63 处**；Top 分布 `WasteAssetDetails.vue` / `UnregisteredAssetDetails.vue` / `OutAssetDetails.vue` / `OperationLogDetails.scss` / `HardDiskSNDetails.vue` 各 8 处。`:deep(.el-table)` 在 `CommonList.vue` 8 处 + 4 个详情页各 2 处重复（OutAsset/UnregisteredAsset/HardDiskSN/WasteAsset）。
+- **修复建议**：提取共享 SCSS mixin 收敛 `:deep` 覆盖；以 CSS 变量/组件 props 传参替代 `!important`；与 Phase 3 DRY 重构合并为"表格样式覆盖"专项。
+- **决策（2026-09-09）**：登记不立即重构（涉及 5+ 文件样式回归验证，需独立专项）。
+- **验证命令**：`rg -c "!important" vue-assetmanagement/src --glob "*.vue" --glob "*.scss" | awk -F: '{s+=$NF} END {print s}'`（预期 63）；`rg -c ":deep\(\.el-table" vue-assetmanagement/src --glob "*.vue"`（预期 CommonList 8 + 详情页 2×4）
+- **登记日期**：2026-09-09 | 来源：前端设计与质量审计核验
 
 ---
 
@@ -252,6 +357,24 @@
 - **状态**：✅ 已关闭 | 关闭日期：2026-08-24
 - **验证命令**：`pytest apps/usermanagement/tests/test_init_production_data.py -v`（8 passed）
 
+### D-5. 后端 getassetbyrecordcode 路径参数失效（路径与 query 双入口，纯路径调用必 400）
+- **判定**：后端存量缺陷（用户决策 Q4=a：只登记、不动后端，等后端排期）。
+- **证据**：`apps/assetmanagement/views/asset_view.py:182-187`——路由签名 `def getassetbyrecordcode(self, request, recordcode)` 接收了路径参数，但函数体只读 `request.query_params.get("recordcode")` 并校验 `if not recordcode`（此处是局部 query 变量遮蔽/重赋值逻辑）；当客户端以**纯路径**方式 `GET /assets/assets/getassetbyrecordcode/{recordcode}/` 调用时 query 为空 → 400「缺少记录编码」，路径参数被忽略。
+- **影响面**：前端 `vue-assetmanagement/src` 全仓无 `getassetbyrecordcode` 调用方（2026-09-09 全仓 grep 0 命中），**无前端影响**；仅第三方/集成调用纯路径形态会踩坑。
+- **修复建议**（供后端排期）：函数体改为优先取路径参数、query 参数兜底（或移除 query 兜底统一路径）；补一个纯路径调用的集成测试。
+- **优先级**：中（无前端影响，但属 OpenAPI 契约与实现不符）。
+- **状态**：⏳ 已登记待后端处理 | 登记日期：2026-09-09
+- **验证命令**：`curl .../api/assets/assets/getassetbyrecordcode/Asset-20260101-XXXXXXXX/`（现状 400；修复后应 200）
+
+### D-6. 自定义浮层 z-index 并列 1000 ×2（无层级令牌，遮盖靠 DOM 顺序）
+- **判定**：隐形错位风险（当前无实际遮盖缺陷，但两个独立浮层同写 `z-index: 1000` 且无统一层级令牌；EP 弹窗默认 ~2000+，层级体系无设计约束）。
+- **证据（2026-09-09 核验）**：全仓 `z-index` 仅 3 个文件使用，其中两处独立浮层并列 1000；详情页"子路由激活遮罩"（`isChildRouteActive` + route watcher）的 z-index/透明度为各页手写，无共享 mixin/变量。
+- **触发条件**：两个并列 1000 浮层同屏出现时，遮盖关系取决于 DOM 顺序而非设计意图；任何新增浮层都可能意外互遮。
+- **修复建议**：建立层级令牌（如 `--z-overlay/--z-mask/--z-popover` 阶梯），收敛全部手写 z-index；遮罩层随 `:deep` 收敛专项统一。
+- **优先级**：低（暂无用户可见缺陷）。
+- **登记日期**：2026-09-09 | 来源：前端设计与质量审计核验
+- **验证命令**：`rg -n "z-index" vue-assetmanagement/src --glob "*.vue" --glob "*.scss"`
+
 ---
 
 ## 附：回归护栏（可验证不变量）
@@ -268,6 +391,11 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9 (2026-09-09)**：前端设计审计修复落地——关闭 A-17（handleExportTemplate×8 → downloadExcelTemplate，含删除重复工具 exportImportTemplate.ts）、A-18（page-sizes 字面量×5 → PAGE_SIZE_OPTIONS）；C-4 局部收敛（Damaged/Department 手写 import-guide-card → BatchImportGuideCard，upload-tip 按 09-08 决策保留）；登记 B-13（UserBatchImport 第 9 处内联模板导出残留，待数据规范化后迁移）。
+- **v2.8.1 (2026-09-09)**：C-9 精化——dark.css 与 variables.css 的暗色主色（#4a90e2）实为同步（同值），"三源不同步"修正为"SCSS 编译期固化亮色值不随暗色切换"（真正的缺陷是裸引用，非三源值漂移）；修正 v2.8 记录中"LoginDialog.vue 不存在"的误判（该文件存在于 src/components/LoginDialog.vue:75，初核查错路径）。
+- **v2.8 (2026-09-09)**：前端设计审计核验——登记 C-9（主色令牌三源不同步：CSS 变量/SCSS 编译期/dark.css EP 变量，暗色修复前置阻塞）、C-10（63 处 !important 覆盖战争 + :deep(.el-table) 重复，登记不立即重构）、D-6（z-index 并列 1000 无层级令牌）。同时核验外部审计报告：大方向属实但多项数字不实（字体违规 25→15、rgba 8→24、400-485 行文件 20→26、LoginDialog.vue 不存在）。
+- **v2.6 (2026-09-09)**：ID-2 资产域双约定实证——新增 C-8（detail 路由=recordcode / batch-delete=asset_code 双约定契约特性，含前端防线与防回归断言）；登记 D-5（后端 getassetbyrecordcode 路径参数失效，只登记不动后端）。
+- **v2.5 (2026-09-08)**：前端展示页专项登记 C-4~C-7（批量导入上传提示/导入指南区块、详情页双标题结构、列表页骨架组装、底部操作栏浮层），用户决策仅登记不重构（P3 排期外）。
 - **v2.4 (2026-08-26)**：H-1 整改落地——新增 A-16（Python 依赖清单双份维护，已收敛单一事实源）；登记 D-3（vite.config.ts 注释态配置副本）、D-4（API 文档双份维护）。
 - **v2.3 (2026-08-24)**：登记 D-2（init_production_data 管理命令 3 个字段名 bug，测试发现并修复）。
 - **v2.2 (2026-08-24)**：关闭 F-1~F-4/F-6/F-7 共 6 项（A-10~A-15）；B-1 标记已关闭；登记 D-1（F-5 暂不收敛）。
