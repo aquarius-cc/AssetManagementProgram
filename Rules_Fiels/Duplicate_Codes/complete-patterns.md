@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9 | **最后更新**：2026-09-09 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.1 | **最后更新**：2026-09-09 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -366,14 +366,20 @@
 - **状态**：⏳ 已登记待后端处理 | 登记日期：2026-09-09
 - **验证命令**：`curl .../api/assets/assets/getassetbyrecordcode/Asset-20260101-XXXXXXXX/`（现状 400；修复后应 200）
 
-### D-6. 自定义浮层 z-index 并列 1000 ×2（无层级令牌，遮盖靠 DOM 顺序）
-- **判定**：隐形错位风险（当前无实际遮盖缺陷，但两个独立浮层同写 `z-index: 1000` 且无统一层级令牌；EP 弹窗默认 ~2000+，层级体系无设计约束）。
-- **证据（2026-09-09 核验）**：全仓 `z-index` 仅 3 个文件使用，其中两处独立浮层并列 1000；详情页"子路由激活遮罩"（`isChildRouteActive` + route watcher）的 z-index/透明度为各页手写，无共享 mixin/变量。
-- **触发条件**：两个并列 1000 浮层同屏出现时，遮盖关系取决于 DOM 顺序而非设计意图；任何新增浮层都可能意外互遮。
-- **修复建议**：建立层级令牌（如 `--z-overlay/--z-mask/--z-popover` 阶梯），收敛全部手写 z-index；遮罩层随 `:deep` 收敛专项统一。
-- **优先级**：低（暂无用户可见缺陷）。
-- **登记日期**：2026-09-09 | 来源：前端设计与质量审计核验
-- **验证命令**：`rg -n "z-index" vue-assetmanagement/src --glob "*.vue" --glob "*.scss"`
+### D-6. 自定义浮层 z-index 无层级令牌（并列 1000 ×2 + 高层 2000，遮盖靠 DOM 顺序）
+- **判定**：隐形错位风险（当前无实际遮盖缺陷，但层级值无令牌约束；EP 弹窗默认 ~2000+ 起始）。**证据经 2026-09-09 二次核验修正**（初版"仅 3 文件/各页手写无共享 mixin"两处不实，已更正）。
+- **证据（2026-09-09 复验）**：全仓 z-index 共 **4 个文件 8 处**——
+  1. `common-forms.scss`：bottom-buttons sticky=50（L439）、router-mask-container=**1000**（L496）、mask=100（L506）、child-router-container=200（L511）——后三者经 `@include` 被 **13 个详情页**复用（AssetContentDetails/ContractDetails/OutAssetDetails 等），非各页手写；
+  2. `NotificationBell.vue:175` = **1000**（与 router-mask-container 并列，真隐患）；
+  3. `MainView.vue:165` = **2000**（与 EP 弹窗起始值同量级，同样需纳入阶梯）；
+  4. `AuditLogDetails.vue:328/342` 手写 100/1（唯一游离于 mixin 体系外的值）。
+- **非 z-index 问题（勿误治）**：`.common-list`（CommonList.vue:307）无 position/z-index → 非 stacking context，永远被 sticky bottom-buttons(z=50) 悬浮压住——这是设计意图，令牌化不改变也不应改变；若按钮栏被遮挡，根因在祖先 stacking context（transform/filter）或 el-table fixed 列，令牌化无效。
+- **触发条件**：并列 1000 两浮层（详情遮罩 vs 消息铃铛）同屏时遮盖靠 DOM 顺序；新增浮层可能意外互遮。
+- **修复建议**：建立层级令牌阶梯（`--z-sticky-bar:50 / --z-mask:100 / --z-child-container:200 / --z-router-mask / --z-bell / --z-view-overlay`），收敛 4 文件 8 处 + AuditLogDetails 游离值；令牌取值按实际绘制顺序约定，避免并列。
+- **状态**：✅ 已修复（2026-09-09）——variables.css 新增 `--z-*` 阶梯（content:1 / sticky-bar:50 / mask:100 / child-container:200 / notification:900 / router-mask:1000 / view-overlay:2000，主题无关仅 :root 定义），4 文件 8 处手写 z-index 全部收敛为 var() 引用（common-forms.scss 4 处 mixin、MainView 2000、NotificationBell 1000→**900 有意变更**：消除并列，详情遮罩明确盖过侧边栏铃铛、AuditLogDetails 游离值 100/1 归入 mask/content）。验证：sass 编译通过、裸 z-index 残留 0、var() 引用恰 8 处、对抗审核（暗色块零冲突/无重复定义/scoped 上下文完整/测试零依赖/铃铛挂载于 AsideMenu 不在遮罩内，900<1000 语义成立）全部通过。
+- **优先级**：低（暂无用户可见缺陷，收敛属预防性治理）。
+- **登记日期**：2026-09-09 | 二次核验修正：2026-09-09 | 来源：前端设计与质量审计核验
+- **验证命令**：`rg -n "z-index" vue-assetmanagement/src --glob "*.vue" --glob "*.scss"`（预期 4 文件 8 处）
 
 ---
 
@@ -391,6 +397,7 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.1 (2026-09-09)**：D-6 二次核验修正——z-index 实为 4 文件 8 处（初版漏 MainView:165=2000）；"子路由遮罩各页手写无共享 mixin"不实（实为 common-forms.scss 三个 mixin 经 @include 被 13 个详情页复用，仅 AuditLogDetails 游离）；补充"common-list/bottom-buttons 非层叠问题勿误治"边界说明。
 - **v2.9 (2026-09-09)**：前端设计审计修复落地——关闭 A-17（handleExportTemplate×8 → downloadExcelTemplate，含删除重复工具 exportImportTemplate.ts）、A-18（page-sizes 字面量×5 → PAGE_SIZE_OPTIONS）；C-4 局部收敛（Damaged/Department 手写 import-guide-card → BatchImportGuideCard，upload-tip 按 09-08 决策保留）；登记 B-13（UserBatchImport 第 9 处内联模板导出残留，待数据规范化后迁移）。
 - **v2.8.1 (2026-09-09)**：C-9 精化——dark.css 与 variables.css 的暗色主色（#4a90e2）实为同步（同值），"三源不同步"修正为"SCSS 编译期固化亮色值不随暗色切换"（真正的缺陷是裸引用，非三源值漂移）；修正 v2.8 记录中"LoginDialog.vue 不存在"的误判（该文件存在于 src/components/LoginDialog.vue:75，初核查错路径）。
 - **v2.8 (2026-09-09)**：前端设计审计核验——登记 C-9（主色令牌三源不同步：CSS 变量/SCSS 编译期/dark.css EP 变量，暗色修复前置阻塞）、C-10（63 处 !important 覆盖战争 + :deep(.el-table) 重复，登记不立即重构）、D-6（z-index 并列 1000 无层级令牌）。同时核验外部审计报告：大方向属实但多项数字不实（字体违规 25→15、rgba 8→24、400-485 行文件 20→26、LoginDialog.vue 不存在）。
