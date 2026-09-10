@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.15 | **最后更新**：2026-09-10 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.16 | **最后更新**：2026-09-10 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -468,6 +468,7 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.16 (2026-09-10)**：D-4 修复完成（方案 B 落地，用户拍板）——实测推翻"双份副本"口径：`API详细文档0608.md` 两份逐字节相同（纯 CRLF 镜像）→ 前端版删除；`API.md`/`SECURITY.md`/`TESTING.md`/`WORKFLOW.md` 四份经内容定性为**同名不同物**（后端 27 章端点契约 vs 前端 16 章 api/*.ts 消费文档；服务端安全 vs casl UI 管控；pytest vs Vitest；后端流程 vs GitHub Flow）→ 前端四份加 `FRONTEND_` 前缀去歧义（git mv，内容零改动）；前端内部错拼双份 `ARCHITECUTRE.md` 经定性为独立文档（系统架构设计/依赖红线）→ 改名 `ARCHITECTURE_OVERVIEW.md` 保留；`docs/README.md` 新增"文档索引"段（API 契约权威指向后端 + 六文档对照表）；全仓引用清查零断链。决策 2（文档托管出口 GitBook/Docusaurus）登记为待办，待 D-4 收敛后出方案。D-1 状态见其条目与 v2.9.15 记录（并行会话已完成关闭，本条目早稿中"待实施"表述作废）。
 - **v2.9.15 (2026-09-10)**：D-1 关闭——`unregisteredasset` 手写 `batch_create` 收敛至 `BatchOperationMixin.batch_execute`。core `batch_mixins.py` 补齐 `except serializers.ValidationError` 分支（原 DRF `ValidationError` 落 `except Exception` 被吞为 INTERNAL_ERROR，现路由 VALIDATION_ERROR；复用 L30 已导入的 serializers 零新依赖；完整复刻 row_number/input_data 组装；core 变更跨 10 消费方，已声明）；新增 `UnregisteredAssetService.batch_create_unregistered`（services.py，闭包内 serializer 校验 + create）；View 收缩（空/超限 400 原样保留、`resolve_operator` 循环外一次、委托 Service、`BatchResponseHelper.create_response(request_items)` 回写原始 input_data）；Service 内 `pop("row_number", None)` 保证 fail_items 契约与手写版逐字节一致（test_b5 逐键锁定断言零改动，剔除仅本方法生效）。回归：unregisteredasset 76 passed + 消费方 694 passed + 护栏 PASS + ruff/mypy 干净 + Service 覆盖率 90.48%。前序登记见 D 区条目。
 - **v2.9.14 (2026-09-10)**：C-10 账本条目状态同步——条目补 ✅ 已修复状态行（63→1 实测收口，附 `eb73f17`/`03f5630` commit 链与残余 1 处 MainView.vue:205 另立专项说明），验证命令更新为新预期值；修复主体见 v2.9.11/v2.9.12 记录。至此 B-13/D-3 待办外，C 区仅余 C-10 残余 1 处（独立专项）与冻结项。
 - **v2.9.13 (2026-09-10)**：首页 Row 4 不显示 + 无滚动条修复——根因：App 壳重构（cb7b48f）后 `.common-main` 为 height:100%+flex column+overflow:hidden 裁剪壳，16+ 列表/详情页均经 list-container mixin 入列壳契约，唯 DashboardPage 根容器仍为旧范式 `height:100%`——内容超高被裁剪且无处滚动（与 AssetDetails 断链 bb71ff4 同型，壳契约第三例）。修复：`.dashboard-page-content` 改壳契约三件套 `flex:1 + min-height:0 + overflow-y:auto`（单文件 3 行）。对抗审核：复核者原方案单一 `flex:1` 不充分（flex 子项 min-height:auto 默认为内容高，无 overflow 仍被撑爆裁剪）——三件套缺一不可；卡片内滚 `el-card__body overflow-y:auto`（L253）经查父链无确定高度基准、处于休眠态，与新页面级滚动无冲突，保留；旧范式残留登记：AssetForm.vue / RecycleAssetDetails.vue（表单页嫌疑，待报告另立专项）、AsideMenu.vue（非路由页不适用）。壳契约模式沉淀：新增路由页根容器必须三件套入列。验证：vue-tsc 0 错、lint 干净、全量 vitest 106 文件、vite build 13.97s。
