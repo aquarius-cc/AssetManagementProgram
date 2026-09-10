@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.9 | **最后更新**：2026-09-09 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.10 | **最后更新**：2026-09-09 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -305,6 +305,7 @@
   3. 暗色 EP 侧：`src/styles/dark.css:10` `--el-color-primary: #4a90e2`（Element Plus 变量，与亮色 #2b5fd7 色相不同）。
 - **影响**：暗色模式下 EP 组件主色（#4a90e2）与自定义组件固化亮色（#2b5fd7）并排呈现两种蓝；三源同值但独立维护，任一改色即漂移。ECharts（useDashboardCharts.ts/useDashboardPage.ts）硬编码 #333/#e5e7eb/#fff，不读任何令牌，暗色完全失效。
 - **决策**：暗色修复**须先收敛三源**（SCSS 变量改引用 CSS 变量；dark.css 主色与亮色对齐或声明暗色专用色阶——后者需产品决策）；组件级替换（AsideMenu/LogIn/Dashboard）在三源收敛后进行，否则白做。
+- **优先级**：中（暗色模式前置阻塞项）。**状态**：✅ 已修复（2026-09-09，Phase 1 实施）——组件裸引用清零（AsideMenu/LoginDialog/DashboardPage/AssetDetails/ContractOfDetails/UserBatchImport.scss 全部换 var()，4 处 rgba 预派生 --color-primary-8/-12）；ECharts 经 useChartTheme.ts 主题化（theme computed 内消费 isDark.value，4 个 option computed 全部接入），硬编码色值清零；SCSS 变量定义保留（52 处 var(--x,$var) fallback 依赖）。遗留决策项：暗色主色色相统一（#4a90e2 vs #2b5fd7）待产品拍板。
 - **验证命令**：`rg -n "2b5fd7" vue-assetmanagement/src`；`rg -n '\$primary-color' vue-assetmanagement/src/assets/styles/common-forms.scss`；`rg -nE "#333|#e5e7eb|getComputedStyle" vue-assetmanagement/src/composables/useDashboardCharts.ts`
 - **登记日期**：2026-09-09 | 来源：前端设计与质量审计核验
 
@@ -322,7 +323,7 @@
 - **修复（已实施）**：改为 App 壳式布局（页面名/筛选不压缩 + 表格区 `flex:1; min-height:0; overflow:auto` 自滚 + 分页/按钮组流内页脚常驻）——共享层 8 处改动（list-container/table-container/bottom-buttons 三 mixin + responsive 两处 bottom 残留 + MainView/CommonList/SmartListContainer/SearchBar flex 链），16 个列表页经共享 mixin 零模板改动自动生效；`--z-sticky-bar` 令牌退役（D-6 阶梯同步更新）。
 - **边界（不参与）**：Dashboard/通讯录/通知/独立视图页；子路由详情（child-router-container 200）与全屏遮罩（router-mask 1000）行为不变。
 - **对抗审核结论**：UserDetails/DamagedAssetDetails/OperationLogDetails 三页初判"无 list-container 链路"系误报（实经外链 .scss `@include` 走共享 mixin，无断链）；组件内 6 处自写 `.bottom-buttons` 覆盖均无 sticky/z-index 残留；el-table fixed 列（5 文件）位于 overflow:auto 容器内表现正常；sass 编译/lint 通过。
-- **优先级**：中（用户可见交互缺陷，已根治）。
+- **优先级**：中（用户可见交互缺陷，已根治）。**状态**：✅ 已修复（2026-09-09，前端 commit `cb7b48f` + `4cddc43` + `bb71ff4` + `09d5bc5`）——App 壳式布局落地（8 处共享层改动，16 列表页零模板改动生效），AssetDetails 包装容器入链、DepartmentDetails 80px sticky 残留清除，两处后续断点经用户报告修复。
 - **登记日期**：2026-09-09 | 来源：用户复审方案（第②点遮盖问题）+ 对抗审核
 
 ---
@@ -411,9 +412,8 @@
 
 ### 优先级二：中复杂度（跨文件/需设计，需排期）
 
-- **面包屑 UI**：数据层完备（`guards.ts` `generateBreadcrumbs` + `stores/app.ts` `setBreadcrumbs`），`.vue` 消费方 0 命中
-  - 修复建议：新建全局 `AppBreadcrumb.vue` 消费 `appStore.breadcrumbs`，挂 `MainView` 页头下方；纯新增组件，零存量改动；注意与 `showPageHeader` meta 的显隐联动
-  - 风险：低（新增组件，不改存量）
+- **面包屑 UI**：✅ 已完成（2026-09-09，commits `466d683` UI + `43fb2d8` 字典漂移根治 + `40816d1` 菜单文案对齐）——`AppBreadcrumb.vue` 已建（消费 appStore.breadcrumbs + usePageHeader 共享 computed），generateBreadcrumbs 改从 route.matched meta 派生（routeMap 字典删除，新增路由自动生效），菜单/页头/面包屑三处文案已统一
+  - ~~修复建议：新建全局 `AppBreadcrumb.vue` 消费 `appStore.breadcrumbs`，挂 `MainView` 页头下方~~ 已实施并验证（4 用例 spec + 全量 1456 通过）
 - **C-10 专项（第一阶段）**：63 处 `!important` 覆盖战争
   - 分布：6 个详情页样式文件各 8 处（48）+ `CommonList.vue` 8 + `common-forms.scss` 6 + `MainView.vue` 1
   - 修复建议：先消解 `common-forms.scss` 6 处与 `CommonList` `:deep` 的冗余（确定单一事实层），再从 6 个详情页中选 2 个试点换共享 mixin；每批需样式回归（明/暗双主题）
@@ -467,6 +467,7 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.10 (2026-09-09)**：账本状态标记规范化（用户要求：已完成的修复在账本中标记，免后续不清）——C-9 补 ✅ 已修复状态行（裸引用清零/ECharts 主题化实证，遗留暗色色相决策项注明）；C-11 补 ✅ 已修复状态行（附 cb7b48f/4cddc43/bb71ff4/09d5bc5 四 commit 链）；B-19 执行清单"面包屑 UI"回填 ✅ 已完成（附 466d683/43fb2d8/40816d1 三 commit）。经全账本扫描，其余条目状态标记已齐备（A 区历史关闭项、B-2/B-10/B-11/B-12 已带 commit、D-5 有 ⏳ 标记、C-2~C-8 冻结项维持原判）。
 - **v2.9.9 (2026-09-09)**：菜单/meta 双源文案漂移修复 + 菜单结构调整——userdetails 与 departmentmanagement 的左侧菜单文案（AsideMenu 硬编码）与页头/面包屑文案（路由 meta.title）不一致（员工管理 vs 用户管理、通讯录管理 vs 部门-人员管理），以菜单名为准统一：两路由 meta.title 改为 '员工管理'/'通讯录管理'，guards.spec 断言同步（4 处）；通讯录管理菜单项从"员工信息"子菜单（v2.9.8 修复时仍在子菜单内）提升为顶级项——位置在仓库管理之后、员工信息之前，自带 v-if="canManageSystem"（原继承子菜单门控）+ Postcard 图标。明确不改：RolePermDialog '用户管理' 权限标签（绑定后端权限语义）、8 处文件头注释、/org/contacts 独立通讯录页（命名相近易混淆，留档提示）。验证：vue-tsc 0 错、guards 58/58、全量 vitest 1456/1456、lint 干净。
 - **v2.9.8 (2026-09-09)**：面包屑 routeMap 字典双写漂移根治——`generateBreadcrumbs` 改为遍历 `route.matched` 派生 `meta.title`（单一事实源，DR-1），彻底删除 31 键局部字典（不留档，git 可溯）；新增路由（roledetails/authusermanage 等）此后自动生效，无需同步字典。实施事实：vue-router 5 在 addRoute 时将相对子路径归一化为绝对路径（dist addRoute L1167-1172），`record.path` 可直接作 crumb 链接——"matched.path 是相对路径"的判断不成立；跳过 `/main` 与含 `:` 参数级，title 缺失跳级；`matched ?? []` 防御裸路由对象。对抗审核（全表 72 路由比对）：3 处文案以 meta.title 为准发生变化（assettypedetails→资产分类类型管理、repairassetdetails→维修记录、auditlogdetails→其它操作日志），属修正字典时代陈旧文案。验证：vue-tsc 0 错、guards 58/58（11 面包屑用例含 6 场景回归防线）、全量 vitest 1456/1456、lint 干净。
 - **v2.9.7 (2026-09-09)**：面包屑 UI 专项完成——新建 `AppBreadcrumb.vue`（消费 appStore.breadcrumbs，el-breadcrumb 首次引入）+ `composables/usePageHeader.ts`（MainView L99-108 页头逻辑抽取为唯一实现，DR-1）+ 同目录 `__tests__/AppBreadcrumb.spec.ts` 4 用例（双条件显隐/末项纯文本/非末项链接/空数组不渲染空壳）；MainView 挂载于 .page-header 与 router-view 之间（keep-alive/transition 不受影响）。实施要点：末项按索引判定纯文本（guards 每项均带 path，"有 path 即可点"会让末项可点）；显示条件三重（showPageHeader && settings.showBreadcrumbs && breadcrumbs.length）；组件自带 flex-shrink:0 适配 C-11 flex 链。对抗审核：EP 经 unplugin-vue-components/ElementPlusResolver 按需注册（components.d.ts 佐证），测试需显式注册组件（生产无需）；EP :to 项渲染 .is-link span 而非 <a>（断言按此修正）。验证：vue-tsc 0 错、定向 4/4、全量 vitest 1450/1450、lint 干净。
