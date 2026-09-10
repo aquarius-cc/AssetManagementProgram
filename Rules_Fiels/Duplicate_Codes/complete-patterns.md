@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.13 | **最后更新**：2026-09-10 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.14 | **最后更新**：2026-09-10 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -314,7 +314,8 @@
 - **证据（2026-09-09 复验修正拆分）**：全仓 `!important` 共 **63 处**——6 个详情页样式文件各 8 处（WasteAsset/UnregisteredAsset/OutAsset/OperationLogDetails.scss/HardDiskSN/DamagedAssetDetails.scss，48 处）+ `CommonList.vue` 8 + `common-forms.scss` 6 + `MainView.vue` 1。`:deep(.el-table)` 为 `CommonList.vue` 8 处 + 4 个详情页各 2 处重复（OutAsset/UnregisteredAsset/HardDiskSN/WasteAsset）。
 - **修复建议**：提取共享 SCSS mixin 收敛 `:deep` 覆盖；以 CSS 变量/组件 props 传参替代 `!important`；与 Phase 3 DRY 重构合并为"表格样式覆盖"专项。
 - **决策（2026-09-09）**：登记不立即重构（涉及 5+ 文件样式回归验证，需独立专项）。
-- **验证命令**：`rg -c "!important" vue-assetmanagement/src --glob "*.vue" --glob "*.scss" | awk -F: '{s+=$NF} END {print s}'`（预期 63）；`rg -c ":deep\(\.el-table" vue-assetmanagement/src --glob "*.vue"`（预期 CommonList 8 + 详情页 2×4）
+- **状态**：✅ 已修复（2026-09-10，第一阶段 + 收尾两批，commits `eb73f17`/`03f5630`）——`--table-*` 令牌体系（9 变量，后退役 min-width 项余 8）收敛三层覆盖：mixin 6 处 + CommonList 8 处 + 6 详情页 48 处 `:deep !important` 全部清除，改外层变量覆盖（M2 继承机制）；随后修复收尾引入的表头截断（根 min-width 撑开 EP clientWidth 布局基准）。**残余 1 处**：MainView.vue:205（`padding: var(--el-main-padding) !important`，移动端 el-main 内边距覆盖，与表格战争无关，另立专项待办）。详见变更记录 v2.9.11/v2.9.12/v2.9.13。
+- **验证命令**：`rg -n "!important" vue-assetmanagement/src --glob "*.vue" --glob "*.scss"`（预期仅 MainView.vue:205 1 处活规则；6 详情页命中为注释文字）；`rg -c ":deep\(\.el-table__" vue-assetmanagement/src/components/componentsdetails/`（预期 0）
 - **登记日期**：2026-09-09 | 来源：前端设计与质量审计核验
 
 ### C-11. bottom-buttons sticky 悬浮遮盖列表内容（布局范式问题，非层级问题）
@@ -467,6 +468,7 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.14 (2026-09-10)**：C-10 账本条目状态同步——条目补 ✅ 已修复状态行（63→1 实测收口，附 `eb73f17`/`03f5630` commit 链与残余 1 处 MainView.vue:205 另立专项说明），验证命令更新为新预期值；修复主体见 v2.9.11/v2.9.12 记录。至此 B-13/D-3 待办外，C 区仅余 C-10 残余 1 处（独立专项）与冻结项。
 - **v2.9.13 (2026-09-10)**：首页 Row 4 不显示 + 无滚动条修复——根因：App 壳重构（cb7b48f）后 `.common-main` 为 height:100%+flex column+overflow:hidden 裁剪壳，16+ 列表/详情页均经 list-container mixin 入列壳契约，唯 DashboardPage 根容器仍为旧范式 `height:100%`——内容超高被裁剪且无处滚动（与 AssetDetails 断链 bb71ff4 同型，壳契约第三例）。修复：`.dashboard-page-content` 改壳契约三件套 `flex:1 + min-height:0 + overflow-y:auto`（单文件 3 行）。对抗审核：复核者原方案单一 `flex:1` 不充分（flex 子项 min-height:auto 默认为内容高，无 overflow 仍被撑爆裁剪）——三件套缺一不可；卡片内滚 `el-card__body overflow-y:auto`（L253）经查父链无确定高度基准、处于休眠态，与新页面级滚动无冲突，保留；旧范式残留登记：AssetForm.vue / RecycleAssetDetails.vue（表单页嫌疑，待报告另立专项）、AsideMenu.vue（非路由页不适用）。壳契约模式沉淀：新增路由页根容器必须三件套入列。验证：vue-tsc 0 错、lint 干净、全量 vitest 106 文件、vite build 13.97s。
 - **v2.9.12 (2026-09-10)**：C-10 收尾修复——表头截断 Bug（thead th 显示不全、有横滚条也无法完整展示）根因实证：C-10 重构把 mixin 的 `min-width: 1200px` 净新增到 CommonList 根规则，EP（2.13.7，table-layout.mjs:90）以 `.el-table` 根 `clientWidth` 计算全部列宽，根被 min-width 撑开后 EP 布局与可视宽度脱节，表头 wrapper（EP 自带 overflow:hidden、不可滚）与主体滚动位移失步 → th 截断。修复：删除 mixin 与 CommonList 两处 `.el-table` 根的 min-width 与 overflow:hidden（后者系 EP 自带同值重复，删除属清理非修复）；`--table-min-width` 令牌退役（消费点清零，宽度下限需求改走 EP 列定义 min-width prop）。对抗审核：`--table-min-width` 残留仅剩退役注释；其余 8 令牌消费点与定义点一一对应；两处根块终态一致。事实更正：EP 实装版本 2.13.7（此前记 2.10.5 系 package.json ^ 范围误读）；`table-layout` 声明在根 div 上为 no-op（仅对 table 元素生效），本次保留属最小 diff。验证：vue-tsc 0 错、全量 vitest 106 文件、lint 干净、vite build 14.33s。详情页视觉有意变化：删 1200px 下限后窄容器下先收缩列宽再出滚动条（历史行为归一）。
 - **v2.9.11 (2026-09-10)**：C-10 第一阶段整改完成——`--table-*` 令牌体系（9 变量，variables.css :root）收敛三层表格覆盖战争：common-forms.scss mixin 内层 6 处 `!important` 与死规则 text-align/white-space 清除，CommonList.vue 8 处 `!important` 变量化（删 2 处冗余 text-align——内联 `:cell-style`/`:header-cell-style` 已居中；删 1 处无效力 nowrap），6 详情页 48 处 `:deep !important` 副本收敛为外层 `.table-container` 变量覆盖（统一值：th 16px 12px / td 12px 8px / word-break break-word，CSS 变量跨 scoped 边界继承至内层 th/td）。对抗审核实证：mixin 全部 19 个消费方 style 块均 scoped（含 4 个外链 scss 引入方）→ th/td 规则全为死代码、容器级规则经 scope-id 继承生效，table-layout fixed→auto 翻转安全；EP `.cell` 自有 `white-space:normal` + `overflow-wrap:break-word` 声明 → th/td 层 white-space 无效力（不设令牌），word-break EP 零声明可继承（设令牌）。全仓 `!important` 63→1（仅 MainView.vue:205 移动端菜单，另立专项）。验证：vue-tsc 0 错、全量 vitest 106 文件通过、lint 0 error、vite build 11.47s 成功。视觉回归需用户明/暗双主题人工比对（长数字列换行为敏感点）。
