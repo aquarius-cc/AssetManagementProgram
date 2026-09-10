@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.16 | **最后更新**：2026-09-10 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.17 | **最后更新**：2026-09-10 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -375,8 +375,8 @@
 - **影响面**：前端 `vue-assetmanagement/src` 全仓无 `getassetbyrecordcode` 调用方（2026-09-09 全仓 grep 0 命中），**无前端影响**；仅第三方/集成调用纯路径形态会踩坑。
 - **修复建议**（供后端排期）：函数体改为优先取路径参数、query 参数兜底（或移除 query 兜底统一路径）；补一个纯路径调用的集成测试。
 - **优先级**：中（无前端影响，但属 OpenAPI 契约与实现不符）。
-- **状态**：⏳ 已登记待后端处理 | 登记日期：2026-09-09
-- **验证命令**：`curl .../api/assets/assets/getassetbyrecordcode/Asset-20260101-XXXXXXXX/`（现状 400；修复后应 200）
+- **状态**：✅ 已修复（2026-09-10，Q4=a 冻结经用户解除）——`asset_view.py:185` 改 `recordcode or request.query_params.get("recordcode")`（路径优先、query 兜底，query-only 调用行为不变、双传时路径优先）；新增纯路径集成测试 `test_get_asset_by_recordcode_path_only`。对抗审核实证：400"缺少 recordcode 参数"分支现为防御性代码——url_path 捕获组 `[^/.]+` 要求路径段非空，路由层无法产生空 recordcode 请求（曾尝试的空串 reverse 用例被 Django 拒绝，已改注释说明不设用例）；全仓无第二处 query-only 读取。回归：test_asset_view_api + test_asset_view_rbac 共 42 passed。
+- **验证命令**：`pytest apps/assetmanagement/tests/test_asset_view_api.py::TestAssetViewSet::test_get_asset_by_recordcode_path_only -q`（应 passed）；`curl .../api/assets/assets/getassetbyrecordcode/Asset-20260101-XXXXXXXX/`（修复后 200）
 
 ### D-6. 自定义浮层 z-index 无层级令牌（并列 1000 ×2 + 高层 2000，遮盖靠 DOM 顺序）
 - **判定**：隐形错位风险（当前无实际遮盖缺陷，但层级值无令牌约束；EP 弹窗默认 ~2000+ 起始）。**证据经 2026-09-09 二次核验修正**（初版"仅 3 文件/各页手写无共享 mixin"两处不实，已更正）。
@@ -468,6 +468,7 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.17 (2026-09-10)**：D-5 修复完成（Q4=a 冻结经用户解除）——`asset_view.py:185` 路径参数优先、query 兜底（纯路径调用不再必 400，query-only 行为不变，双传路径优先）；补纯路径集成测试 `test_get_asset_by_recordcode_path_only`。对抗审核：400 分支经证为防御性代码（url_path 捕获组 `[^/.]+` 非空约束，路由层无法产生空参数请求——曾试的空串 reverse 用例被 Django 拒绝，改注释说明不设用例）；全仓无第二处 query-only 读取；错误文案未动。回归：test_asset_view_api + rbac 共 42 passed。后端仓随本批提交。
 - **v2.9.16 (2026-09-10)**：D-4 修复完成（方案 B 落地，用户拍板）——实测推翻"双份副本"口径：`API详细文档0608.md` 两份逐字节相同（纯 CRLF 镜像）→ 前端版删除；`API.md`/`SECURITY.md`/`TESTING.md`/`WORKFLOW.md` 四份经内容定性为**同名不同物**（后端 27 章端点契约 vs 前端 16 章 api/*.ts 消费文档；服务端安全 vs casl UI 管控；pytest vs Vitest；后端流程 vs GitHub Flow）→ 前端四份加 `FRONTEND_` 前缀去歧义（git mv，内容零改动）；前端内部错拼双份 `ARCHITECUTRE.md` 经定性为独立文档（系统架构设计/依赖红线）→ 改名 `ARCHITECTURE_OVERVIEW.md` 保留；`docs/README.md` 新增"文档索引"段（API 契约权威指向后端 + 六文档对照表）；全仓引用清查零断链。决策 2（文档托管出口 GitBook/Docusaurus）登记为待办，待 D-4 收敛后出方案。D-1 状态见其条目与 v2.9.15 记录（并行会话已完成关闭，本条目早稿中"待实施"表述作废）。
 - **v2.9.15 (2026-09-10)**：D-1 关闭——`unregisteredasset` 手写 `batch_create` 收敛至 `BatchOperationMixin.batch_execute`。core `batch_mixins.py` 补齐 `except serializers.ValidationError` 分支（原 DRF `ValidationError` 落 `except Exception` 被吞为 INTERNAL_ERROR，现路由 VALIDATION_ERROR；复用 L30 已导入的 serializers 零新依赖；完整复刻 row_number/input_data 组装；core 变更跨 10 消费方，已声明）；新增 `UnregisteredAssetService.batch_create_unregistered`（services.py，闭包内 serializer 校验 + create）；View 收缩（空/超限 400 原样保留、`resolve_operator` 循环外一次、委托 Service、`BatchResponseHelper.create_response(request_items)` 回写原始 input_data）；Service 内 `pop("row_number", None)` 保证 fail_items 契约与手写版逐字节一致（test_b5 逐键锁定断言零改动，剔除仅本方法生效）。回归：unregisteredasset 76 passed + 消费方 694 passed + 护栏 PASS + ruff/mypy 干净 + Service 覆盖率 90.48%。前序登记见 D 区条目。
 - **v2.9.14 (2026-09-10)**：C-10 账本条目状态同步——条目补 ✅ 已修复状态行（63→1 实测收口，附 `eb73f17`/`03f5630` commit 链与残余 1 处 MainView.vue:205 另立专项说明），验证命令更新为新预期值；修复主体见 v2.9.11/v2.9.12 记录。至此 B-13/D-3 待办外，C 区仅余 C-10 残余 1 处（独立专项）与冻结项。
