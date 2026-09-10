@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.12 | **最后更新**：2026-09-10 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.13 | **最后更新**：2026-09-10 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -467,6 +467,7 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.13 (2026-09-10)**：首页 Row 4 不显示 + 无滚动条修复——根因：App 壳重构（cb7b48f）后 `.common-main` 为 height:100%+flex column+overflow:hidden 裁剪壳，16+ 列表/详情页均经 list-container mixin 入列壳契约，唯 DashboardPage 根容器仍为旧范式 `height:100%`——内容超高被裁剪且无处滚动（与 AssetDetails 断链 bb71ff4 同型，壳契约第三例）。修复：`.dashboard-page-content` 改壳契约三件套 `flex:1 + min-height:0 + overflow-y:auto`（单文件 3 行）。对抗审核：复核者原方案单一 `flex:1` 不充分（flex 子项 min-height:auto 默认为内容高，无 overflow 仍被撑爆裁剪）——三件套缺一不可；卡片内滚 `el-card__body overflow-y:auto`（L253）经查父链无确定高度基准、处于休眠态，与新页面级滚动无冲突，保留；旧范式残留登记：AssetForm.vue / RecycleAssetDetails.vue（表单页嫌疑，待报告另立专项）、AsideMenu.vue（非路由页不适用）。壳契约模式沉淀：新增路由页根容器必须三件套入列。验证：vue-tsc 0 错、lint 干净、全量 vitest 106 文件、vite build 13.97s。
 - **v2.9.12 (2026-09-10)**：C-10 收尾修复——表头截断 Bug（thead th 显示不全、有横滚条也无法完整展示）根因实证：C-10 重构把 mixin 的 `min-width: 1200px` 净新增到 CommonList 根规则，EP（2.13.7，table-layout.mjs:90）以 `.el-table` 根 `clientWidth` 计算全部列宽，根被 min-width 撑开后 EP 布局与可视宽度脱节，表头 wrapper（EP 自带 overflow:hidden、不可滚）与主体滚动位移失步 → th 截断。修复：删除 mixin 与 CommonList 两处 `.el-table` 根的 min-width 与 overflow:hidden（后者系 EP 自带同值重复，删除属清理非修复）；`--table-min-width` 令牌退役（消费点清零，宽度下限需求改走 EP 列定义 min-width prop）。对抗审核：`--table-min-width` 残留仅剩退役注释；其余 8 令牌消费点与定义点一一对应；两处根块终态一致。事实更正：EP 实装版本 2.13.7（此前记 2.10.5 系 package.json ^ 范围误读）；`table-layout` 声明在根 div 上为 no-op（仅对 table 元素生效），本次保留属最小 diff。验证：vue-tsc 0 错、全量 vitest 106 文件、lint 干净、vite build 14.33s。详情页视觉有意变化：删 1200px 下限后窄容器下先收缩列宽再出滚动条（历史行为归一）。
 - **v2.9.11 (2026-09-10)**：C-10 第一阶段整改完成——`--table-*` 令牌体系（9 变量，variables.css :root）收敛三层表格覆盖战争：common-forms.scss mixin 内层 6 处 `!important` 与死规则 text-align/white-space 清除，CommonList.vue 8 处 `!important` 变量化（删 2 处冗余 text-align——内联 `:cell-style`/`:header-cell-style` 已居中；删 1 处无效力 nowrap），6 详情页 48 处 `:deep !important` 副本收敛为外层 `.table-container` 变量覆盖（统一值：th 16px 12px / td 12px 8px / word-break break-word，CSS 变量跨 scoped 边界继承至内层 th/td）。对抗审核实证：mixin 全部 19 个消费方 style 块均 scoped（含 4 个外链 scss 引入方）→ th/td 规则全为死代码、容器级规则经 scope-id 继承生效，table-layout fixed→auto 翻转安全；EP `.cell` 自有 `white-space:normal` + `overflow-wrap:break-word` 声明 → th/td 层 white-space 无效力（不设令牌），word-break EP 零声明可继承（设令牌）。全仓 `!important` 63→1（仅 MainView.vue:205 移动端菜单，另立专项）。验证：vue-tsc 0 错、全量 vitest 106 文件通过、lint 0 error、vite build 11.47s 成功。视觉回归需用户明/暗双主题人工比对（长数字列换行为敏感点）。
 - **v2.9.10 (2026-09-09)**：账本状态标记规范化（用户要求：已完成的修复在账本中标记，免后续不清）——C-9 补 ✅ 已修复状态行（裸引用清零/ECharts 主题化实证，遗留暗色色相决策项注明）；C-11 补 ✅ 已修复状态行（附 cb7b48f/4cddc43/bb71ff4/09d5bc5 四 commit 链）；B-19 执行清单"面包屑 UI"回填 ✅ 已完成（附 466d683/43fb2d8/40816d1 三 commit）。经全账本扫描，其余条目状态标记已齐备（A 区历史关闭项、B-2/B-10/B-11/B-12 已带 commit、D-5 有 ⏳ 标记、C-2~C-8 冻结项维持原判）。
