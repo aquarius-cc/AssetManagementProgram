@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.6 | **最后更新**：2026-09-09 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.7 | **最后更新**：2026-09-09 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -467,6 +467,7 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.7 (2026-09-09)**：面包屑 UI 专项完成——新建 `AppBreadcrumb.vue`（消费 appStore.breadcrumbs，el-breadcrumb 首次引入）+ `composables/usePageHeader.ts`（MainView L99-108 页头逻辑抽取为唯一实现，DR-1）+ 同目录 `__tests__/AppBreadcrumb.spec.ts` 4 用例（双条件显隐/末项纯文本/非末项链接/空数组不渲染空壳）；MainView 挂载于 .page-header 与 router-view 之间（keep-alive/transition 不受影响）。实施要点：末项按索引判定纯文本（guards 每项均带 path，"有 path 即可点"会让末项可点）；显示条件三重（showPageHeader && settings.showBreadcrumbs && breadcrumbs.length）；组件自带 flex-shrink:0 适配 C-11 flex 链。对抗审核：EP 经 unplugin-vue-components/ElementPlusResolver 按需注册（components.d.ts 佐证），测试需显式注册组件（生产无需）；EP :to 项渲染 .is-link span 而非 <a>（断言按此修正）。验证：vue-tsc 0 错、定向 4/4、全量 vitest 1450/1450、lint 干净。
 - **v2.9.6 (2026-09-09)**：任务清单 ①（两个小活合并单 PR）落地——关闭 B-13（UserBatchImport 第 9 处内联导出迁移至 `downloadExcelTemplate`，工具类型拓宽 `TemplateCellValue = string | number`，新增 4 条单元测试）；关闭 D-3（删除 vite.config.ts 注释态 visualizer/compression 副本，**记录"在用 production 块持续引用，导入必须保留"**，防止后续误删）。前端三项检查 + 全量 vitest（105 files / 1446 tests）通过。
 - **v2.9.5 (2026-09-09)**：新增 B-19 执行顺序清单（按复杂度分级：低/中/高/冻结四项，含执行顺序建议与前置条件标记），登记用户提供的 Bug 修复顺序清单作为活账本条目。
 - **v2.9.4 (2026-09-09)**：全账本状态复核——B-2 确认已修复（`bbccfbe` M-7 删除死副本，原"未执行"标记过时）；C-2 证据同步（types/outasset.ts 副本已删，仅剩 Format.ts）；B-13 复核确认仍待修复（`new ExcelJS.Workbook` 1 命中）；D-3 复核确认仍待修复（vite.config.ts L94-110 注释块仍在）；D-4 复核确认仍待决策（两份 API 文档并存）；C-9/C-10/D-6/C-11 及 Phase 1/2 执行结果复核全部与代码一致（裸引用 0、!important 63 未变属预期、ECharts 硬编码 0、useChartTheme 含 isDark 依赖）。另同步核验文档：修正 Phase 1.3"重建实例"过时表述（与 §2.4 修正一致）、更新后续专项表（层级令牌/表单按钮/分页配置已完成，61 文件归属已决断）。
