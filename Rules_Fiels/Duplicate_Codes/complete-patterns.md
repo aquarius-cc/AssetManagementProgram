@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.14 | **最后更新**：2026-09-10 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.15 | **最后更新**：2026-09-10 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -331,17 +331,18 @@
 
 ## D — 待核查（To Verify）
 
-### D-1. unregisteredasset batch_create 手写循环（F-5 暂不收敛）
-- **判定**：与 `batch_execute` 不同构，存在多处行为差异（下述 7 项为 2026-08-24 分析结论，**差异明细未经逐条 diff 复核**——2026-09-09 复审仅实证"手写循环存在"（views.py L247/L262/L349），收敛前须先逐项人工 diff 确认）：
-  1. 空列表 → 400（batch_execute 处理空列表为零计数结果）
-  2. 超限 → 400 响应（非异常，batch_execute 抛 AppValidationError）
-  3. DRF `ValidationError` → `VALIDATION_ERROR`（第三异常层级）
-  4. 无 `row_number` 键（batch_execute 添加）
-  5. 无 logger.error 日志
-  6. View 层调用（非 Service 层）
-  7. 无 deepcopy / `_normalize_input_data`
-- **位置**：`apps/unregisteredasset/views.py` L246-299
-- **决策**：强行收敛会改变 400/500 行为边界，引入回归风险。暂不收敛，后续独立 PR 按方案 A（移到 Service 层 + 逐项对齐差异）处理。
+### D-1. ✅ 已关闭 2026-09-10 —— unregisteredasset batch_create 手写循环收敛至 batch_execute
+- **判定**：与 `batch_execute` 不同构（7 项行为差异）。2026-09-09/09-10 逐条 diff 复核确认：
+  1. 空列表 → 400（batch_execute 空列表为零计数；View 预检保留，文案不变）
+  2. 超限 → 400 响应（batch_execute 抛 AppValidationError；View 预检保留原「单次批量创建」文案，防「创建/操作」漂移，test_b5 L38 锁定）
+  3. DRF `ValidationError` → `VALIDATION_ERROR`（batch_execute 原无此层级，落入 `except Exception` 被吞为 INTERNAL_ERROR；已补 `except serializers.ValidationError` 分支——复用 L30 已导入的 serializers 零新依赖，完整复刻 AppValidationError 分支的 row_number/input_data 组装；core 变更，跨全部消费方）
+  4. `row_number` 键——新 Service 方法内对每个 fail_item `pop("row_number", None)` 剔除，fail_items 契约与手写版逐字节一致（test_b5 逐键锁定断言零改动）；剔除仅在新方法内生效，其他 10 个 batch_execute 消费方零影响
+  5. 无 logger.error——batch_execute Exception 分支自带日志异常排查，差异保留（更优）
+  6. View 层调用——已下沉 `UnregisteredAssetService.batch_create_unregistered`（services.py）；View 收缩为 空/超限 400 + `resolve_operator` 循环外一次 + 委托 Service + `BatchResponseHelper.create_response(request_items=items)`；删除原三层 try 与 `drf_exceptions` import
+  7. deepcopy / `_normalize_input_data`——batch_execute 提供 `_normalize_input_data` 防御层（B-8），`create_response(request_items)` 以原始提交回写 input_data，替代手写版无归一化直传
+- **位置**：`apps/unregisteredasset/views.py` L246-269 | `apps/unregisteredasset/services.py` `batch_create_unregistered` | `core/batch_mixins.py` DRF ValidationError 分支
+- **状态**：✅ 已关闭 | 关闭日期：2026-09-10
+- **验证命令**：`pytest apps/unregisteredasset/tests/ -q`（76 passed，test_b5 断言零改动）+ `pytest apps/assetmanagement/tests/ apps/usermanagement/tests/ -q`（694 passed）+ `python scripts/check_duplicate_invariants.py`（PASS）+ `ruff`（0 error）+ `mypy`（改动文件干净）+ Service 覆盖率 90.48%（≥90）
 
 ### D-3. ✅ 已修复 2026-09-09 —— vite.config.ts 注释态插件配置副本
 - **判定**：死代码/配置残留（visualizer 与 compression 插件各存在一份被整块注释的历史配置，与生产启用的配置同构，约 30 行）。
@@ -422,11 +423,10 @@
 
 ### 优先级三：高复杂度 / 需单独评估确认（动契约或架构，未获批不动）
 
-- **D-1 !**：`unregisteredasset` 手写 `batch_create`（`views.py` L247/L262/L349），不走 `batch_execute`
-  - 证据：2026-08-24 分析结论（7 处行为差异），**差异明细未经逐条 diff 复核**（已在账本标注）
-  - 修复建议：先人工 diff 逐项确认差异 > 按方案 A 移 Service 层 > 差异项逐一对齐或显式保留；全程基线快照测试锁定
-  - 风险：高（强行收敛可能改坏 400/500 契约边界，如空列表 400、超限 400）
-  - **前置条件：逐条 diff 复核完成，用户批准后执行**
+- **D-1 ✅ 已关闭（2026-09-10）**：`unregisteredasset` 手写 `batch_create` 已收敛至 `batch_execute`
+  - 结果：core `batch_mixins.py` 补齐 DRF `ValidationError` 分支；新增 Service 方法；View 收缩；Service 内 pop `row_number` 保契约逐字节一致（test_b5 断言零改动）
+  - 回归：unregisteredasset 76 passed + 全部消费方 694 passed + 护栏 PASS + Service 覆盖率 90.48%
+  - 明细见 D 区条目
 - **D-4**：API 详细文档双份维护（后端 docs 25 文件 vs 前端 docs 32 文件并存）
   - 修复建议：跨端文档归属是组织决策——删哪份、谁做唯一事实源，需你拍板；建议后端侧为权威（随 OpenAPI 契约快照），前端改链接引用；或直接引入文档托管统一出口
   - 风险：中（涉及跨端文档归属决策）
@@ -468,6 +468,7 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.15 (2026-09-10)**：D-1 关闭——`unregisteredasset` 手写 `batch_create` 收敛至 `BatchOperationMixin.batch_execute`。core `batch_mixins.py` 补齐 `except serializers.ValidationError` 分支（原 DRF `ValidationError` 落 `except Exception` 被吞为 INTERNAL_ERROR，现路由 VALIDATION_ERROR；复用 L30 已导入的 serializers 零新依赖；完整复刻 row_number/input_data 组装；core 变更跨 10 消费方，已声明）；新增 `UnregisteredAssetService.batch_create_unregistered`（services.py，闭包内 serializer 校验 + create）；View 收缩（空/超限 400 原样保留、`resolve_operator` 循环外一次、委托 Service、`BatchResponseHelper.create_response(request_items)` 回写原始 input_data）；Service 内 `pop("row_number", None)` 保证 fail_items 契约与手写版逐字节一致（test_b5 逐键锁定断言零改动，剔除仅本方法生效）。回归：unregisteredasset 76 passed + 消费方 694 passed + 护栏 PASS + ruff/mypy 干净 + Service 覆盖率 90.48%。前序登记见 D 区条目。
 - **v2.9.14 (2026-09-10)**：C-10 账本条目状态同步——条目补 ✅ 已修复状态行（63→1 实测收口，附 `eb73f17`/`03f5630` commit 链与残余 1 处 MainView.vue:205 另立专项说明），验证命令更新为新预期值；修复主体见 v2.9.11/v2.9.12 记录。至此 B-13/D-3 待办外，C 区仅余 C-10 残余 1 处（独立专项）与冻结项。
 - **v2.9.13 (2026-09-10)**：首页 Row 4 不显示 + 无滚动条修复——根因：App 壳重构（cb7b48f）后 `.common-main` 为 height:100%+flex column+overflow:hidden 裁剪壳，16+ 列表/详情页均经 list-container mixin 入列壳契约，唯 DashboardPage 根容器仍为旧范式 `height:100%`——内容超高被裁剪且无处滚动（与 AssetDetails 断链 bb71ff4 同型，壳契约第三例）。修复：`.dashboard-page-content` 改壳契约三件套 `flex:1 + min-height:0 + overflow-y:auto`（单文件 3 行）。对抗审核：复核者原方案单一 `flex:1` 不充分（flex 子项 min-height:auto 默认为内容高，无 overflow 仍被撑爆裁剪）——三件套缺一不可；卡片内滚 `el-card__body overflow-y:auto`（L253）经查父链无确定高度基准、处于休眠态，与新页面级滚动无冲突，保留；旧范式残留登记：AssetForm.vue / RecycleAssetDetails.vue（表单页嫌疑，待报告另立专项）、AsideMenu.vue（非路由页不适用）。壳契约模式沉淀：新增路由页根容器必须三件套入列。验证：vue-tsc 0 错、lint 干净、全量 vitest 106 文件、vite build 13.97s。
 - **v2.9.12 (2026-09-10)**：C-10 收尾修复——表头截断 Bug（thead th 显示不全、有横滚条也无法完整展示）根因实证：C-10 重构把 mixin 的 `min-width: 1200px` 净新增到 CommonList 根规则，EP（2.13.7，table-layout.mjs:90）以 `.el-table` 根 `clientWidth` 计算全部列宽，根被 min-width 撑开后 EP 布局与可视宽度脱节，表头 wrapper（EP 自带 overflow:hidden、不可滚）与主体滚动位移失步 → th 截断。修复：删除 mixin 与 CommonList 两处 `.el-table` 根的 min-width 与 overflow:hidden（后者系 EP 自带同值重复，删除属清理非修复）；`--table-min-width` 令牌退役（消费点清零，宽度下限需求改走 EP 列定义 min-width prop）。对抗审核：`--table-min-width` 残留仅剩退役注释；其余 8 令牌消费点与定义点一一对应；两处根块终态一致。事实更正：EP 实装版本 2.13.7（此前记 2.10.5 系 package.json ^ 范围误读）；`table-layout` 声明在根 div 上为 no-op（仅对 table 元素生效），本次保留属最小 diff。验证：vue-tsc 0 错、全量 vitest 106 文件、lint 干净、vite build 14.33s。详情页视觉有意变化：删 1200px 下限后窄容器下先收缩列宽再出滚动条（历史行为归一）。
