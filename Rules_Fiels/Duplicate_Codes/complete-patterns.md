@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.8 | **最后更新**：2026-09-09 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.9 | **最后更新**：2026-09-09 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -467,6 +467,7 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.9 (2026-09-09)**：菜单/meta 双源文案漂移修复 + 菜单结构调整——userdetails 与 departmentmanagement 的左侧菜单文案（AsideMenu 硬编码）与页头/面包屑文案（路由 meta.title）不一致（员工管理 vs 用户管理、通讯录管理 vs 部门-人员管理），以菜单名为准统一：两路由 meta.title 改为 '员工管理'/'通讯录管理'，guards.spec 断言同步（4 处）；通讯录管理菜单项从"员工信息"子菜单（v2.9.8 修复时仍在子菜单内）提升为顶级项——位置在仓库管理之后、员工信息之前，自带 v-if="canManageSystem"（原继承子菜单门控）+ Postcard 图标。明确不改：RolePermDialog '用户管理' 权限标签（绑定后端权限语义）、8 处文件头注释、/org/contacts 独立通讯录页（命名相近易混淆，留档提示）。验证：vue-tsc 0 错、guards 58/58、全量 vitest 1456/1456、lint 干净。
 - **v2.9.8 (2026-09-09)**：面包屑 routeMap 字典双写漂移根治——`generateBreadcrumbs` 改为遍历 `route.matched` 派生 `meta.title`（单一事实源，DR-1），彻底删除 31 键局部字典（不留档，git 可溯）；新增路由（roledetails/authusermanage 等）此后自动生效，无需同步字典。实施事实：vue-router 5 在 addRoute 时将相对子路径归一化为绝对路径（dist addRoute L1167-1172），`record.path` 可直接作 crumb 链接——"matched.path 是相对路径"的判断不成立；跳过 `/main` 与含 `:` 参数级，title 缺失跳级；`matched ?? []` 防御裸路由对象。对抗审核（全表 72 路由比对）：3 处文案以 meta.title 为准发生变化（assettypedetails→资产分类类型管理、repairassetdetails→维修记录、auditlogdetails→其它操作日志），属修正字典时代陈旧文案。验证：vue-tsc 0 错、guards 58/58（11 面包屑用例含 6 场景回归防线）、全量 vitest 1456/1456、lint 干净。
 - **v2.9.7 (2026-09-09)**：面包屑 UI 专项完成——新建 `AppBreadcrumb.vue`（消费 appStore.breadcrumbs，el-breadcrumb 首次引入）+ `composables/usePageHeader.ts`（MainView L99-108 页头逻辑抽取为唯一实现，DR-1）+ 同目录 `__tests__/AppBreadcrumb.spec.ts` 4 用例（双条件显隐/末项纯文本/非末项链接/空数组不渲染空壳）；MainView 挂载于 .page-header 与 router-view 之间（keep-alive/transition 不受影响）。实施要点：末项按索引判定纯文本（guards 每项均带 path，"有 path 即可点"会让末项可点）；显示条件三重（showPageHeader && settings.showBreadcrumbs && breadcrumbs.length）；组件自带 flex-shrink:0 适配 C-11 flex 链。对抗审核：EP 经 unplugin-vue-components/ElementPlusResolver 按需注册（components.d.ts 佐证），测试需显式注册组件（生产无需）；EP :to 项渲染 .is-link span 而非 <a>（断言按此修正）。验证：vue-tsc 0 错、定向 4/4、全量 vitest 1450/1450、lint 干净。
 - **v2.9.6 (2026-09-09)**：任务清单 ①（两个小活合并单 PR）落地——关闭 B-13（UserBatchImport 第 9 处内联导出迁移至 `downloadExcelTemplate`，工具类型拓宽 `TemplateCellValue = string | number`，新增 4 条单元测试）；关闭 D-3（删除 vite.config.ts 注释态 visualizer/compression 副本，**记录"在用 production 块持续引用，导入必须保留"**，防止后续误删）。前端三项检查 + 全量 vitest（105 files / 1446 tests）通过。
