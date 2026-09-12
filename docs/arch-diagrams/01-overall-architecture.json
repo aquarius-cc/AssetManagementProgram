@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Asset Management System - Overall Architecture",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [1100, 620]
+  },
+  "components": [
+    { "id": "browser", "type": "external", "label": "Browser", "sublabel": "Chrome / Edge", "pos": [30, 280], "size": [120, 60] },
+    { "id": "vite", "type": "cloud", "label": "Vite Dev Server", "sublabel": "HMR :5173", "pos": [200, 280], "size": [130, 60] },
+    { "id": "vue", "type": "frontend", "label": "Vue 3 SPA", "sublabel": "Element Plus + Pinia", "pos": [380, 280], "size": [140, 60] },
+    { "id": "django", "type": "backend", "label": "Django REST", "sublabel": "DRF :8000", "pos": [580, 280], "size": [130, 60] },
+    { "id": "jwt", "type": "security", "label": "JWT Auth", "sublabel": "SimpleJWT", "pos": [580, 120], "size": [120, 56] },
+    { "id": "pg", "type": "database", "label": "PostgreSQL", "sublabel": "16+ :5432", "pos": [780, 280], "size": [130, 60] },
+    { "id": "ws", "type": "messagebus", "label": "WebSocket", "sublabel": "Channels", "pos": [580, 430], "size": [130, 56] },
+    { "id": "admin", "type": "external", "label": "Django Admin", "sublabel": "/admin/", "pos": [780, 120], "size": [130, 56] },
+    { "id": "swagger", "type": "external", "label": "API Docs", "sublabel": "drf-spectacular", "pos": [780, 430], "size": [130, 56] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Frontend (Vue 3 + TypeScript)", "wraps": ["vite", "vue"], "pad": 20 },
+    { "kind": "region", "label": "Backend (Django 6 + DRF)", "wraps": ["django", "jwt", "ws"], "pad": 20 },
+    { "kind": "security-group", "label": "Data Layer", "wraps": ["pg"], "pad": 12 }
+  ],
+  "connections": [
+    { "id": "c1", "from": "browser", "to": "vite", "label": "HTTP/HMR", "variant": "emphasis" },
+    { "id": "c2", "from": "vite", "to": "vue", "label": "bundle", "variant": "dashed" },
+    { "id": "c3", "from": "vue", "to": "django", "label": "REST API", "variant": "emphasis" },
+    { "id": "c4", "from": "django", "to": "jwt", "label": "token verify", "variant": "security", "fromSide": "top", "toSide": "bottom" },
+    { "id": "c5", "from": "django", "to": "pg", "label": "SQL ORM", "labelDy": -20 },
+    { "id": "c6", "from": "vue", "to": "ws", "label": "realtime", "variant": "dashed" },
+    { "id": "c7", "from": "admin", "to": "django", "label": "管理接口", "variant": "default", "via": [[845, 148], [845, 250], [710, 250]] },
+    { "id": "c8", "from": "django", "to": "swagger", "label": "OpenAPI schema", "variant": "dashed" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Frontend", "items": ["Vue 3.5+ / TypeScript 6.0+ / Vite 8.0+", "Element Plus 2.10+ UI 组件库", "Pinia 状态管理 (工厂模式)", "双通道认证 (Bearer + Cookie)"] },
+    { "dot": "emerald", "title": "Backend", "items": ["Django 6.0 / DRF 3.16", "五层架构: Model→Selector→Service→Serializer→View", "资产状态机 (AssetFSM)", "事务安全 + 乐观锁 + 行级锁"] },
+    { "dot": "violet", "title": "Data & Infra", "items": ["PostgreSQL 16+ / 17张数据表", "JWT 认证 (SimpleJWT)", "WebSocket 通知 (Channels)", "drf-spectacular API 文档"] }
+  ]
+}

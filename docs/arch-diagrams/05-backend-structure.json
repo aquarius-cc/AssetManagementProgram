@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Asset Management - Backend Architecture Detail",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [1100, 520]
+  },
+  "components": [
+    { "id": "urls", "type": "backend", "label": "URL Router", "sublabel": "config/urls.py", "pos": [40, 60], "size": [120, 56] },
+    { "id": "views", "type": "backend", "label": "Views", "sublabel": "ViewSet + Actions", "pos": [220, 60], "size": [120, 56] },
+    { "id": "services", "type": "backend", "label": "Services", "sublabel": "Business Logic", "pos": [400, 60], "size": [120, 56] },
+    { "id": "selectors", "type": "backend", "label": "Selectors", "sublabel": "QuerySet 封装", "pos": [590, 60], "size": [120, 56] },
+    { "id": "models", "type": "database", "label": "Models", "sublabel": "17 张数据表", "pos": [780, 60], "size": [120, 56] },
+    { "id": "pg", "type": "database", "label": "PostgreSQL", "sublabel": "持久化", "pos": [960, 60], "size": [120, 56] },
+    { "id": "fsm", "type": "backend", "label": "AssetFSM", "sublabel": "State Machine", "pos": [220, 320], "size": [120, 56] },
+    { "id": "serializers", "type": "backend", "label": "Serializers", "sublabel": "校验 + 格式化", "pos": [400, 320], "size": [120, 56] },
+    { "id": "core", "type": "backend", "label": "Core Module", "sublabel": "权限 / 审计", "pos": [590, 320], "size": [120, 56] },
+    { "id": "auth", "type": "security", "label": "JWT Auth", "sublabel": "SimpleJWT", "pos": [960, 320], "size": [120, 56] }
+  ],
+  "connections": [
+    { "id": "b1", "from": "urls", "to": "views", "label": "路由分发", "variant": "emphasis" },
+    { "id": "b2", "from": "views", "to": "services", "label": "业务调用", "variant": "emphasis" },
+    { "id": "b3", "from": "services", "to": "selectors", "label": "数据查询", "variant": "default" },
+    { "id": "b4", "from": "selectors", "to": "models", "label": "ORM", "variant": "default" },
+    { "id": "b5", "from": "models", "to": "pg", "label": "SQL", "variant": "emphasis" },
+    { "id": "b6", "from": "views", "to": "fsm", "label": "状态流转", "variant": "emphasis", "labelAt": [273, 210] },
+    { "id": "b7", "from": "views", "to": "serializers", "label": "参数校验", "labelAt": [473, 210] },
+    { "id": "b8", "from": "models", "to": "core", "label": "继承 BaseModel", "variant": "dashed", "fromSide": "bottom", "toSide": "top" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "五层架构", "items": ["Model → Selector → Service → Serializer → View", "职责分离: 查询/业务/格式化/端点", "禁止在 Serializer 中执行数据库操作"] },
+    { "dot": "rose", "title": "状态机 (AssetFSM)", "items": ["纯数据驱动: VALID_TRANSITIONS 表", "Mixins 按领域拆分", "只修改 status 字段, 事务由 Service 控制"] },
+    { "dot": "violet", "title": "核心基础设施", "items": ["BaseModel: recordcode + 软删除 + 时间戳", "AuditLog: 只读审计表", "RBAC: IsSystemAdmin 等权限类"] }
+  ]
+}

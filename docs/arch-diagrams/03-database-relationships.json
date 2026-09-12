@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Asset Management - Database Entity Relationships",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [1200, 680]
+  },
+  "components": [
+    { "id": "asset", "type": "database", "label": "Asset", "sublabel": "am_asset (核心)", "pos": [460, 240], "size": [140, 64] },
+    { "id": "assettype", "type": "database", "label": "AssetType", "sublabel": "am_asset_type", "pos": [180, 100], "size": [130, 56] },
+    { "id": "contract", "type": "database", "label": "Contract", "sublabel": "am_contract", "pos": [180, 380], "size": [130, 56] },
+    { "id": "storage", "type": "database", "label": "Storage", "sublabel": "am_storage", "pos": [740, 100], "size": [130, 56] },
+    { "id": "employee", "type": "database", "label": "Employee", "sublabel": "am_employee", "pos": [740, 380], "size": [130, 56] },
+    { "id": "outasset", "type": "database", "label": "OutAsset", "sublabel": "am_out_asset", "pos": [980, 160], "size": [130, 56] },
+    { "id": "recycle", "type": "database", "label": "RecycleAsset", "sublabel": "am_recycle_asset", "pos": [980, 280], "size": [130, 56] },
+    { "id": "lifecycle", "type": "database", "label": "Lifecycle Tables", "sublabel": "Broken/Lost/Found/Repair/Damaged/Waste", "pos": [180, 520], "size": [200, 56] },
+    { "id": "harddisk", "type": "database", "label": "HardDiskSN", "sublabel": "am_hard_disk_sn", "pos": [460, 100], "size": [130, 56] },
+    { "id": "department", "type": "database", "label": "Department", "sublabel": "am_department (树)", "pos": [980, 400], "size": [130, 56] },
+    { "id": "role", "type": "database", "label": "Role + Permission", "sublabel": "am_role / am_permission", "pos": [980, 520], "size": [140, 56] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Asset Core", "wraps": ["asset", "assettype", "contract", "storage", "harddisk"], "pad": 24 },
+    { "kind": "region", "label": "Asset Lifecycle", "wraps": ["outasset", "recycle", "lifecycle"], "pad": 24 },
+    { "kind": "region", "label": "User & RBAC", "wraps": ["employee", "department", "role"], "pad": 24 }
+  ],
+  "connections": [
+    { "id": "r1", "from": "asset", "to": "assettype", "label": "FK", "variant": "emphasis", "fromSide": "left", "toSide": "right" },
+    { "id": "r2", "from": "asset", "to": "contract", "label": "FK", "fromSide": "left", "toSide": "right" },
+    { "id": "r3", "from": "asset", "to": "storage", "label": "FK", "fromSide": "right", "toSide": "left" },
+    { "id": "r4", "from": "asset", "to": "employee", "label": "FK ×3", "fromSide": "right", "toSide": "left", "labelDy": -20 },
+    { "id": "r5", "from": "outasset", "to": "asset", "label": "FK" },
+    { "id": "r6", "from": "recycle", "to": "outasset", "label": "1:1", "variant": "emphasis" },
+    { "id": "r7", "from": "lifecycle", "to": "asset", "label": "FK ×6" },
+    { "id": "r8", "from": "harddisk", "to": "asset", "label": "1:N", "fromSide": "bottom", "toSide": "top" },
+    { "id": "r9", "from": "employee", "to": "department" },
+    { "id": "r10", "from": "role", "to": "employee", "label": "RBAC", "variant": "dashed", "labelAt": [1050, 490] }
+  ],
+  "cards": [
+    { "dot": "violet", "title": "核心模型", "items": ["Asset 是中心实体，17张表围绕它组织", "所有外键使用 recordcode (稳定字符串键)", "软删除 + 乐观锁 + 条件唯一约束"] },
+    { "dot": "amber", "title": "生命周期追踪", "items": ["OutAsset/RecycleAsset 追踪出入库", "Broken/Lost/Found/Repair 追踪异常", "Damaged→Waste 追踪报废审批链"] },
+    { "dot": "emerald", "title": "用户与权限", "items": ["Employee ↔ AuthUser 一对一绑定", "Department 自引用树 (materialized path)", "RBAC: Role → Permission (module:action)"] }
+  ]
+}

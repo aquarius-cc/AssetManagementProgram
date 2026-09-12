@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Asset Management - API Request Flow",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [1000, 640],
+    "column_fit": "spread"
+  },
+  "participants": [
+    { "id": "user", "type": "external", "label": "User", "sublabel": "Browser" },
+    { "id": "vue", "type": "frontend", "label": "Vue SPA", "sublabel": "Pinia + Axios" },
+    { "id": "drf", "type": "backend", "label": "DRF View", "sublabel": "Serializer + JWT" },
+    { "id": "service", "type": "backend", "label": "Service + FSM", "sublabel": "Business Logic" },
+    { "id": "pg", "type": "database", "label": "PostgreSQL", "sublabel": "ORM QuerySet" }
+  ],
+  "segments": [
+    { "from": 130, "to": 300, "label": "Request" },
+    { "from": 320, "to": 450, "label": "Process" },
+    { "from": 470, "to": 575, "label": "Response" }
+  ],
+  "messages": [
+    { "id": "m1", "from": "user", "to": "vue", "y": 160, "label": "点击操作按钮", "variant": "default" },
+    { "id": "m2", "from": "vue", "to": "drf", "y": 196, "label": "POST /recycle", "variant": "emphasis" },
+    { "id": "m3", "from": "drf", "to": "service", "y": 232, "label": "JWT 鉴权 → RBAC 校验 → Service", "variant": "security" },
+    { "id": "m4", "from": "service", "to": "pg", "y": 268, "label": "select_for_update + 状态校验", "variant": "default" },
+    { "id": "m5", "from": "pg", "to": "service", "y": 304, "label": "锁定行 + 返回状态", "variant": "return" },
+    { "id": "m6", "from": "service", "to": "pg", "y": 340, "label": "FSM.transition → update", "variant": "emphasis" },
+    { "id": "m7", "from": "service", "to": "pg", "y": 376, "label": "建 RecycleAsset + 日志", "variant": "dashed" },
+    { "id": "m8", "from": "pg", "to": "service", "y": 412, "label": "事务提交", "variant": "return" },
+    { "id": "m9", "from": "service", "to": "drf", "y": 448, "label": "返回序列化数据", "variant": "return" },
+    { "id": "m10", "from": "drf", "to": "vue", "y": 484, "label": "200 {code,data,message}", "variant": "return" },
+    { "id": "m11", "from": "vue", "to": "user", "y": 520, "label": "store 更新 → UI 刷新", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "vue", "from": 153, "to": 527, "type": "frontend" },
+    { "participant": "drf", "from": 189, "to": 491, "type": "backend" },
+    { "participant": "service", "from": 225, "to": 455, "type": "backend" },
+    { "participant": "pg", "from": 261, "to": 419, "type": "database" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "前端请求链路", "items": ["组件 → Composable → Store → API 模块", "Axios 拦截器: trace_id + token", "unwrapResponse() 统一错误处理"] },
+    { "dot": "emerald", "title": "后端处理链路", "items": ["View → Service → FSM → ORM", "@transaction + select_for_update", "五层架构职责分离"] },
+    { "dot": "rose", "title": "安全与审计", "items": ["JWT 双通道认证", "RBAC 角色 + 行级隔离", "操作 + 状态变更日志"] }
+  ]
+}

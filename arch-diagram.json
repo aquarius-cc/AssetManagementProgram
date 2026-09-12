@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Asset Management System Architecture",
+    "subtitle": "Vue 3 + Django 5 + PostgreSQL + Redis",
+    "quality_profile": "showcase",
+    "locale": "zh-CN"
+  },
+  "components": [
+    {
+      "id": "frontend",
+      "type": "frontend",
+      "label": "Vue 3 Admin",
+      "pos": [
+        0,
+        0
+      ],
+      "size": [
+        120,
+        60
+      ]
+    },
+    {
+      "id": "nginx",
+      "type": "security",
+      "label": "Nginx Proxy",
+      "pos": [
+        150,
+        0
+      ],
+      "size": [
+        120,
+        60
+      ]
+    },
+    {
+      "id": "django",
+      "type": "backend",
+      "label": "Django 5 Backend",
+      "pos": [
+        300,
+        0
+      ],
+      "size": [
+        120,
+        60
+      ]
+    },
+    {
+      "id": "postgres",
+      "type": "database",
+      "label": "PostgreSQL 16",
+      "pos": [
+        450,
+        0
+      ],
+      "size": [
+        120,
+        60
+      ]
+    },
+    {
+      "id": "redis",
+      "type": "messagebus",
+      "label": "Redis 7",
+      "pos": [
+        600,
+        0
+      ],
+      "size": [
+        120,
+        60
+      ]
+    },
+    {
+      "id": "monitoring",
+      "type": "cloud",
+      "label": "Monitoring",
+      "pos": [
+        0,
+        100
+      ],
+      "size": [
+        120,
+        60
+      ]
+    },
+    {
+      "id": "certbot",
+      "type": "security",
+      "label": "Certbot SSL",
+      "pos": [
+        150,
+        100
+      ],
+      "size": [
+        120,
+        60
+      ]
+    },
+    {
+      "id": "backup",
+      "type": "backend",
+      "label": "Backup Service",
+      "pos": [
+        300,
+        100
+      ],
+      "size": [
+        120,
+        60
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "frontend",
+      "to": "nginx"
+    },
+    {
+      "from": "nginx",
+      "to": "django"
+    },
+    {
+      "from": "django",
+      "to": "postgres"
+    },
+    {
+      "from": "django",
+      "to": "redis"
+    },
+    {
+      "from": "monitoring",
+      "to": "django"
+    },
+    {
+      "from": "certbot",
+      "to": "nginx"
+    },
+    {
+      "from": "backup",
+      "to": "postgres"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Architecture",
+      "items": [
+        "Vue 3 + Django 5 + PostgreSQL 16 + Redis 7",
+        "Docker Compose deployment",
+        "SSL via Certbot + Nginx reverse proxy"
+      ]
+    }
+  ]
+}

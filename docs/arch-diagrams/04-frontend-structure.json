@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Asset Management - Frontend Architecture Detail",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [1100, 640]
+  },
+  "components": [
+    { "id": "router", "type": "frontend", "label": "Vue Router", "sublabel": "guards.ts (RBAC)", "pos": [40, 280], "size": [130, 60] },
+    { "id": "mainview", "type": "frontend", "label": "MainView.vue", "sublabel": "Layout Shell", "pos": [220, 280], "size": [130, 60] },
+    { "id": "views", "type": "frontend", "label": "Views", "sublabel": "35+ 页面视图", "pos": [400, 280], "size": [130, 60] },
+    { "id": "details", "type": "frontend", "label": "Details Pages", "sublabel": "15 域管理页面", "pos": [400, 440], "size": [130, 56] },
+    { "id": "forms", "type": "frontend", "label": "Forms & Batch", "sublabel": "CRUD + 批量导入", "pos": [580, 440], "size": [130, 56] },
+    { "id": "common", "type": "frontend", "label": "Common Components", "sublabel": "SearchBar / StatusTag 等", "pos": [580, 200], "size": [150, 56] },
+    { "id": "composables", "type": "frontend", "label": "Composables", "sublabel": "45+ 组合式函数", "pos": [580, 320], "size": [130, 56] },
+    { "id": "stores", "type": "frontend", "label": "Pinia Stores", "sublabel": "27 Store 模块", "pos": [760, 280], "size": [130, 60] },
+    { "id": "factory", "type": "frontend", "label": "createEntityStore", "sublabel": "工厂函数模式", "pos": [760, 120], "size": [140, 56] },
+    { "id": "api", "type": "frontend", "label": "API Layer", "sublabel": "24 模块 (Axios)", "pos": [940, 280], "size": [130, 60] },
+    { "id": "request", "type": "frontend", "label": "request.ts", "sublabel": "拦截器 + token刷新", "pos": [940, 120], "size": [130, 56] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Presentation Layer", "wraps": ["router", "mainview", "views", "details", "forms", "common"], "pad": 20 },
+    { "kind": "region", "label": "State & Network", "wraps": ["composables", "stores", "factory", "api", "request"], "pad": 20 }
+  ],
+  "connections": [
+    { "id": "f1", "from": "router", "to": "mainview", "label": "路由渲染", "variant": "emphasis" },
+    { "id": "f2", "from": "mainview", "to": "views", "label": "router-view", "variant": "emphasis", "labelAt": [375, 354] },
+    { "id": "f3", "from": "views", "to": "details", "label": "嵌套路由", "variant": "default", "labelAt": [465, 354] },
+    { "id": "f4", "from": "details", "to": "forms", "label": "CRUD", "variant": "dashed", "labelAt": [555, 500] },
+    { "id": "f5", "from": "views", "to": "common", "label": "复用", "variant": "default", "labelAt": [555, 260] },
+    { "id": "f6", "from": "views", "to": "composables", "label": "调用", "variant": "emphasis", "labelAt": [555, 340] },
+    { "id": "f7", "from": "composables", "to": "stores", "label": "Store 操作", "variant": "emphasis", "labelAt": [735, 390] },
+    { "id": "f8", "from": "stores", "to": "factory", "label": "继承 CRUD", "variant": "dashed", "fromSide": "top", "toSide": "bottom" },
+    { "id": "f9", "from": "stores", "to": "api", "label": "HTTP", "variant": "emphasis", "labelAt": [905, 354] },
+    { "id": "f10", "from": "api", "to": "request", "label": "Axios 拦截器", "variant": "security", "fromSide": "top", "toSide": "bottom" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "数据流约束", "items": ["组件 → Composable → Store → API", "组件禁止直接调用 Axios (强制规则)", "ApiResponse<T> 统一响应类型"] },
+    { "dot": "violet", "title": "工厂模式", "items": ["createEntityStore 生成 18+ 实体 Store", "统一 CRUD / Pagination / Cache 行为", "DR-1 DRY 合规: 单一实现"] },
+    { "dot": "emerald", "title": "RBAC 守卫", "items": ["guards.ts: 白名单 + 角色层级", "meta.requiredMinRole 路由级控制", "superuser 超级管理员短路"] }
+  ]
+}
