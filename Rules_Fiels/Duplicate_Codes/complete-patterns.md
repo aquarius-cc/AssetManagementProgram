@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.17 | **最后更新**：2026-09-10 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.19 | **最后更新**：2026-09-10 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -243,6 +243,15 @@
 
 ---
 
+### B-14. 【新发现 2026-09-10】usermanagement 域同名模块被同名包遮蔽（R6-03 同型死文件，已闭环）
+- **判定**：死代码 + 维护误导（B-11 同型，应用级而非根级）。
+- **证据**：`apps/usermanagement/views.py`（894 行）与同名包 `views/` 共存，Python 导入系统包优先于同名模块；`urls.py:13` `from apps.usermanagement.views import (...)` 与 `views/employee_view.py:27` 均解析到包（`views/__init__.py:1-13` re-export 5 个 ViewSet）。全仓代码引用仅此两处，其余 `rg "usermanagement\.views"` 命中全为历史文档/注释，无 importlib/字符串路径加载。文件含过期契约残留（`'code': 200` 旧响应格式），持续"改不生效"误导。
+- **修复（2026-09-10）**：确认无路径级引用后整文件删除（对齐 B-11 资产域 `c64675c` 处理）；删除后 `python manage.py check` no issues、全量 pytest 1074 passed 回归。
+- **验证命令**：`rg -n "apps\.usermanagement\.views" asset_management_backend --glob "*.py"`（预期仅 `urls.py:13` 与 `views/` 包内引用，views.py 模块零命中）；`python manage.py check`（no issues）。
+- **优先级**：高（维护误导）。
+
+---
+
 ## C — 降级/待决策（Downgraded / Decision Gate）
 
 ### C-1. 前端资产状态回退行为三态分歧（已解决）
@@ -292,7 +301,7 @@
   1. detail 路由（GET/PUT/DELETE `/assets/assets/{id}/`）：`AssetViewSet` `lookup_field="recordcode"`（`apps/assetmanagement/views/asset_view.py:57`）+ `RecordcodeLookupMixin.get_object`（`mixins/_mixins.py:24-42`，数字 pk → recordcode → 404）。前端传 `asset_code`（业务编码 "AST-A001"）必然 404——即 ID-2 根因（资产列表页编辑/单删曾传 asset_code）。
   2. batch-delete 端点（`POST /assets/assets/batch-delete/`）：显式按业务编码处理——`filter(asset_code__in=ids)` 并按 asset_code 做 RBAC 范围校验（`asset_view.py:357-367`）。前端批删**必须**传 asset_code，若"统一"改 recordcode 会改坏。
 - **合同域同构**：detail 路由 = recordcode（ContractViewSet 同 lookup 机制）；`contract_code` 为纯展示字段，不参与定位（A-5 已落地 4 处修正：`ContractDetails.vue` L216/237/261/279）。
-- **合法例外（非 bug，勿误改）**：部门 `lookup_field="department_code"`（`apps/usermanagement/views.py:61`）、未登记资产 `lookup_field="unregistered_code"`（`apps/unregisteredasset/views.py:86`）——这两个域的 detail 路由以业务编码为键，与资产/合同的 recordcode 约定不同。
+- **合法例外（非 bug，勿误改）**：部门 `lookup_field="department_code"`（`apps/usermanagement/views/department_view.py:64`）、未登记资产 `lookup_field="unregistered_code"`（`apps/unregisteredasset/views.py:85`）——这两个域的 detail 路由以业务编码为键，与资产/合同的 recordcode 约定不同。
 - **前端防线（已落地）**：`api/asset.ts`（updateAsset/deleteAsset/getAssetByCode 入参语义 = recordcode，batchDeleteAssets 入参语义 = asset_code，均带契约注释）、`stores/assetStore.ts`（api 绑定行内注释）、`AssetContentDetails.vue`（编辑/单删取 row.recordcode，批删取 row.asset_code 并注释双约定）、`types/asset.ts::AssetUpdateForm`（recordcode 必填）。防回归断言：`assetStore.spec.ts`（批删原样透传 asset_code）、`asset.spec.ts`（recordcode URL 拼装 4 断言）。
 - **验证命令**：`rg -n "row\.asset_code" vue-assetmanagement/src/components/componentsdetails/AssetContentDetails.vue`（预期仅剩批删 1 处）；`rg -n "recordcode" vue-assetmanagement/src/api/asset.ts`（updateAsset URL/校验均用 recordcode）。
 - **登记日期**：2026-09-09 | 来源：前端展示 Bug 审核 · ID-2 独立核验（后端双约定实证）
@@ -436,10 +445,11 @@
   - 修复建议（供后端排期）：后端改为优先路径参数、query 兜底；补纯路径集成测试
   - 风险：低（无前端影响面）
   - **状态：⏳ 已登记待后端处理**
-- **路由直连 API**：39 个 `.vue` 直接 `import @/api/*` 绕过 Pinia Store
+- **路由直连 API**：39 个 `.vue` 直接 `import @/api/*` 绕过 Pinia Store（实测：45 行 import / 39 唯一文件 = 24 components + 15 views；其中 3 文件属 infra 导入：BasicAssetDetails→`@/api/config`、ScanAssetView→`@/api/request`、AssetBatchImport→`@/api/index`）
   - 修复建议：架构分层问题，涉及 39 文件的行为面重构；分域迁移（asset/contract/user…），每域先补 store 层缺方法，再改组件消费 store；vitest 回归
   - 风险：高（此前已明确“不搭 DRY 顺车，单独评估”）
-  - **前置条件：专项评估批准，制定分域迁移计划**
+  - **增量护栏已落地（2026-09-10，v2.9.18）**：eslint.config.ts 新增 `app/store-layer-no-direct-api`（no-restricted-imports 正则 `@/api/<业务模块>` 拦截，infra 三入口放行）+ `app/legacy-direct-api-files`（存量 36 文件豁免清单）——规则只约束新代码，存量迁移一个、从豁免清单移除一个，清单清空即关闭本条目。验证：`npx eslint .` 0 error（门禁全绿）。
+  - **前置条件：专项评估批准，制定分域迁移计划**（现仍待批准，ESLint 增量护栏不阻断、不替代）
 
 ### 冻结项（用户已决策不重构，列出仅为完整性）
 
@@ -468,6 +478,8 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.19 (2026-09-10)**：登记 B-14 并关闭（R6-03，usermanagement 同型死文件）——`apps/usermanagement/views.py`（894 行）为包遮蔽死文件（B-11 应用级同型：包优先解析），全仓零模块级引用（唯一入向 `urls.py:13` 与包内 `views/employee_view.py:27` 均解析到 `views/` 包，其余命中为历史文档；无 importlib 路径加载），整文件删除。同时修正 C-8 条目过时路径 `usermanagement/views.py:61` → `views/department_view.py:64`（与活实现一致，原路径实为死文件）。验证：`python manage.py check` no issues + 全量 pytest 1074 passed。
+- **v2.9.18 (2026-09-10)**：路由直连 API 条目治理落地（自选主判断通过后用户批准实施方案）——eslint.config.ts 新增两个 flat-config 块：① `app/store-layer-no-direct-api` 对 `src/components/**`、`src/views/**` 启用 `no-restricted-imports`（**ESLint v10 实证：`patterns[].group` 仅支持 glob，斜杠正则已废弃，须走独立 `regex` 字段**——初版 group 不触发，print-config + 读 node_modules 规则源码定位后改 `regex`）；正则 `@\/api\/(?!config$|request$|index$)[a-zA-Z0-9_-]+$` 拦业务模块、放行 infra 三入口（config/request/index）；② `app/legacy-direct-api-files` 登记存量 36 文件豁免（24 components 去 2 infra + 15 views 去 1 infra），迁移一个移除一个。验证五步：正向临时文件 `@/api/department` 必报错、infra 三导入不报错（负向）、`npx eslint .` 0 error、type-check 0 错、format:check 通过——五项全绿；临时文件已删。不新增 G 不变量（ESLint 规则即护栏，grep 式不变量会重标 36 存量，与增量语义冲突）。
 - **v2.9.17 (2026-09-10)**：D-5 修复完成（Q4=a 冻结经用户解除）——`asset_view.py:185` 路径参数优先、query 兜底（纯路径调用不再必 400，query-only 行为不变，双传路径优先）；补纯路径集成测试 `test_get_asset_by_recordcode_path_only`。对抗审核：400 分支经证为防御性代码（url_path 捕获组 `[^/.]+` 非空约束，路由层无法产生空参数请求——曾试的空串 reverse 用例被 Django 拒绝，改注释说明不设用例）；全仓无第二处 query-only 读取；错误文案未动。回归：test_asset_view_api + rbac 共 42 passed。后端仓随本批提交。
 - **v2.9.16 (2026-09-10)**：D-4 修复完成（方案 B 落地，用户拍板）——实测推翻"双份副本"口径：`API详细文档0608.md` 两份逐字节相同（纯 CRLF 镜像）→ 前端版删除；`API.md`/`SECURITY.md`/`TESTING.md`/`WORKFLOW.md` 四份经内容定性为**同名不同物**（后端 27 章端点契约 vs 前端 16 章 api/*.ts 消费文档；服务端安全 vs casl UI 管控；pytest vs Vitest；后端流程 vs GitHub Flow）→ 前端四份加 `FRONTEND_` 前缀去歧义（git mv，内容零改动）；前端内部错拼双份 `ARCHITECUTRE.md` 经定性为独立文档（系统架构设计/依赖红线）→ 改名 `ARCHITECTURE_OVERVIEW.md` 保留；`docs/README.md` 新增"文档索引"段（API 契约权威指向后端 + 六文档对照表）；全仓引用清查零断链。决策 2（文档托管出口 GitBook/Docusaurus）登记为待办，待 D-4 收敛后出方案。D-1 状态见其条目与 v2.9.15 记录（并行会话已完成关闭，本条目早稿中"待实施"表述作废）。
 - **v2.9.15 (2026-09-10)**：D-1 关闭——`unregisteredasset` 手写 `batch_create` 收敛至 `BatchOperationMixin.batch_execute`。core `batch_mixins.py` 补齐 `except serializers.ValidationError` 分支（原 DRF `ValidationError` 落 `except Exception` 被吞为 INTERNAL_ERROR，现路由 VALIDATION_ERROR；复用 L30 已导入的 serializers 零新依赖；完整复刻 row_number/input_data 组装；core 变更跨 10 消费方，已声明）；新增 `UnregisteredAssetService.batch_create_unregistered`（services.py，闭包内 serializer 校验 + create）；View 收缩（空/超限 400 原样保留、`resolve_operator` 循环外一次、委托 Service、`BatchResponseHelper.create_response(request_items)` 回写原始 input_data）；Service 内 `pop("row_number", None)` 保证 fail_items 契约与手写版逐字节一致（test_b5 逐键锁定断言零改动，剔除仅本方法生效）。回归：unregisteredasset 76 passed + 消费方 694 passed + 护栏 PASS + ruff/mypy 干净 + Service 覆盖率 90.48%。前序登记见 D 区条目。

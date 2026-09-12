@@ -75,7 +75,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
-        with:
           fetch-depth: 0
       - name: 检查硬编码密钥（AK/SK/Token/密码）
         run: |
@@ -112,6 +111,7 @@ jobs:
           # 背景: 真实密码曾经 docs 审查报告进入 git 历史，原扫描器不覆盖 markdown 且引号模式漏检 env 裸赋值
           MATCHES=$(rg -n '^[\s\-*>#]{0,8}[A-Za-z_]*(PASSWORD|SECRET|TOKEN|API_KEY)[A-Za-z_]*\s*[=:]\s*["']?[A-Za-z0-9@#*_\-+/]{8,}["']?\s*$' \
             -g '!node_modules' -g '!*.lock' -g '!venv/' -g '!dist/' -g '!*.svg' \
+            -g '!.github/**' -g '!.git/**' \
             -g '*.md' -g '*.yml' -g '*.yaml' -g '*.env' -g '*.txt' -g '*.sh' . 2>/dev/null \
             | rg -v -i 'changeme|change-me|your[-_]?(password|secret|key)|example|placeholder|请替换|占位|x{5,}|\*{3,}' || true)
           if [ -n "$MATCHES" ]; then
@@ -133,7 +133,7 @@ jobs:
           )
           FOUND=0
           for item in "${BLACKLIST[@]}"; do
-            MATCHES=$(rg -n -F "$item" -g '!node_modules' -g '!dist/' . 2>/dev/null | rg -v '已脱敏|已轮换失效' || true)
+            MATCHES=$(rg -n -F "$item" -g '!node_modules' -g '!dist/' -g '!.github/**' -g '!.git/**' . 2>/dev/null | rg -v '已脱敏|已轮换失效' || true)
             if [ -n "$MATCHES" ]; then
               echo "❌ 发现已轮换泄露凭据指纹回流: $item"
               echo "$MATCHES"

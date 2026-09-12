@@ -119,7 +119,7 @@ AI 应在任务完成后，以"**SKILL 建议**"的形式向用户提出，格�
 | API 响应根结构 | `{"code": 0, "data": {}, "message": "str"}` | 后端产出，前端消费 |
 | 资产状态枚举键名 | `in_store`, `in_use`, `recycled_pending`, `damaged`, `scrapped`, `broken`, `lost`, `repairing` | 后端 Model，前端映射 |
 | 分页参数名 | `page` (页码), `page_size` (条数) | 后端接收，前端发送 |
-| 日期时间格式 | ISO 8601 (`YYYY-MM-DDTHH:mm:ssZ`) | 后端序列化，前端解析 |
+| 日期时间格式 | ISO 8601 含时区偏移 (`YYYY-MM-DDTHH:mm:ss±HH:MM`，实际输出 `+08:00`) | 后端序列化，前端解析 |
 
 **变更以上契约，必须由根级统筹，前后端同步调整。**
 

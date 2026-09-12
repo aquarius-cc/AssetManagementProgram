@@ -331,3 +331,59 @@ element-plus:552KB（独立 chunk, 含图标）
 ---
 
 *登记人：ox-alpha ｜ 状态：静态验证全过，CI 实跑待人工确认*
+
+---
+
+## BF-006 【已关闭】取消报废一律回 recycled_pending，丢失申请前状态
+
+- **发现日期**：2026-09-12（R3-07 评估 → 方案评审 → 实施与对抗审核）
+- **严重级别**：中（取消报废后资产状态与申请前不一致，需人工纠偏；与审批拒绝（v1.5 修正）语义割裂）
+- **影响范围**：`DamagedAssetService.cancel_asset_recordcode` 单条与批量取消路径；无 API 契约变更（URL/参数/响应结构不变，仅内部回退目标变化）
+
+### 一、问题现象
+
+1. 用户取消待报废申请后，资产一律变为 `recycled_pending`，即使申请前是 `broken/lost/in_use/repairing`
+2. 对照组：审批拒绝（`reject_to_original`，v1.5 起已按 `original_status` 回退）与取消行为不一致
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | FSM 层硬编码回退目标 | `scrapping.py` 旧版 `cancel_damaged` 直接赋值 `RECYCLED_PENDING`，未消费 `DamagedAsset.original_status` |
+| 2 | 技术设计文档旧约定背书了错误行为 | `03-业务规则与状态机.md` 旧版明写 `cancel_damaged: damaged → recycled_pending` |
+| 3 | 服务层未传参 | `damaged_asset_service.py` 调 `cancel_damaged(asset)`，丢弃了记录上的 `original_status` |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `cancel_damaged` 签名加 `original_status: str \| None = None`，回退逻辑与 `reject_to_original` 同构（`_REJECT_TARGETS` 白名单 + 缺失/非法兜底 `recycled_pending`） | `state_machine/scrapping.py` |
+| 2 | 服务层传入 `original_status=damaged_asset.original_status`（在软删后读取——`delete()` 为软删，字段可靠；**保留** `select_for_update` 行锁） | `services/damaged_asset_service.py` |
+| 3 | 批量取消零改动：经 `_delete_one` → `cancel_asset_recordcode` 委托自动继承新语义 | 同上（未改动） |
+| 4 | 代码内文档同步：`constants.py:10` 流转图注释、`transitions.py` 业务规则注释 | `state_machine/` |
+| 5 | 文档同步：状态机规则表补 cancel 行、特殊回退操作表加"取消报废"行、业务约束新增第 6 条、ASCII 图补 cancel 分支、版本 v1.11+变更日志；技术设计 03 文档表行拆分与示例代码修正 | `Rules_Fiels/backend-business-rules.md` 等 |
+
+### 四、对抗审核结论
+
+未发现阻断性缺陷。审核发现并已修复 2 处文档/注释一致性残留（D1：`transitions.py` cancel 注释未同步；D2：技术设计 03 文档示例代码 `TRANSITIONS` 缺 `in_use/repairing` 目标、`_REJECT_TARGETS` 未定义、前置校验写法与实现语义相反）。记录 2 处预存在技术债（D3：cancel/reject 路径未将 `InvalidTransitionError` 转 `AppValidationError`，脏数据单条取消会 500；D4：软删 + OneToOne 唯一约束导致取消后同资产重新申请报废会 IntegrityError）——均非本次引入，另行立项。
+
+### 五、验证记录
+
+```text
+① 状态机+服务层目标测试: 68 passed（含新增 TestCancelDamaged 10 例：5 原状态参数化
+   + None/in_store/scrapped/unknown_x 兜底参数化 + 非 damaged 抛错；服务层
+   test_cancel_success 改断言 in_use + 批量继承用例 broken→broken+success_count） ✅
+② 全量回归: apps/assetmanagement/tests/ 分两块 377+249 = 626 passed, 0 failed ✅
+③ ruff/mypy: 项目 .venv 未安装（No module named ruff/mypy），未执行——工具缺口登记
+④ 调用点核查: cancel_damaged 全仓仅 3 处引用（定义/服务层唯一生产调用点/测试），无漏传 ✅
+```
+
+### 六、遗留与关联事项
+
+- **D3（技术债）**：cancel/reject 路径建议统一 `except InvalidTransitionError → AppValidationError(INVALID_STATE_TRANSITION)`（对齐 `create_damaged_asset:53-54`）
+- **D4（技术债）**：`DamagedAsset.asset_recordcode` OneToOne 软删后唯一索引仍占用，重新申请会 IntegrityError；建议 partial unique index `WHERE is_deleted = false` 或复用软删行
+- 需求文档 01/07 无"取消报废"验收条目；本修复依据技术设计文档 03 旧约定修正 + 业务约束第 6 条（新增产品决策），已在 `backend-business-rules.md` v1.11 变更日志注明
+
+---
+
+*登记人：AtomCode ｜ 状态：目标测试+全量回归通过，代码级验证完成*

@@ -40,3 +40,6 @@ docs/knowledge-graph.html
 .env.local
 .env.*.local
 node_modules/
+
+# 会话截图/临时产物
+snippicture/

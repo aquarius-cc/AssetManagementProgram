@@ -1,10 +1,10 @@
 
 ---
 
-### 📄 文档 4：后端业务规范 `/Rules_Fiels/backend-business-rules.md` (v1.8)
+### 📄 文档 4：后端业务规范 `/Rules_Fiels/backend-business-rules.md` (v1.12)
 
 # 后端业务规范与设计思路 (Backend Business Rules)
-> 版本：v1.8 | 最后更新：2026-07-21
+> 版本：v1.12 | 最后更新：2026-09-12
 > 适用范围：Django 6.0 + DRF 3.16 + PostgreSQL 16
 
 ## 一、设计思路（防腐与一致性）
@@ -61,6 +61,8 @@ repairing ──repair_done──┘    │               │                  �
                    └──reject──→ in_use          (原状态为in_use时，字段保留)
                    │
                    └──reject──→ recycled_pending (原状态为recycled_pending时，清空申请人/保管人/使用地点)
+                   │
+                   └──cancel──→ 按original_status回退 (用户取消，与reject同目标，缺失/非法兜底recycled_pending)
 
 遗失的资产找回: lost ──found_and_return──→ recycled_pending (重新进入发放池)
 ```
@@ -90,6 +92,7 @@ repairing ──repair_done──┘    │               │                  �
 | `damaged` | `in_use` | 审批拒绝（原状态为in_use） |
 | `damaged` | `recycled_pending` | 审批拒绝（原状态为recycled_pending） |
 | `damaged` | `repairing` | 审批拒绝（原状态为repairing） |
+| `damaged` | `broken`/`lost`/`in_use`/`recycled_pending`/`repairing` | 取消报废（按original_status回退，与reject同目标；缺失/非法兜底recycled_pending） |
 | `scrapped` | *无* | 终态，不可转出 |
 
 > **V2.8 业务决策**：`in_use` 状态不可直接申请报废（`in_use → damaged` 已移除）。在用资产须先回收至 `recycled_pending`，再从 `recycled_pending` 申请报废。正确路径：`in_use → recycled_pending → damaged`。
@@ -100,6 +103,7 @@ repairing ──repair_done──┘    │               │                  �
 |------|------|------|
 | 取消出库 | `cancel_outasset(previous_status)` | 根据出库前状态回退 |
 | 取消回收 | `cancel_recycle()` | 恢复到在用 |
+| 取消报废 | `cancel_damaged(original_status)` | **根据申请前状态回退（与 reject 一致）**，original_status 为空/非法时兜底 recycled_pending |
 | 强制回收 | `force_recycle_from_any()` | 管理员特殊操作，跳过常规校验 |
 
 **业务约束**：
@@ -109,6 +113,7 @@ repairing ──repair_done──┘    │               │                  �
 3. 进入 `repairing` 状态必须同时创建 `RepairAsset` 维修记录。
 4. 维修完成时必须更新资产的 `physical_grade` 字段。
 5. 审批拒绝报废时，资产必须回退到申请前的状态（由 `original_status` 字段决定），而非一律回到 `recycled_pending`。即使原员工已离职或调岗，也应先回退到 `in_use`，然后再通过正常回收流程处理。
+6. 用户取消报废申请时，资产同样必须回退到申请前的状态（由 `original_status` 字段决定），与审批拒绝行为保持一致。`original_status` 缺失或非法时兜底回退 `recycled_pending`。
 
 ## 四、RBAC 权限与行级数据隔离（B11-B14）
 
@@ -141,6 +146,8 @@ repairing ──repair_done──┘    │               │                  �
 | 仪表盘 | 查看 | ✅ | ✅ 本部门+下级 | ✅ 本部门 | ✅ 本部门 | ✅ 全部 |
 | 导出 | Excel | ✅ | ✅ 本部门+下级 | ✅ 本部门 | ❌ | ✅ 全部 |
 | 扫码查看 | 公开查询 | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+> **公开扫码约束（R4-04）**：匿名扫码响应受 §4.6 最小暴露白名单约束（仅 6 字段），敏感字段一律不返回；✅ 表示"仅白名单内信息可见"，非全量可见。
 
 ### 4.3 行级数据隔离
 
@@ -200,6 +207,20 @@ repairing ──repair_done──┘    │               │                  �
 5. 审计日志 `operator` = 当前操作人，与业务字段 `discovery_person` 解耦。
 6. 审批产出资产的归属（`asset_manager_recordcode`）属资产模块独立议题，不在本细则范围。
 
+### 4.6 公开扫码细则（R4-04 最小暴露收敛）
+
+> 本节约束匿名扫码接口 `GET /api/v1/assets/public/scan/{recordcode}/`（`public_scan_view`）。
+
+**【响应白名单】** 仅返回 6 字段：`asset_code`、`asset_name`、`asset_specification`、`asset_brand`、`asset_current_status`、`physical_grade`。测试以 `set(data.keys()) == 白名单` 严格断言，回归新增字段即失败。
+
+**【禁暴露清单】** 价格（`asset_purchase_price`）、仓库、分类、保管人姓名/电话、使用地点、入库日期——匿名响应中禁止出现，`mask_phone_number` 遮罩方案已废弃（遮罩仍属暴露，直接不返回）。
+
+**【审计】** 成功查询记录 `public_scan` 操作日志（`AssetOperationLog.OperationType.PUBLIC_SCAN`），仅记客户端 IP（`get_current_ip()`），无操作人；404 不记审计（防匿名刷日志，由 anon 限流兜底）。
+
+**【限流】** 视图级显式声明 `[AnonRateThrottle, UserRateThrottle]`：匿名 20/minute、登录用户 100/minute（均取自 `base.py` `DEFAULT_THROTTLE_RATES`）；前端已不再为登录用户调用此接口，登录限流为纵深防御。Selector 免 JOIN（无 `select_related`）。
+
+**【登录态分流】** 已登录用户扫码由前端直接走认证详情接口获取全量信息；公开接口仅服务未登录场景。
+
 ## 五、后端代码复用与量化规范（DRY 落地）
 本细则对应宪法级规则 DR-1、DR-3、DR-5、DR-6，所有后端代码必须遵守。
 
@@ -214,6 +235,8 @@ repairing ──repair_done──┘    │               │                  �
 | BR-7	| **调用链验证** |	视图（View）→ 服务（Service）→ 选择器（Selector）的纵深不得超过 3 层（View→Service→Selector 为标准深度）。若出现 View→Service→Service→Selector 等 4 层+，必须扁平化或使用事件驱动解耦。|	合并中间层或引入事件 |
 
 ## 六、变更日志
+- v1.12 (2026-09-12): 公开扫码最小暴露收敛（R4-04）——匿名扫码响应从 12+ 字段（含价格/仓库/分类/保管人姓名/电话/入库日期，价格仅电话遮罩）收敛为 6 字段白名单；新增 `public_scan` 审计日志（成功查询记 IP，404 不记）；Selector 免 JOIN；新增 §4.6 公开扫码细则；同步 schema baseline 与前端（登录态直达全量详情、未登录公开 6 字段 + 登录引导）。
+- v1.11 (2026-09-12): 取消报废回退语义修正——`cancel_damaged` 从"一律回 recycled_pending"改为"按 `DamagedAsset.original_status` 回退申请前状态"，与审批拒绝（`reject_to_original`，v1.5）保持一致；缺失/非法兜底 recycled_pending。同步实现（`scrapping.py` 签名+回退逻辑、`damaged_asset_service.py` 传参（保留行锁）、批量取消经委托自动继承）与文档（状态机规则表/特殊回退操作表/ASCII 图/业务约束新增第 6 条）与技术设计文档 `03-业务规则与状态机.md` 旧约定修正。业务约束第 6 条为新增产品决策。
 - v1.10 (2026-08-15): 通知事务安全补全（B6 审计落地）——① `damaged_asset_service` 的 `approve_asset_recordcode`/`reject_asset_recordcode` 事务内直调 `notify_dept_managers()` 统一改用 `send_notification_on_commit()`，并删除无效的 `try/except Exception: pass` 空包（修正 v1.6 声称"所有事务内通知已统一改用"但 damaged 未迁移的遗漏）；② `send_notification_on_commit` 加固：非事务块调用抛 `TransactionManagementError`（阻止通知过早发送）、回调体 `try/except` + 结构化日志（含 asset_code/notification_type）、`transaction.on_commit(..., robust=True)`（回调异常不传播为 500、不连锁丢弃同事务其余回调）；③ 测试补全：`send_notification_on_commit` 3 个单测（注册+提交后发送/异常吞没并记日志/非 atomic 抛错）+ approve/reject/complete/fail 四路径 on_commit 行为断言（提交前不发送、提交后发送、参数正确）+ 异常路径红→绿回归护栏（stash 回退旧实现实测护栏由红转绿）。
 - v1.9 (2026-08-12): 维修/找回目标状态修正——`repairing → recycled_pending`（维修完成）、`lost → recycled_pending`（找回）：已使用过的资产修好/找回后统一重新进入发放池，仅首次入库新资产为 `in_store`。同步实现（`core.py` `_TRANSITIONS`）与测试。
 - v1.8 (2026-08-12): 新增 4.5 节"未登记资产细则"——角色×动作矩阵、行级隔离（角色白名单优先+本人提交例外）、接口语义（discovery_person 默认本人/approver 强制当前人/越权 404/审计解耦）。不修改 4.2 矩阵原文，仅澄清"处理"列=审批动作的解读。
