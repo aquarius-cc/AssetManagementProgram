@@ -200,9 +200,9 @@
 | POST | `/auth/login/` | 登录 | LoginSerializer | LoginResponseSerializer |
 | POST | `/auth/logout/` | 登出 | - | - |
 | POST | `/auth/token/refresh/` | 刷新令牌 | RefreshTokenSerializer | LoginResponseSerializer |
-| POST | `/auth/change-password/` | 修改密码 | ChangePasswordSerializer | - |
+| POST | `/auth/change-password/` | 修改密码（规划占位，未实现；实际改密走 `PUT /auth/profile/`，携带 `old_password` + `password`） | ChangePasswordSerializer | - |
 | GET | `/auth/profile/` | 获取当前用户 | - | AuthUserDetailSerializer |
-| PUT | `/auth/profile/` | 更新个人信息 | AuthUserUpdateSerializer | AuthUserDetailSerializer |
+| PUT | `/auth/profile/` | 更新个人信息/修改密码（改密须提供 `old_password` 校验原密码，成功后吊销该用户全部 refresh token） | UserProfileUpdateSerializer | AuthUserDetailSerializer |
 | GET | `/auth/users/` | 用户列表 | - | AuthUserListSerializer |
 | GET | `/auth/users/simple/` | 下拉选单（暂不实现） | - | AuthUserSimpleSerializer |
 | POST | `/auth/users/` | 创建用户 | AuthUserCreateSerializer | AuthUserDetailSerializer |

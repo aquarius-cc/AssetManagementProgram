@@ -101,6 +101,7 @@
 - **证据**：Dockerfile 与全部 CI workflow 均从 requirements/*.txt 安装，全仓无 `pip install -e .` 使用方。
 - **验证命令**：`python -c "import tomllib; tomllib.load(open('pyproject.toml','rb'))"`（解析通过）；`pip install -e . --dry-run`（仅安装项目自身元数据）；`python -m ruff check .`（通过）。
 - **回滚风险**：若未来恢复 pip install -e . 用法，须先恢复 dependencies 并与 base.txt 逐项核对版本。
+- **A-16 变更 (2026-09-13)**：根级决策将 base.txt 的 Django 钉版由 5.2.17-LTS **升至 6.0.5**，对齐方向为"锁文件匹配实际运行环境"而非降级环境。依据：本地 `.venv` 长期运行 Django 6.0.5（assetmanagement 迁移 0021/0022 于 2026-09-12 由其生成）；根 README、CheckReport.md、backend-business-rules 均标注 Django 6.0/6.0.5；dev.txt 钉 django-stubs==6.1.0（Django 6.x 时代 stub），升版后 mypy 门禁与镜像自洽。本变更**推翻**此条目原 5.2.17 判定（原判定语境为 pyproject.toml vs base.txt 的双份清单新旧之争），现明确 base.txt 仍为唯一事实源（DR-1），仅版本值更新。注意：6.0 为功能版本非 LTS，如需 LTS 支持应待 6.2 LTS 发布后另行评估。决策留痕，防止再次回退。
 
 ### A-15. BatchDeleteValidationMixin 收敛 validate_ids×11（F-4）
 - **状态**：✅ 已关闭 | 关闭日期：2026-08-24 | commit 2022814
