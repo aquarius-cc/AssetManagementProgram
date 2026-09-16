@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.19 | **最后更新**：2026-09-10 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.20 | **最后更新**：2026-09-16 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -250,6 +250,16 @@
 - **修复（2026-09-10）**：确认无路径级引用后整文件删除（对齐 B-11 资产域 `c64675c` 处理）；删除后 `python manage.py check` no issues、全量 pytest 1074 passed 回归。
 - **验证命令**：`rg -n "apps\.usermanagement\.views" asset_management_backend --glob "*.py"`（预期仅 `urls.py:13` 与 `views/` 包内引用，views.py 模块零命中）；`python manage.py check`（no issues）。
 - **优先级**：高（维护误导）。
+
+---
+
+### B-15. 【新发现 2026-09-16】审计值 JSON 安全归一化双实现（asset_service._normalize vs operation_log_service._to_json_safe）
+- **判定**：重复实现（DR-1 风险面）。同一语义「审计快照值归一位 JSON 安全类型」两处各自内联：`asset_service._normalize` 为方法内嵌局部函数（不可跨模块 import，处理 FK→recordcode + Decimal/date/datetime/time/UUID→str），本次修复在日志唯一写入点新增 `operation_log_service._to_json_safe`（模块级，另支持 dict/list 递归）。两实现幂等且结果一致，存在漂移风险（一方改语义另一方不同步）。
+- **来源**：BE-05（审计留痕）修复过程中为打通 date 序列化雷（修复前 before/after 含 date 时 JSONField 序列化失败被 `_safe_log` 静默吞掉）在写入收口点新增归一化，未在 out/damaged service 复制第三处；此收敛候选需人工排期。
+- **位置**：`apps/assetmanagement/services/asset_service.py:173`（`update_asset_info` 内嵌）vs `apps/assetmanagement/services/operation_log_service.py:31`。
+- **修复建议**：`asset_service.update_asset_info` 改委托 `OperationLogService._to_json_safe`；或按 DR-4 提升至 `utils/` 公共工具，两处统一引用。
+- **优先级**：低（幂等等效、非缺陷，收敛候选）。**状态**：待修复。
+- **验证命令**（收敛后）：`pytest apps/assetmanagement/tests/test_asset_view_api.py apps/assetmanagement/tests/test_asset_service.py -q`；`rg -n "def _normalize" apps/assetmanagement/services/asset_service.py`（预期无命中）。
 
 ---
 

@@ -77,7 +77,7 @@
 ### R5 事务 / 通知 / 可观测性
 
 - `send_notification_on_commit`（`apps/notification/helpers.py:73`）：非事务块直接抛错 + `on_commit(robust=True)` + 回调异常容错 —— 语义健壮。
-- 通知落点全量：damaged 审批通过/拒绝、repair 创建/完成/失败（5 处事务锚定），均带 mock 测试。
+- 通知落点全量：damaged 审批通过/拒绝、repair 完成/失败（**4 处**事务锚定），均带 mock 断言测试（approve/reject：`test_damaged_asset_service.py:184-208,~329`、done/failed：`test_asset_lifecycle.py:308-326,370-387`）。【BE-07 口径更正 2026-09-16】原"5 处（含 repair 创建）"失实：repair 创建从未入码，送修创建（broken→repairing）拍板 **No-Op**（业务需求 07 文档对送修/维修事件无通知要求，与 R5-01 同源闭环，见 BF-011）。
 - WebSocket：JWT（Sec-WebSocket-Protocol 子协议）认证，无效→4401、身份与 URL jobcode 不符→4403 防冒充；`mark_read` 限定本人；生产强制 `channels_redis`。
 - 可观测性：trace_id（`core/request_context.py` + `X-Request-ID` 透传 + 响应回显 + `TraceIDFilter`）；JSON 日志（`core/json_formatter.py` + 生产 console 切换）；/health、/ready（DB+Redis 探活，503 降级）；Prometheus 指标实现就绪（路径归一化防高基数）。
 - QPS < 10 阈值：OC-4/OC-7 按契约 `[~]` 豁免。
@@ -164,7 +164,7 @@ AR-1~AR-5[√] Fact-1[√] Style-1~Style-3[√]
 |:--|:--|:--|
 | 1 | R2-10：**found 找回目标状态** | A) 改实现为 `in_store`（直入库）；B) 改文档 AC-38 为 `recycled_pending`（推荐，符合"待发放"流程） |
 | 2 | R4-04：**公开扫码枚举可接受性** | A) 接受现状（限流已保护）；B) 收窄返回字段/加验证码 | ✅ 已拍板并落地（2026-09-12）：选 B——6 字段白名单 + public_scan 审计，见 R4-04 行 |
-| 3 | R5-01：**通知覆盖范围** | A) 仅现 5 类审批/维修事件；B) 扩至出库/回收/未登记审批 |
+| 3 | R5-01：**通知覆盖范围** | A) 仅现 **4 类**审批/维修事件（damaged 审批通过/拒绝、repair 完成/失败）；B) 扩至出库/回收/未登记审批 |
 | 4 | R4-06：**dev 弱密钥 fallback** | A) 保留（仅本地）；B) 删除，改为必须显式注入 | ✅ 已拍板落地（2026-09-12，方案 A'）：保留 + README 注明仅限本地（见 R4-06 行） |
 
 ---
@@ -187,7 +187,7 @@ AR-1~AR-5[√] Fact-1[√] Style-1~Style-3[√]
 
 - **Batch 3（文档 / 前端 P3/P4 + 决策落地）**
   - R6-04 ✅ 已修复 · R6-05 ✅ 已拆分 · R7-01 ✅ 已修复（契约措辞对齐）· R4-06 ✅ 已修复（README 注明）
-  - 落实待拍板决策 1~4 全部闭环（R2-10 ✅ / R4-04 ✅ / R5-01 ✅ No-Op / R4-06 ✅）+ R3-04 ✅ 已修复（Batch 2 首项）
+  - 落实待拍板决策 1~4 全部闭环（R2-10 ✅ / R4-04 ✅ / R5-01 ✅ No-Op【2026-09-16 决策清单回写：通知覆盖范围=仅现 4 类审批/维修事件（BE-07 口径更正），出库/回收/未登记审批/送修创建统一 No-Op，见 BF-011】 / R4-06 ✅）+ R3-04 ✅ 已修复（Batch 2 首项）
   - 将 R6-03（新发现）登记入 `Rules_Fiels/Duplicate_Codes/complete-patterns.md` 活账本并关闭
 
 ---

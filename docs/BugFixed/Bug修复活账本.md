@@ -387,3 +387,280 @@ element-plus:552KB（独立 chunk, 含图标）
 ---
 
 *登记人：AtomCode ｜ 状态：目标测试+全量回归通过，代码级验证完成*
+
+---
+
+## BF-007 【已关闭】通用审计日志端点越权：普通用户可读全系统 before/after 快照（审查报告 BE-04）
+
+- **发现日期**：2026-09-13（《审查报告_2026-09-13_AtomCode.md》BE-04）
+- **严重级别**：P2 中-高（越权读取审计数据，含变更前后完整快照）
+- **影响范围**：`core/audit_log_views.py` 通用审计日志 6 个只读端点；无 API 契约变更（URL/参数/响应结构不变，仅角色拦截收紧）
+
+### 一、问题现象
+
+1. 普通 regular 用户 `GET /api/v1/audit-logs/` 返回 200，可拉取全系统审计明细
+2. `before_data/after_data`（变更前后完整快照，含员工姓名等敏感字段）对任意普通用户开放
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 6 个通用审计端点 `permission_classes = [IsAuthenticated]`，只校验登录态 | `core/audit_log_views.py:80`（及 211/243/284/335/383） |
+| 2 | `IsAuditorOrAdmin` 类 docstring 明确"审计日志查看(全部数据)"应使用它 | `core/permissions.py:124-135` |
+| 3 | 权限面与设计意图不符 → 普通用户越权读全系统审计快照 | 对照 permissions 文档与视图声明 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | 6 个端点 `permission_classes` 统一 `[IsAuthenticated]` → `[IsAuditorOrAdmin]` | `core/audit_log_views.py:80/211/243/284/335/383` |
+| 2 | 清理未使用 `IsAuthenticated` import | 同上 |
+| 3 | 测试重构为角色化权限矩阵：regular 403 / auditor + system_admin 200，6 端点 × 3 角色全覆盖；业务行为用例（过滤参数校验/404/分页/日期解析）改以审计员视角验证 | `core/tests/test_audit_log_api.py` |
+
+### 四、对抗审核
+
+1. **路由全覆盖**：`core/audit_log_urls.py` 6 条路由逐一对应 6 个视图，全部收紧，无漏网
+2. **无越权残留**：grep 全视图 `permission_classes` 6/6 = `[IsAuditorOrAdmin]`，零 `[IsAuthenticated]` 残留；import 已清除
+3. **域隔离正确**：BE-03 资产操作日志（`operation_log_views.py`）保持 `IsAuthenticated`——普通用户查自己的操作记录走该域，不属本次收紧范围
+4. **唯一失败为测试夹具问题**：`test_permission_control` 首跑 IntegrityError（AuthUser 的 `unique_auth_phone_active` 约束下，空字符串 auth_phone 在不同用户间重复）→ 修复 `_make_user` 生成唯一 `_phone()` + 唯一 email，全绿
+
+### 五、验证记录
+
+```text
+① pytest core/tests/test_audit_log_api.py -q          → 36 passed, 0 failed ✅
+② ruff check core/audit_log_views.py core/tests/test_audit_log_api.py
+                                                     → All checks passed ✅
+③ mypy core/audit_log_views.py                        → Success: no issues found ✅
+④ 权限矩阵断言：regular 用户 6 端点全部 403；auditor / system_admin 全部 200 ✅
+   （修复前普通用户 list 端点 200，修复后 403，先红后绿）
+```
+
+### 六、遗留与关联事项
+
+- BE-02（修改密码无旧密码校验）已修复（2026-09-14，commit 235ebe9，见 BF-010）；BE-01/03/04 已闭环
+- 审计端点的 401/400/404 等业务语义用例保留于 Service 层测试（auditor 视角），与权限矩阵互补
+
+---
+
+*登记人：big-pickle ｜ 状态：目标测试+静态检查通过，代码级验证完成*
+
+---
+
+## BF-008 【已关闭】出库/待报废更新类操作审计缺操作人/缺日志（审查报告 BE-05）
+
+- **发现日期**：2026-09-13（《审查报告_2026-09-13_AtomCode.md》BE-05）
+- **严重级别**：P2（更新类操作无法追责到人，审计链有洞）
+- **影响范围**：`views/out_asset_view.py`、`views/damaged_asset_view.py`、`services/damaged_asset_service.py`、`services/operation_log_service.py` + 3 个测试文件；无 API 契约变更
+
+### 一、问题现象
+
+1. `OutAssetViewSet.update` 调 `update_outasset` 未传 operator，审计日志记 `operator_jobcode=None`
+2. `DamagedAssetService.update_damaged_asset` 全程无 `AuditLogger` 调用——待报废记录更新不产生任何审计
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | `out_asset_view.py:199-202` 未把 operator context 传给 Service（mixin 已具备 `get_operator_context`） | `OperatorContextMixin` 见 `views/_mixins.py:75` |
+| 2 | `damaged_asset_view.py:132/141` update/partial_update 未传 operator，且该 ViewSet 未声明 `OperatorContextMixin`（文件内惯例用 `resolve_operator(request.user)`） | create/destroy 均 `resolve_operator(request.user)` |
+| 3 | `damaged_asset_service.py:81-94` 无审计调用 | 方法体仅 setattr+save |
+| 4 | 既有审计写链路有 date 序列化雷：`before_data/after_data` 含 `date` 时 Django JSONField 序列化抛 TypeError，被 `AuditLogger._safe_log` 静默吞掉 → 日志从未落库 | `operation_log_service.py` 原无归一化 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `OutAssetViewSet.update` 追加 `**self.get_operator_context()` | `views/out_asset_view.py:199` |
+| 2 | `DamagedAssetViewSet.update/partial_update` 追加 `operator_jobcode=resolve_operator(request.user)[0], operator_name=resolve_operator(request.user)[1]` | `views/damaged_asset_view.py:132/141` |
+| 3 | `update_damaged_asset` 签名加 operator 参数；循环内 `setattr` 前快照 `before_data`、后快照 `after_data`；`if update_fields:` 内 save 后补 `AuditLogger.log_asset_update(asset=damaged_asset.asset_recordcode, ...)` | `services/damaged_asset_service.py:70-105` |
+| 4 | `OperationLogService.log_operation` 写入前统一幂等归一化 `_to_json_safe`（dict/list 递归、FK→recordcode、Decimal/date/datetime/time/UUID→str）；一次性修复所有调用方（含 recycle 的 `update_recycle_asset` 同雷） | `services/operation_log_service.py` |
+
+### 四、对抗审核
+
+1. **无残留缺口**：grep 全部资产更新入口（asset/out/recycle/damaged/hard_disk）——recycle 与 asset 的 View 早已传 `resolve_operator`，仅 out 与 damaged 为缺口，均已修复
+2. **写入点归一化是唯一实现**：归一化逻辑收敛到 `OperationLogService.log_operation`（DR-1），未在 out/damaged service 复制第二处 `_normalize`；`asset_service._normalize`（历史实现、幂等）保留不改，疑似收敛点已记入遗留
+3. **审计 asset 关联正确**：damaged 快照经 `damaged_asset.asset_recordcode`（Asset FK 实例）写入，与 out 侧口径一致
+4. **测试真实覆盖**：回归用例 5 个先红 3 次（断言失败原因 = 修复前真症状：operator=None / 无 update 日志 / `got an unexpected keyword argument 'operator_jobcode'`），修复后绿 3 次；期间两次失败根因（view 无 mixin、date 序列化雷）均已定位修复，非放宽断言
+
+### 五、验证记录
+
+```text
+① 回归 3x：test_update_out_asset + test_update_damaged_asset + TestUpdateDamagedAsset
+                                                     → 红 3x(5 failed) → 绿 3x(5 passed) ✅
+② pytest apps/assetmanagement/tests/test_out_asset_view_api.py test_damaged_asset_view_api.py test_damaged_asset_service.py
+                                                     → 51 passed, 1 存量 warning ✅
+③ pytest apps/assetmanagement/tests -q               → 645 passed, 5 存量 warning ✅
+④ ruff check 7 文件                                  → All checks passed ✅
+⑤ mypy 4 产品文件                                    → Success: no issues found ✅
+```
+
+### 六、遗留与关联事项
+
+- `asset_service._normalize`（asset_service.py:173 内嵌局部函数）与 `operation_log_service._to_json_safe` 逻辑可合并，属 DR 收敛候选，本次未改以避免范围蔓延（已按 §1.8 新发现义务登记为关注项）
+- BE-02（修改密码无旧密码校验）已修复（2026-09-14，见 BF-010）
+
+---
+
+*登记人：big-pickle ｜ 状态：目标测试+静态检查通过，代码级验证完成，2026-09-16*
+
+---
+
+## BF-009 【已关闭】change_status 废弃端点权限面与文档不符（审查报告 BE-06）
+
+- **发现日期**：2026-09-13（《审查报告_2026-09-13_AtomCode.md》BE-06）
+- **严重级别**：P3（规范/文档漂移，废弃端点权限比文档宽，误导安全评审）
+- **影响范围**：`apps/assetmanagement/views/asset_view.py` get_permissions + 测试；无 API 契约变更（URL/参数/响应不变，仅角色门槛收紧）
+
+### 一、问题现象
+
+1. `change_status`（废弃的手动状态修复端点）docstring 与 OpenAPI 描述声明"仅供系统管理员数据修复使用"
+2. 实际权限为 `IsAssetAdminOrAbove`——资产管理员也能调用，权限面比文档宽
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | `AssetViewSet` 覆写了 `admin_actions` + `get_permissions`，把 `change_status` 从 mixin 默认的 `IsSystemAdmin`（`_mixins.py:57,63`）带入 `[IsAssetAdminOrAbove()]` 分支（`asset_view.py:96-98`） | `admin_actions` L65 含 `change_status` |
+| 2 | docstring/schema（`:273-276,280`）仍声明"仅限系统管理员"，权限与声明漂移 | 已验证 asset_admin 角色实测 200 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `get_permissions` 首行特判 `if self.action == "change_status": return [IsSystemAdmin()]`，优先于 admin_actions 判断 | `views/asset_view.py:96-97` |
+| 2 | import 增补 `IsSystemAdmin` | 同上 `:35` |
+| 3 | `change_status` 保留在 admin_actions 清单（特判优先级更高，语义无残留），其余 action 权限不变 | 未动 |
+
+### 四、对抗审核
+
+1. **特判无残留**：`change_status` 的唯一 action 消费方为 `AssetViewSet.get_permissions`，特判（L96）先于 admin_actions（L98）命中，无绕过路径；`_mixins.py:57` 默认清单不含此 action 分支（被覆写，不影响）
+2. **其它 action 不受影响**：特判仅匹配 `change_status`，其余 admin_actions（create/update/destroy/batch_*/change_outasset_employee/found_and_return/repair*）仍走 `[IsAssetAdminOrAbove()]`
+3. **回归真实覆盖**：asset_admin 用户需与资产同部门（`manager` 归属部门）避免行级隔离 404 干扰——用例内建 manager 员工将资产归属到 asset_admin 部门后再断言 403；修复前实测 200（红灯 `assert 200 == 403`），修复后 403（绿灯）
+4. **system_admin 锚点未误伤**：现有 `test_change_status`（superuser 夹具）绿，收紧对系统管理员零影响
+5. **前端零影响**：前端全仓 grep `change_status` 无调用（deprecated 端点 UI 已切换专用接口）
+
+### 五、验证记录
+
+```text
+① 回归红灯 3 连：test_change_status_requires_system_admin → FAILED（assert 200 == 403）✅
+② 回归绿灯 3 连：同上 → PASSED（另锚点 test_change_status 亦绿）✅
+③ pytest test_asset_view_api.py test_asset_view_rbac.py → 46 passed ✅
+④ pytest apps/assetmanagement/tests → 646 passed, 5 存量 warning ✅
+⑤ ruff check asset_view.py test_asset_view_api.py → All checks passed ✅
+   mypy asset_view.py → Success: no issues found ✅
+```
+
+### 六、遗留与关联事项
+
+- BE-02（修改密码无旧密码校验）已修复（2026-09-14，见 BF-010）；BE-01/03/04/05/06 已闭环
+- 同类"docstring vs 权限面"漂移未在其它 ViewSet 批量扫描（审查报告仅 BE-06 一行在册），如需全量核查可另立任务
+
+---
+
+*登记人：big-pickle ｜ 状态：目标测试+静态检查通过，代码级验证完成，2026-09-16*
+
+---
+
+## BF-010 【已关闭】修改密码无需验证旧密码且不吊销 refresh token（审查报告 BE-02）
+
+- **发现日期**：2026-09-13（《审查报告_2026-09-13_AtomCode.md》BE-02，P2 权限安全）
+- **严重级别**：P2
+- **影响范围**：`apps/authusermanagement`（唯一自助改密入口 `PUT /api/v1/auth/profile/`）；无 API 契约变更
+
+### 一、问题现象
+
+1. 改密请求只需提交 `password`，无需验证旧密码，无二次认证
+2. 改密成功后已签发的 refresh token 不吊销，会话劫持者可静默改密并永久占据账号
+
+### 二、修复情况（2026-09-14，commit 235ebe9 落库，代码与测试均已提交）
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `UserProfileUpdateSerializer` 新增 `old_password` 字段；`validate()` 强制校验：提交 `password` 时缺旧密码或 `check_password` 失败均 400，成功后从 attrs 移除 `old_password` | `serializers.py:56-94` |
+| 2 | `update()` 改密后调用 `AuthService.invalidate_user_refresh_tokens(instance)` 作废全部 refresh token | `serializers.py:104-108` |
+| 3 | `invalidate_user_refresh_tokens` 将用户全部 OutstandingToken 加入黑名单（异常兜底不中断主流程） | `services.py:269-312` |
+| 4 | 空密码/空白/None 由 CharField `allow_blank=False` 在字段层拒绝，杜绝 `set_password("")` | `serializers.py:80-84` 备注 + `test_serializers.py:52-57` |
+
+### 三、对抗审核
+
+1. **绕过路径核查**：全局检索改密入口——仅 `views.py:325-335 ProfileAPIView.put`；Django admin（`admin.py:41` 用 password1/password2）与 `AuthService.update_user`（`services.py:244` forbidden_fields 含 password）均禁止改密，无绕过
+2. **空密码边界**：`""`/纯空白/`None` 在字段层被拒（0x 复现测试 L52-57），不会进入 `set_password("")`
+3. **吊销副作用**：仅改联系方式不触发吊销（`test_serializers.py:71-77` 回归护栏，防新副作用）
+4. **唯一文档缺口（本次同步）**：审查报告 L27/L111/L140 与活账本 3 处遗留行仍标"待修复"，已同步为"已修复（2026-09-14，见本条目）"
+
+### 四、验证记录
+
+```text
+① pytest apps/authusermanagement/tests → 80 passed ✅
+② test_serializers.py 覆盖：缺旧密码拒绝 / 旧密码错误拒绝 / 正确通过且 old_password 不进 validated_data /
+  空白密码字段层拒绝 / 改密哈希+吊销（mock 断言 invalidate 恰好调用 1 次且新哈希生效）/ 仅改联系方式不吊销 ✅
+```
+
+### 五、遗留与关联事项
+
+- access token（10 分钟有效）改密后短期内仍可用，属已知取舍（仅吊销 refresh 已满足报告要求）；如需彻底防劫持可另立增强项
+- 本条目为状态核实型闭环：修复代码在 commit 235ebe9 已存在，本次仅同步文档状态，未改动任何代码
+
+---
+
+*登记人：big-pickle ｜ 状态：文档状态同步完成（代码修复于 2026-09-14 已落库），2026-09-16*
+
+---
+
+## BF-011 【已关闭】送修创建无通知触发（审查报告 BE-07）——拍板 No-Op，口径更正
+
+- **发现日期**：2026-09-13（《审查报告_2026-09-13_AtomCode.md》BE-07，P3 通知）
+- **严重级别**：P3（口径漂移）
+- **影响范围**：无代码；决策清单回写（通知覆盖范围）
+
+### 一、问题现象
+
+1. `repair_asset_service.py:120-162 create_repair_asset`（broken→repairing）内无 `send_notification_on_commit`，资产送修后 dept_manager 无感知
+2. 历史报告（七轮全量审查）口径"5 处（含 repair 创建）且均带 mock 测试"，与代码实际 4 处不符
+
+### 二、事实核查（对抗审核前置）
+
+| # | 核查项 | 结论 | 证据 |
+|---|---|---|---|
+| 1 | 通知落点计数 | **实际 4 处**：damaged approve/reject、repair done/failed | `damaged_asset_service.py:175-184,243-252`、`repair_asset_service.py:214-223,277-286` |
+| 2 | `create_repair_asset` 无通知 | 属实 | `repair_asset_service.py:120-162` 全文无 `send_notification` |
+| 3 | repair done/failed 断言测试 | **已存在**（先前勘察误判"无断言"，实为 mock 名为 `notify_dept_managers` 致 `grep "Notification"` 漏检；已按 Fact-1 更正，本轮未补测试） | `test_asset_lifecycle.py:308-326,370-387`，`test_asset_lifecycle.py` 24 passed |
+| 4 | 业务依据 | 07 需文档全文无"送修/维修"通知条目 | `Project_Requirements/01-业务需求/07-功能需求与验收标准.md` |
+| 5 | 同源决策 | R5-01 已对出库/回收/未登记审批拍板 No-Op（业务需求无通知要求） | 七轮报告 L119/R5-01 |
+
+### 三、决策（2026-09-16）
+
+**方案 B（No-Op），拍板依据**：
+- 业务需求（07 文档 + 业务细则 4.5）对送修/维修事件无通知要求——唯一拍板依据
+- 现存 4 处通知均为**结果/审批**类事件（审批通过/拒绝、维修完成/失败），dept_manager 是结果接收方；送修创建是**流程启动**，操作者即 dept_manager/资产管理员本人，自通知价值低
+- 与 R5-01 事件分类保持一致：中段流程事件（出库/回收/送修）统一不通知，避免同性质事件一个通知一个不通知的矛盾
+
+**生产代码零改动**。
+
+### 四、文档回写（本条目动作）
+
+| 文档 | 位置 | 改动 |
+|---|---|---|
+| 七轮全量审查报告 | L80 | "5 处（含 repair 创建）+ 均带 mock 测试" → "4 处+断言全部在位" |
+| 同上 | L167 决策 3 选项 A | "5 类" → "4 类（damaged 审批通过/拒绝、repair 完成/失败）" |
+| 同上 | L190 | 决策清单补充 BE-07 口径更正与闭环 |
+| 审查报告 | BE-07 行 | 修复方案列 → ✅ 已拍板 No-Op |
+| 审查报告 | BEQ-03 行 | 决策清单标已拍板，闭环记录 |
+
+### 五、验证记录
+
+```text
+① pytest apps/assetmanagement/tests/test_asset_lifecycle.py → 24 passed ✅
+   （含 test_repair_done_registers_notification_on_commit / test_repair_failed_registers_notification_on_commit,
+    证明 done/failed 通知断言在位，无测试缺口）
+② 生产代码零改动（git status 无 services 文件变更）
+```
+
+### 六、遗留与关联事项
+
+- "均带 mock 测试"系七轮报告虚标（approve/reject 断言在 `test_damaged_asset_service.py`、done/failed 在 `test_asset_lifecycle.py`，全部在位且通过）——已在 L80 更正为事实陈述
+- 通知机制健全性（WS 节流/合并/回灌 R5-02）不受本次拍板影响
+
+---
+
+*登记人：big-pickle ｜ 状态：No-Op 决策已拍板 + 口径回写完成（生产代码零改动），2026-09-16*
