@@ -1,10 +1,10 @@
 
 ---
 
-### 📄 文档 4：后端业务规范 `/Rules_Fiels/backend-business-rules.md` (v1.12)
+### 📄 文档 4：后端业务规范 `/Rules_Fiels/backend-business-rules.md` (v1.13)
 
 # 后端业务规范与设计思路 (Backend Business Rules)
-> 版本：v1.12 | 最后更新：2026-09-12
+> 版本：v1.13 | 最后更新：2026-09-17
 > 适用范围：Django 6.0 + DRF 3.16 + PostgreSQL 16
 
 ## 一、设计思路（防腐与一致性）
@@ -114,6 +114,7 @@ repairing ──repair_done──┘    │               │                  �
 4. 维修完成时必须更新资产的 `physical_grade` 字段。
 5. 审批拒绝报废时，资产必须回退到申请前的状态（由 `original_status` 字段决定），而非一律回到 `recycled_pending`。即使原员工已离职或调岗，也应先回退到 `in_use`，然后再通过正常回收流程处理。
 6. 用户取消报废申请时，资产同样必须回退到申请前的状态（由 `original_status` 字段决定），与审批拒绝行为保持一致。`original_status` 缺失或非法时兜底回退 `recycled_pending`。
+7. 资产创建时初始状态**必须**为 `in_store`，且**必须**由 `AssetService.create_asset` 统一注入（引用 `Asset.AssetStatus.IN_STORE` 枚举，非字符串）。创建类 Serializer（如 `AssetCreateSerializer`）**禁止**暴露 `asset_current_status` 写字段(P0-1 回归约束，防止客户端绕过 FSM 直接创建终态资产)。
 
 ## 四、RBAC 权限与行级数据隔离（B11-B14）
 
@@ -235,6 +236,7 @@ repairing ──repair_done──┘    │               │                  �
 | BR-7	| **调用链验证** |	视图（View）→ 服务（Service）→ 选择器（Selector）的纵深不得超过 3 层（View→Service→Selector 为标准深度）。若出现 View→Service→Service→Selector 等 4 层+，必须扁平化或使用事件驱动解耦。|	合并中间层或引入事件 |
 
 ## 六、变更日志
+- v1.13 (2026-09-17): 新增业务约束第 7 条——资产创建初始状态必须为 `in_store` 且由 `AssetService.create_asset` 统一注入（枚举引用），创建类 Serializer 禁止暴露 `asset_current_status` 写字段（P0-1 FSM 绕过修复的文档同步，含回归确认：`serializers/asset_crud_serializers.py` 移除写字段、`service` 注入枚举、schema baseline 重导出、测试 655 passed）。
 - v1.12 (2026-09-12): 公开扫码最小暴露收敛（R4-04）——匿名扫码响应从 12+ 字段（含价格/仓库/分类/保管人姓名/电话/入库日期，价格仅电话遮罩）收敛为 6 字段白名单；新增 `public_scan` 审计日志（成功查询记 IP，404 不记）；Selector 免 JOIN；新增 §4.6 公开扫码细则；同步 schema baseline 与前端（登录态直达全量详情、未登录公开 6 字段 + 登录引导）。
 - v1.11 (2026-09-12): 取消报废回退语义修正——`cancel_damaged` 从"一律回 recycled_pending"改为"按 `DamagedAsset.original_status` 回退申请前状态"，与审批拒绝（`reject_to_original`，v1.5）保持一致；缺失/非法兜底 recycled_pending。同步实现（`scrapping.py` 签名+回退逻辑、`damaged_asset_service.py` 传参（保留行锁）、批量取消经委托自动继承）与文档（状态机规则表/特殊回退操作表/ASCII 图/业务约束新增第 6 条）与技术设计文档 `03-业务规则与状态机.md` 旧约定修正。业务约束第 6 条为新增产品决策。
 - v1.10 (2026-08-15): 通知事务安全补全（B6 审计落地）——① `damaged_asset_service` 的 `approve_asset_recordcode`/`reject_asset_recordcode` 事务内直调 `notify_dept_managers()` 统一改用 `send_notification_on_commit()`，并删除无效的 `try/except Exception: pass` 空包（修正 v1.6 声称"所有事务内通知已统一改用"但 damaged 未迁移的遗漏）；② `send_notification_on_commit` 加固：非事务块调用抛 `TransactionManagementError`（阻止通知过早发送）、回调体 `try/except` + 结构化日志（含 asset_code/notification_type）、`transaction.on_commit(..., robust=True)`（回调异常不传播为 500、不连锁丢弃同事务其余回调）；③ 测试补全：`send_notification_on_commit` 3 个单测（注册+提交后发送/异常吞没并记日志/非 atomic 抛错）+ approve/reject/complete/fail 四路径 on_commit 行为断言（提交前不发送、提交后发送、参数正确）+ 异常路径红→绿回归护栏（stash 回退旧实现实测护栏由红转绿）。
