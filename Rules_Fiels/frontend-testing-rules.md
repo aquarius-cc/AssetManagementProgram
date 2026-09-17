@@ -1,11 +1,11 @@
 
 ---
 
-### 📄 文档 7：前端测试细则 `/Rules_Fiels/frontend-testing-rules.md` (v1.5)
+### 📄 文档 7：前端测试细则 `/Rules_Fiels/frontend-testing-rules.md` (v1.6)
 
 # 前端测试细则 (Frontend Testing Rules)
-> 版本：v1.5 | 最后更新：2026-07-10
-> 适用范围：Vitest + Vue Test Utils + Vue 3.5 + Vitest 变异测试插件
+> 版本：v1.6 | 最后更新：2026-09-17
+> 适用范围：Vitest + Vue Test Utils + Vue 3.5 + @stryker-mutator/vitest-runner（变异测试）
 
 ## 一、测试文件位置 [T9]
 - 组件测试文件（`*.spec.ts`）与组件同目录存放（推荐），或统一放置在 `src/__tests__/`。
@@ -53,13 +53,13 @@ vitest --coverage --coverage.include="src/stores/**/*.ts"
 - 审计票格式：整体覆盖率：XX% | Store 覆盖率：XX%。
 
 ## 八、变异测试（强化测试有效性）[T16]
-必须使用 Vitest 变异测试插件（`vitest-mutant` 或 `@vitest/mutate`），对核心 Store/Composable 逻辑执行变异测试，**变异通过率必须 ≥ 80%**。
+必须使用 `@stryker-mutator/vitest-runner`（Stryker 官方 Vitest 适配器）对核心 Store/Composable 逻辑执行变异测试，**变异通过率（Mutation Score）必须 ≥ 80%**。
 
-> **工具选型说明**：项目已使用 Vitest 作为测试框架，为保持工具链一致性，**禁止**引入 Stryker 等外部变异测试工具。变异测试插件需在 `vitest.config.ts` 中配置。
+> **工具选型修订说明（v1.6, 2026-09-17）**：历史版本要求使用 `vitest-mutant` / `@vitest/mutate` 并禁止引入 Stryker，但经 npm registry 实测该两包均不存在（E404），Vitest v4 亦无 `--mutate` 旗标，原规则无法落地。经根级 §5 协议人工审批，改采唯一真实可用的 Vitest 变异测试适配器 `@stryker-mutator/vitest-runner`（v10.0.0）。本次仅更换工具，**不降低 ≥ 80% 红线**。
 
 执行命令：
 ```bash
-npx vitest --mutate
+npm run test:mutate
 ```
 若通过率 < 80%，触发 `[HALT]` 并补充/完善测试用例。
 
@@ -76,6 +76,8 @@ npx vitest --mutate
 > **自动修复**：lint 可通过 `npm run lint`（含 `--fix`）自动修复部分问题；format 可通过 `npm run format`（含 `--write`）自动格式化。
 
 ## 十、变更日志
+- **v1.6 (2026-09-17)**：修复 T16 工具选型不可落地问题——原指定 `vitest-mutant` / `@vitest/mutate` 在 npm 均不存在（E404）且 Vitest 无 `--mutate` 旗标，经根级 §5 人工审批改用 `@stryker-mutator/vitest-runner` v10.0.0，命令改为 `npm run test:mutate`，≥ 80% 红线不变。
+
 - **v1.5 (2026-07-10)**：新增 T17 代码质量三项检查规范（type-check / lint / format:check）。
 
 - **v1.4 (2026-07-09)**：修复 T8 ID 冲突——规则编号从 T8-T15 重编号为 T9-T16，消除与后端 T8 的重叠。
