@@ -113,6 +113,14 @@ jobs:
           python manage.py spectacular --format openapi --file api-schema-current.json --validate
       - name: Diff against baseline
         run: oasdiff breaking api-schema-baseline.json api-schema-current.json
+      - name: Warn on non-breaking drift
+        # 非 breaking 漂移(新增端点/字段)不挡 CI, 仅警告提醒重导出 baseline, 防止底稿长期分叉
+        run: |
+          if ! oasdiff diff api-schema-baseline.json api-schema-current.json > /tmp/drift.txt 2>&1 || [ -s /tmp/drift.txt ]; then
+            echo "::warning::API schema 存在非破坏性漂移, 请评估后重导出 baseline:"
+            cat /tmp/drift.txt
+            echo "重导出命令: python manage.py spectacular --format openapi-json --file api-schema-baseline.json --validate"
+          fi
 
   backend-test:
     name: "后端 - 测试 + 覆盖率"

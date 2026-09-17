@@ -123,6 +123,17 @@ AI 应在任务完成后，以"**SKILL 建议**"的形式向用户提出，格�
 
 **变更以上契约，必须由根级统筹，前后端同步调整。**
 
+### API Schema 基线维护（M-3 配套）
+
+新增或修改端点后，必须重导出 schema 基线并随 PR 提交：
+
+```bash
+cd asset_management_backend
+python manage.py spectacular --format openapi-json --file api-schema-baseline.json --validate
+```
+
+CI（`api-schema-check` job）会自动比对：破坏性变更直接失败；非破坏性漂移输出警告提醒重导出。禁止在未重导出的情况下提交含端点变更的 PR。
+
 ## §4 最终审计票（全局通用）
 AI 在任务完成后，必须输出以下审计票：
 
