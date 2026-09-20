@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.23 | **最后更新**：2026-09-18 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.25 | **最后更新**：2026-09-20 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -456,7 +456,8 @@
 - **修复建议**（供后端排期）：函数体改为优先取路径参数、query 参数兜底（或移除 query 兜底统一路径）；补一个纯路径调用的集成测试。
 - **优先级**：中（无前端影响，但属 OpenAPI 契约与实现不符）。
 - **状态**：✅ 已修复（2026-09-10，Q4=a 冻结经用户解除）——`asset_view.py:185` 改 `recordcode or request.query_params.get("recordcode")`（路径优先、query 兜底，query-only 调用行为不变、双传时路径优先）；新增纯路径集成测试 `test_get_asset_by_recordcode_path_only`。对抗审核实证：400"缺少 recordcode 参数"分支现为防御性代码——url_path 捕获组 `[^/.]+` 要求路径段非空，路由层无法产生空 recordcode 请求（曾尝试的空串 reverse 用例被 Django 拒绝，已改注释说明不设用例）；全仓无第二处 query-only 读取。回归：test_asset_view_api + test_asset_view_rbac 共 42 passed。
-- **验证命令**：`pytest apps/assetmanagement/tests/test_asset_view_api.py::TestAssetViewSet::test_get_asset_by_recordcode_path_only -q`（应 passed）；`curl .../api/assets/assets/getassetbyrecordcode/Asset-20260101-XXXXXXXX/`（修复后 200）
+- **验证命令**：`pytest apps/assetmanagement/tests/test_asset_view_api.py::TestAssetViewSet::test_get_asset_by_recordcode_path_only -q`（应 passed）；`curl .../api/assets/assets/get_asset_by_recordcode/Asset-20260101-XXXXXXXX/`（修复后 200）
+- **URL 改名联动（2026-09-20，B2 整改）**：端点 `getassetbyrecordcode` 随 B2 URL 命名一致性整改更名为 `get_asset_by_recordcode`（`asset_view.py:190` url_path 变更，路径参数与 query 兜底语义、纯路径可调用性均不变）；证据文本中的旧路径 `getassetbyrecordcode`/旧行号 `:182-187` 对应更新。验证命令同步更新为 `test_get_asset_by_recordcode_path_only`（用例名不变）。方法名 `get_asset_by_recordcode` 未动。
 
 ### D-6. 自定义浮层 z-index 无层级令牌（并列 1000 ×2 + 高层 2000，遮盖靠 DOM 顺序）
 - **判定**：隐形错位风险（当前无实际遮盖缺陷，但层级值无令牌约束；EP 弹窗默认 ~2000+ 起始）。**证据经 2026-09-09 二次核验修正**（初版"仅 3 文件/各页手写无共享 mixin"两处不实，已更正）。
@@ -549,6 +550,8 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.25 (2026-09-20)**：D-5 条目联动更新（B2 URL 命名一致性整改，审查报告 #18，跨端契约）——`getassetbyrecordcode` 端点随整体 URL 整改更名为 `get_asset_by_recordcode`（`asset_view.py:190` url_path 变更），证据文本旧路径/旧行号（`:182-187`）同步更新；同批整改关联资产/合同两端点（`getassetbyname`→`get_asset_by_name`、`getcontractByname`→`get_contract_by_name`），方法名与 reverse 名不变，D-5 语义（路径参数优先、query 兜底）不受影响。验证命令保持 `test_get_asset_by_recordcode_path_only`（用例名未变）。非重复代码治理项，账本侧仅做 D-5 路径与行号归档修正；本项非新增/关闭条目，不触发 G 不变量。验证：后端三测试文件 69 passed、assetmanagement 全模块 724 passed；前端 api 2 spec 28 passed、相关套件 104 passed、type-check/lint 干净。
+
 - **v2.9.24 (2026-09-20)**：关闭 A-23（审查报告 #11，DR-1）——`apps/usermanagement/services.py`（277 行）与同名 `services/` 包并存，包优先解析使 `.py` 版为影子死代码（B-11 应用级同型），删除 `services.py` + `__pycache__/services.cpython-313.pyc`，包内 4 文件与既有未提交改动不动。靶点修正：影子可正常导入（`BusinessLogicError`@core/exceptions.py:72、`ValidationError` 为其别名 :119），死因纯系包优先；旧审查文档 `services.py:527/182` 行号属更老 527 行版本快照。验证：`pytest apps/usermanagement -q` 99 passed（基线 99，净变化 0）；`ruff` 0→0；`mypy` 仅存量 `models.py:122` 零新增；`manage.py check` no issues；符号冒烟 `usermanagement.services.__file__` = `services\__init__.py`。附带登记建议项（未实施）：护栏脚本 `scripts/check_duplicate_invariants.py` 补 `if (BACKEND/"apps"/"usermanagement"/"services.py").exists(): BLOCK`（仿 G-2，约 5 行）防同名死文件复现。
 
 - **v2.9.23 (2026-09-18)**：AC-61 审计断链修复（用户审计项 B7，独立小批次）——关闭 A-20：`recycle_asset_service.py::create_recycle_asset` broken/lost 分支补齐第二次 FSM 转换审计（`log_state_change`，from RECYCLED_PENDING，to BROKEN/LOST，trigger `recycle_mark_broken`/`recycle_mark_lost`，operator 回退与 `_do_recycle_asset_update` 一致）；该路径此前零测试覆盖，新增 `TestRecycleWithBrokenLostMarks` 3 条（broken/lost 审计断言 + normal 反向回归护栏防过度审计泄漏）。编号冲突规避：既有 B-7（throttles）占用，登记为 A-20。验证：定向 19 passed、回收向 32 passed、全量 1165 passed、整体覆盖率 81.73%、app 级 mypy 26 存量不变零新增、ruff 0 错误。
