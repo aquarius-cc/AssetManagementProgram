@@ -54,6 +54,7 @@ def check_g1_closed_patterns_absent():
         r"def asset_view_create",
         r"def get_by_asset_id",
         r"def user_profile_by_user_id",
+        r"def get_asset_recordcode_by_asset_code",
     ]
     for path in iter_py_files(BACKEND / "apps"):
         for lineno, line in enumerate(read_text(path).splitlines(), start=1):

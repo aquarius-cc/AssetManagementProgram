@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.20 | **最后更新**：2026-09-16 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.23 | **最后更新**：2026-09-18 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -124,6 +124,50 @@
 - **修复内容**：`[10, 20, 50]` 字面量在 5 个文件（ContactsView/AuthUserManage/RoleManage/NotificationList/DepartmentEmployeeList）重复，新建 `src/utils/pagination.ts::PAGE_SIZE_OPTIONS` 单一来源，全部改引用。
 - **范围说明**：CommonList 默认 `[20,50,100,200,500]` 是另一组分档，**不属于**本收敛目标，保持不变。
 - **验证命令**：`rg -n "page-sizes" src`（无 `[10, 20, 50]` 字面量）；`npx vitest run src/utils/__tests__/pagination.spec.ts`（3 passed）。
+
+### A-19. 残留裸查询治理（B12 收尾，本次修复）
+- **状态**：✅ 已关闭 | 关闭日期：2026-09-18 | 本次修复
+- **修复内容**：
+  1. **三处删除守卫收敛**：`storage_service.py:96` / `contract_service.py:206-209` / `asset_type_service.py:135` 的 `Asset.objects.filter(..., is_deleted=False).exists()` 裸查询全部收敛至 `AssetSelector.exists_by_storage / exists_by_contract / exists_by_asset_type`（新增 3 个 staticmethod，docstring 豁免清单 #7/8/9，与 `exists_by_code` 同类的全局主数据删除守卫豁免）。同时清理孤儿 import（storage/asset_type 顶层去 `Asset`，contract 删除函数内局部 `import Asset`）。
+  2. **死方法删除**：`waste_asset_selector.py` / `damaged_asset_selector.py` 各删 `get_asset_recordcode_by_asset_code`（A-10 同型死方法）+ 对应 4 个测试方法。净删 ~40 行。
+- **行为等价**：替换谓词逐字节一致（同一 FK 字段 + is_deleted=False），HAS_RELATED_ASSETS 错误码与文案未变。
+- **验证命令**：`rg -n "get_asset_recordcode_by_asset_code" asset_management_backend --glob "*.py"`（预期 0 命中）；`pytest apps/assetmanagement/tests/ -q` 全量 1155 passed；Service 覆盖率 93.06%（≥90）；整体覆盖率 81.61%（≥80）。
+
+### A-20. AC-61 审计断链：回收二次 FSM 转换裸奔（用户审计项"B7"）
+- **状态**：✅ 已关闭 | 关闭日期：2026-09-18 | 本次修复
+- **编号说明**：用户审计项编号"B7"与既有闸板条目 **B-7（throttles 登录名三重复制）** 重号，为保持活账本 ID 唯一，本项目登记为 A-20，原文案引以「用户审计项 B7」。约：非重复代码复制问题，属 AC-61 全链路审计缺口（可观测性违规）。
+- **诊断**：`apps/assetmanagement/services/recycle_asset_service.py` `create_recycle_asset` 的 broken/lost 分支先 `_do_recycle_asset_update`（内含第一次转换 recycle→recycled_pending + `log_asset_recycle` 审计），随后 `AssetFSM.mark_broken/mark_lost`（recycled_pending→broken/lost）与 `asset.save()` 之间**无任何 log_state_change**，仅创建 BrokenAsset/LostAsset 收尾——二次状态跳变（伴随 broken_reason/lost_reason）不可追溯。同域先例：`cancel_recycle`（:296）、repair（:93/:209/:253）、damaged（4 处）、asset_service（:378）、out_asset_service（:294）均每转换一记。
+- **修复内容**：broken/lost 分支 `asset.save(update_fields=["asset_current_status"])` 之后、子记录创建之前，各插入 `AuditLogger.log_state_change(asset=asset, from_state=RECYCLED_PENDING, to_state=BROKEN/LOST, trigger="recycle_mark_broken"/"recycle_mark_lost", operator_jobcode=operator_jobcode or fallback_jobcode, operator_name=operator_name or "")`；operator 回退逻辑与 `_do_recycle_asset_update` 完全一致（存量先例复用）；normal 分支不动。零新增 import；枚举成员名与 `mark_broken/mark_lost` 内部写入值一致（AssetState.BROKEN/LOST.value）。
+- **CT-1 补全**：该路径此前**零测试覆盖**（全 tests 目录 grep `is_broken|is_lost` = 无命中），本次新增 `test_recycle_asset_service.py::TestRecycleWithBrokenLostMarks` 3 条用例（broken 审计 / lost 审计 / normal 反向回归护栏：断言 normal 路径不得泄漏 broken/lost 触发日志）。
+- **验证命令**：`pytest apps/assetmanagement/tests/test_recycle_asset_service.py -q`（19 passed +3）；rec交叉向 32 passed；全量 1165 passed、整体覆盖率 81.73%（≥80）；app 级 mypy strict 26 条存量不变、recycle_asset_service 零新增；ruff 改动 2 文件 0 错误。
+
+### A-21. asset_service 单条/批量删除守卫重复 + 批量删除框架手写（审查报告 #9）
+- **状态**：✅ 已关闭 | 关闭日期：2026-09-20 | 本次修复
+- **判定**：克隆。`delete_asset` 与 `batch_delete_asset` 逐条重复「状态非在库 / 出库记录 / 待报废记录 / 审计+软删除」4 步；且 `batch_delete_asset` 手写 BATCH_SIZE 前置校验 + 循环 + AppValidationError 收集 + 兜底 INTERNAL_ERROR + 结果 dict 组装，与 `core/batch_mixins.py::batch_delete_execute` 重复——B-5 已收敛其余 6 服务（asset_type/contract/storage/out_asset/recycle），唯独漏了 asset。
+- **位置**：`apps/assetmanagement/services/asset_service.py`（修复前 `delete_asset:217-242` / `batch_delete_asset:273-347`；审查报告原述 `IN_USE vs ASSET_IN_USE` 有误，真实分叉为 `ASSET_HAS_OUTASSET` vs `HAS_OUTASSET_RECORDS`）。
+- **修复内容**：新增 `_delete_guarded`（守卫 + 审计 + `asset.delete()` 的唯一实现，DR-1）；`delete_asset` 复用之；`batch_delete_asset` 收敛至 `BatchOperationMixin.batch_delete_execute`（闭包 `_delete_one` 保留 B12 NOT_FOUND 映射，守卫调用置于 try 之外防误映射）；错误码分叉 `HAS_OUTASSET_RECORDS` 统一为 `ASSET_HAS_OUTASSET`。净减约 50 行。
+- **行为等价**：响应结构（total/success_count/fail_count/success_ids/fail_items）与守卫顺序不变；BATCH_SIZE_EXCEEDED 同码同文案；唯一对外值变化为批量出库 fail_items 的 error_code 与 error_message（前端不消费 error_code，G-4 无需注册）。
+- **CT-4 护栏**：新增 3 用例（批量出库失败码统一 / 混合逐条独立 / TOCTOU 锁内不可见归入 NOT_FOUND）。
+- **验证命令**：`pytest apps --cov=apps --cov-fail-under=80 -q`（972 passed，整体 84.16%）；`rg -n "HAS_OUTASSET_RECORDS" apps core --glob "*.py"`（预期 0）；`python scripts/check_duplicate_invariants.py`（PASS）；Service 层覆盖率 95.00%。
+
+### A-22. damaged_asset_service 三处手写「过滤+判空+加锁」绕过 Selector（审查报告 #10）
+- **状态**：✅ 已关闭 | 关闭日期：2026-09-20 | 本次修复
+- **判定**：克隆 + 孤儿抽象。approve/reject/cancel 三处逐字重复「`filter(asset_recordcode__recordcode=…, is_deleted=False).first()` → 判空抛 `DAMAGED_ASSET_NOT_FOUND` → `select_for_update().get(pk=…)` 重取加锁」；仓库已有的 `DamagedAssetSelector.get_asset_recordcode_for_update` 全仓 0 调用方（含测试）。
+- **位置**：`apps/assetmanagement/services/damaged_asset_service.py`（修复前 `:138-147 / :213-221 / :277-285`）；被绕过的抽象在 `apps/assetmanagement/selectors/damaged_asset_selector.py`。
+- **前置缺陷（本次一并修复）**：该 Selector 自身不可用——`DamagedAsset.objects.with_asset_details().select_for_update()` 中 `with_asset_details()` 对可空 `asset_recordcode`（OneToOneField null=True）与 `approver` 生成 LEFT OUTER JOIN，PostgreSQL 抛 `NotSupportedError: FOR UPDATE ... nullable side of an outer join`。因从未被调用故此前未暴露。
+- **修复内容**：Selector 去掉 `with_asset_details()`（单查询仅锁主表），并加注释禁止叠加 `select_related`；三处调用点改为 `try: damaged_asset = DamagedAssetSelector.get_asset_recordcode_for_update(...) except DamagedAsset.DoesNotExist: raise AppValidationError(..., "DAMAGED_ASSET_NOT_FOUND") from None`。
+- **行为等价**：错误码/detail/响应结构/方法签名全保留；原「检查→加锁」两步间的 TOCTOU 窗口被消除（更严）。
+- **CT-4 护栏**：复用既有 `TestDamagedAssetSelector` 新增 3 用例（命中加锁实例 / 缺失 `DoesNotExist` / 软删等同不存在）。
+- **验证命令**：`pytest apps --cov=apps --cov-fail-under=80 -q`（975 passed，整体 84.17%）；`rg -n "asset_recordcode__recordcode=" apps/assetmanagement/services --glob "*.py"`（预期 0）；先红证据：修复前 3 failed（`NotSupportedError`）。
+
+### A-23. usermanagement 同名模块 `services.py` 以包遮蔽成为影子死代码（审查报告 #11）
+- **状态**：✅ 已关闭 | 关闭日期：2026-09-20 | 本次修复
+- **判定**：死代码 + 克隆（DR-1，B-11 应用级同型）。`apps/usermanagement/services.py`（277 行）与同名 `services/` 包并存，各实现一套 `EmployeeService`/`DepartmentService`；实测 `FileFinder.find_spec('services')` → 包 `__init__.py`、`is_package=True`，包优先解析，`.py` 版永不参与生产导入（`__pycache__/services.cpython-313.pyc` 为历史编译残留）。
+- **靶点修正**：影子**可正常导入**——`core/exceptions.py:72` 定义 `BusinessLogicError`，`:119` 定义 `ValidationError = AppValidationError` 别名，故死因纯系包优先解析，而非引用缺失异常类；另 `services.py:527/182/391-418` 等旧行号属更老 527 行版本快照，早已失效。
+- **位置**：`apps/usermanagement/services.py` + `__pycache__/services.cpython-313.pyc`（均已删除）；权威实现为 `apps/usermanagement/services/` 包内 4 文件。
+- **修复内容**：删除影子 `services.py` 与其编译产物；包内 4 个 service 及既有未提交改动不动。方法清单 diff 留证：影子 EmployeeService={create_employee, change_employee_status}、DepartmentService={create_department, move_department, _update_children_level, _get_max_child_depth, batch_update_sort_order} 均为包版子集，零独有逻辑；`_update_children_level` 包版以 `_update_children_paths_and_levels`（含 path 维护）增强替代。
+- **行为等价**：10 个 import 落点（5 生产：employee_view/employee_auth_mixin/department_view/role_view/my_permissions_view + 5 测试）全落包，删前删后导入解析一致（皆为包），删除仅移除不可达代码，契约零变化。
+- **验证命令**：`pytest apps/usermanagement -q`（99 passed，基线 99）；`ruff check apps/usermanagement`（0→0 `All checks passed!`）；`mypy apps/usermanagement --strict`（仅存量 `models.py:122`，零新增）；`python manage.py check`（no issues）。
 
 ---
 
@@ -260,6 +304,22 @@
 - **修复建议**：`asset_service.update_asset_info` 改委托 `OperationLogService._to_json_safe`；或按 DR-4 提升至 `utils/` 公共工具，两处统一引用。
 - **优先级**：低（幂等等效、非缺陷，收敛候选）。**状态**：待修复。
 - **验证命令**（收敛后）：`pytest apps/assetmanagement/tests/test_asset_view_api.py apps/assetmanagement/tests/test_asset_service.py -q`；`rg -n "def _normalize" apps/assetmanagement/services/asset_service.py`（预期无命中）。
+
+### B-20. 【已修复 2026-09-18】employee 批量删除守卫直查 Asset（A-19 未收敛的第 4 处裸查询）
+- **判定**：DR-3 风险面（资产查询绕过 Selector 层）——`apps/usermanagement/services/employee_service.py`（修复前 L342-357）在批量删除员工守卫中直接 `Asset.objects.filter(asset_applicant_recordcode__in=..., is_deleted=False).values_list(...)`（申请人/保管人两个 recordcode 集合），与 A-19 收敛的三处删除守卫同属「删除前引用存在性检查」家族。
+- **与 A-19 差异**：跨 App 引用（usermanagement 查询 assetmanagement 的 Asset）、返回值是 recordcode 集合而非 bool exists。
+- **修复（2026-09-18 实施，用户批准）**：新增 `AssetSelector.referenced_employee_recordcodes(employee_recordcodes: Iterable[str]) -> set[str]` 单一实现（豁免清单 #10，保持现状全局语义=无部门范围，仅登记豁免不 scoped）。FK `to_field="recordcode"` 语义下沉至 Selector 并注释留痕；django-stubs 将 FK `values_list(flat=True)` 推算为 pk 类型 int，运行时为 recordcode 字符串，统一 `str()` 归一。employee_service 预检查块改为委托（局部 import AssetSelector，保留 recordcode 提取行，`# type: ignore[var-annotated]` 随类型明确删除）；**闭包注入机制与 _delete_one 不变**，仅预检查生产来源由内联 ORM 收敛为 Selector 委托（先期条目"改动闭包注入逻辑"措辞精化为此）。
+- **测试（CT-1/CT-4）**：`test_asset_selector.py` 新增 `TestReferencedEmployeeRecordcodes` 6 条单测（空集/申请人命中/保管人命中/双角色去重/软删资产排除/未引用排除）；`test_service_coverage.py` 新增保管人端到端 `HAS_RELATED_ASSETS` 用例（申请人路径既有用例自动经新方法回归）。
+- **优先级**：低（无缺陷、无泄漏，仅入口未统一）。**状态**：✅ 已关闭（修复完成）。
+- **验证命令**：`pytest apps/assetmanagement/tests/test_asset_selector.py apps/usermanagement/tests/test_service_coverage.py -q`（66 passed）；全量 1162 passed、整体覆盖率 81.62%；usermanagement Service 层 91.60%；mypy 双 app scoped-strict 改动文件零新增。
+
+### B-21. 【新发现 2026-09-20】写路径 IntegrityError→业务码兜底双实现（hard_disk_sn_service vs damaged_asset_service）
+- **判定**：重复模式（DR-1 风险面）。同一语义「DB 唯一约束冲突 = 并发窗口穿透预检 → 映射为业务错误码而非通用 400」两处独立内联：`apps/assetmanagement/services/hard_disk_sn_service.py:46-55`（`create`，`except IntegrityError` + 列 token 匹配 + `AppValidationError(DUPLICATE_SN_CODE) from exc`）与 `apps/assetmanagement/services/damaged_asset_service.py`（`create_damaged_asset` PR-1 修复时按该先例新增同构块，列 token=`asset_recordcode`、错误码 `DUPLICATE_DAMAGED_RECORD`）。
+- **来源**：审查报告 #15（B5 TOCTOU）修复过程中发现；pre-existing 仅 hard_disk_sn 一处，本次修复使其成为全仓第二实例（§1.8 新发现义务，登记留痕）。
+- **差异**：目标列 token、错误码、detail 文案各异；外层结构（内层 `with transaction.atomic()` + 外层 `except IntegrityError` 判定 + `raise` 兜底）逐字同构。
+- **修复建议**：提取公共兜底 helper（如 `core/exceptions.py` 或 `utils/` 的 `re_raise_or_map_integrity_error(exc, column_token, error_code, detail) -> None`），两处统一委托；或复用 DR-4 的异常归一化/映射收口。
+- **优先级**：低（两处逻辑幂等、无缺陷，收敛候选）。**状态**：待修复。
+- **验证命令**（收敛后）：`pytest apps/assetmanagement/tests/test_damaged_asset_service.py apps/assetmanagement/tests/test_hard_disk_sn_service_integrity.py apps/assetmanagement/tests/test_hard_disk_sn_service.py -q`；`rg -n "except IntegrityError" apps/assetmanagement/services`（预期仅工具函数内 1 处）。
 
 ---
 
@@ -489,6 +549,12 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.24 (2026-09-20)**：关闭 A-23（审查报告 #11，DR-1）——`apps/usermanagement/services.py`（277 行）与同名 `services/` 包并存，包优先解析使 `.py` 版为影子死代码（B-11 应用级同型），删除 `services.py` + `__pycache__/services.cpython-313.pyc`，包内 4 文件与既有未提交改动不动。靶点修正：影子可正常导入（`BusinessLogicError`@core/exceptions.py:72、`ValidationError` 为其别名 :119），死因纯系包优先；旧审查文档 `services.py:527/182` 行号属更老 527 行版本快照。验证：`pytest apps/usermanagement -q` 99 passed（基线 99，净变化 0）；`ruff` 0→0；`mypy` 仅存量 `models.py:122` 零新增；`manage.py check` no issues；符号冒烟 `usermanagement.services.__file__` = `services\__init__.py`。附带登记建议项（未实施）：护栏脚本 `scripts/check_duplicate_invariants.py` 补 `if (BACKEND/"apps"/"usermanagement"/"services.py").exists(): BLOCK`（仿 G-2，约 5 行）防同名死文件复现。
+
+- **v2.9.23 (2026-09-18)**：AC-61 审计断链修复（用户审计项 B7，独立小批次）——关闭 A-20：`recycle_asset_service.py::create_recycle_asset` broken/lost 分支补齐第二次 FSM 转换审计（`log_state_change`，from RECYCLED_PENDING，to BROKEN/LOST，trigger `recycle_mark_broken`/`recycle_mark_lost`，operator 回退与 `_do_recycle_asset_update` 一致）；该路径此前零测试覆盖，新增 `TestRecycleWithBrokenLostMarks` 3 条（broken/lost 审计断言 + normal 反向回归护栏防过度审计泄漏）。编号冲突规避：既有 B-7（throttles）占用，登记为 A-20。验证：定向 19 passed、回收向 32 passed、全量 1165 passed、整体覆盖率 81.73%、app 级 mypy 26 存量不变零新增、ruff 0 错误。
+
+- **v2.9.22 (2026-09-18)**：B-20 关闭（第 4 处裸查询收敛，独立小批次）——新增 `AssetSelector.referenced_employee_recordcodes`（豁免 #10，docstring 7 项拆分规范化使 inline #7/8/9 与条目一一对应 + 新增 10）；employee_service 预检查块委托收敛、保留闭包注入机制；新增 6 条 selector 单测 + 1 条保管人端到端（申请人路径既有用例自动回归）。全量 1162 passed、整体 81.62%、usermanagement Service 91.60%、mypy 双 app 零新增、护栏 PASS。
+- **v2.9.21 (2026-09-18)**：B12 收尾（残留裸查询治理）——关闭 A-19（三处删除守卫收敛至 `AssetSelector.exists_by_*` 新增豁免 #7/8/9 + 删除 waste/damaged selector 各 1 个死方法及 4 个测试；三守卫零孤儿 import；行为逐字节等价，HAS_RELATED_ASSETS 不变）；登记 B-20（第 4 处裸查询 `employee_service.py:348-357` 员工删除守卫直查 Asset，跨 App、返回值 recordcode 集合，收敛需用户批准，待决策）；G-1 黑名单追加 `def get_asset_recordcode_by_asset_code`（A-10 同型死方法防复现）。全量回归：pytest 1155 passed + Service 覆盖率 93.06% + 整体 81.61% + ruff 存量 7 基线不变 + mypy 改动文件零新增。
 - **v2.9.19 (2026-09-10)**：登记 B-14 并关闭（R6-03，usermanagement 同型死文件）——`apps/usermanagement/views.py`（894 行）为包遮蔽死文件（B-11 应用级同型：包优先解析），全仓零模块级引用（唯一入向 `urls.py:13` 与包内 `views/employee_view.py:27` 均解析到 `views/` 包，其余命中为历史文档；无 importlib 路径加载），整文件删除。同时修正 C-8 条目过时路径 `usermanagement/views.py:61` → `views/department_view.py:64`（与活实现一致，原路径实为死文件）。验证：`python manage.py check` no issues + 全量 pytest 1074 passed。
 - **v2.9.18 (2026-09-10)**：路由直连 API 条目治理落地（自选主判断通过后用户批准实施方案）——eslint.config.ts 新增两个 flat-config 块：① `app/store-layer-no-direct-api` 对 `src/components/**`、`src/views/**` 启用 `no-restricted-imports`（**ESLint v10 实证：`patterns[].group` 仅支持 glob，斜杠正则已废弃，须走独立 `regex` 字段**——初版 group 不触发，print-config + 读 node_modules 规则源码定位后改 `regex`）；正则 `@\/api\/(?!config$|request$|index$)[a-zA-Z0-9_-]+$` 拦业务模块、放行 infra 三入口（config/request/index）；② `app/legacy-direct-api-files` 登记存量 36 文件豁免（24 components 去 2 infra + 15 views 去 1 infra），迁移一个移除一个。验证五步：正向临时文件 `@/api/department` 必报错、infra 三导入不报错（负向）、`npx eslint .` 0 error、type-check 0 错、format:check 通过——五项全绿；临时文件已删。不新增 G 不变量（ESLint 规则即护栏，grep 式不变量会重标 36 存量，与增量语义冲突）。
 - **v2.9.17 (2026-09-10)**：D-5 修复完成（Q4=a 冻结经用户解除）——`asset_view.py:185` 路径参数优先、query 兜底（纯路径调用不再必 400，query-only 行为不变，双传路径优先）；补纯路径集成测试 `test_get_asset_by_recordcode_path_only`。对抗审核：400 分支经证为防御性代码（url_path 捕获组 `[^/.]+` 非空约束，路由层无法产生空参数请求——曾试的空串 reverse 用例被 Django 拒绝，改注释说明不设用例）；全仓无第二处 query-only 读取；错误文案未动。回归：test_asset_view_api + rbac 共 42 passed。后端仓随本批提交。
