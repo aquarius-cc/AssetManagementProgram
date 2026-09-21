@@ -54,10 +54,11 @@
 | FR-3 | **API 请求收敛至 Store/API 层** | 同一 API 端点（如 `/api/assets/`）的请求**必须**在 `src/api/asset.ts` 中仅定义一次，**禁止**在多个组件或 Store 中重复定义相同路径和方法。 | 统一在 `api/` 定义，各 Store 导入调用 |
 | FR-4 | **工具函数统一存放** | 日期格式化、数值精度处理、文件下载等工具函数，**必须**放置在 `/src/utils` 下按模块拆分（如 `format.ts`）。**禁止**在组件内临时编写重复的工具代码。 | 迁移至 `/src/utils`，全局导入 |
 | FR-5 | **组件模板/逻辑行数** | 单个 `.vue` 文件的 `<template>` + `<script setup>` **总行数不得超过 500 行**（不含空行和注释）。超过时，必须将子模板拆分为独立组件，或将逻辑抽离到 Composables。 | 拆分组件/抽离逻辑 |
-| FR-6 | **Composable 函数规模** | 单个 Composable 函数（`use*.ts`）**不得超过 200 行**。超过时，必须按职责拆分为两个独立的 Composables。 | 拆分 Composable |
+| FR-6 | **Composable 函数规模** | 单个 Composable 函数（`use*.ts`）**不得超过 200 行**（不含空行和注释，逻辑行 = 物理行 − 空行 − 整行注释（行注释 `//` 与块注释 `/* */` 起止行），行内/行尾注释计入代码行；计数语义与 BR-4 `logical_line_count` 对齐）。超过时，必须按职责拆分为两个独立的 Composables。计数最小实现为 `scripts/check_frontend_invariants.py`（`--print` 为权威数值来源）。 | 拆分 Composable |
 | FR-7 | **条件与循环嵌套深度** | Vue 模板中的 `v-if`/`v-for` **嵌套不得超过 3 层**（如 `v-if` > `v-for` > `v-if` 为合法，再内嵌第 4 层即违规）。须通过引入计算属性或子组件展平。 | 重构模板结构或引入子组件 |
 
 ## 五、变更日志
+- v1.3 (2026-09-21): FR-6 行数口径基线固化——条文补充"不含空行和注释"及精确计数语义（与 BR-4 `logical_line_count` 对齐，行内/行尾注释计入代码行，块注释整体剔除）；配套门禁 `scripts/check_frontend_invariants.py` + 台账 `Rules_Fiels/FR6_composable_ledger.md` + CI job `fr6-composable-guard`（`duplicate-guard.yml`）。依据子引擎 §4 本地自适应流程，经人工审批（[HALT] 已确认）后以 `[PATCH-FE]` 留痕应用。
 - v1.2 (2026-07-07): 增加对根级安全/可观测性契约的引用（已在设计思路中体现），无实质条款变更。
 - v1.1 (2026-07-07): 新增第四节"前端代码复用与量化规范"（FR-1~FR-7）。
 - v1.0 (2026-07-07): 初始版本，基于项目 README 建立 F1-F15 与暗色模式标准。

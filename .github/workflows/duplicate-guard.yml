@@ -26,3 +26,13 @@ jobs:
           submodules: true
       - name: 运行 BR-4 函数长度护栏
         run: python scripts/check_function_length_guard.py
+
+  fr6-composable-guard:
+    name: "FR-6 Composable 规模回归护栏"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: 运行 FR-6 Composable 规模护栏
+        run: python scripts/check_frontend_invariants.py
