@@ -185,6 +185,25 @@
 - **状态**：✅ 已关闭（2026-09-21）。
 - **验证命令**（收敛后）：`rg -n "审计日志记录失败" apps/unregisteredasset/services.py`（仅 :96 `_safe_call_audit` 内 1 处）；`pytest apps/unregisteredasset -q --create-db`（86 passed 零回归）；`python scripts/check_function_length_guard.py`（PASS 0/0）；`ruff check` clean；`mypy` 目标文件 0 新增。
 
+### A-26. 前端 10 处 XxxBatchCreateResult 接口骨架复制（审查报告 #24，DR-1/DR-4）
+- **状态**：✅ 已关闭 | 关闭日期：2026-09-21 | 本次修复
+- **判定**：克隆（DR-1）+ 工具函数散落（DR-4）。10 处 `XxxBatchCreateResult` 接口（api/7 处内联 + types/3 处）逐字重复相同骨架（total/success_count/fail_count/success_items: T[]/fail_items: Array<{index/error_code/error_message/input_data: F/row_number?}>），仅 success_items 元素类型与 input_data 类型不同。
+- **位置**：
+  - api/asset.ts:44 `AssetBatchCreateResult`（AssetDetail, AssetCreateForm）
+  - api/assetType.ts:29 `AssetTypeBatchCreateResult`（AssetType, AssetTypeCreateForm）
+  - api/contract.ts:31 `ContractBatchCreateResult`（Contract, ContractCreateForm）
+  - api/department.ts:36 `DepartmentBatchCreateResult`（Department, DepartmentCreateForm）
+  - api/outAsset.ts:32 `OutAssetBatchCreateResult`（OutAssetDetail, OutAssetCreateForm）
+  - api/storage.ts:30 `StorageBatchCreateResult`（Storage, StorageCreateForm）
+  - api/user.ts:34 `EmployeeBatchCreateResult`（EmployeeExtended, EmployeeCreateForm）
+  - types/brokenasset.ts:76 `BrokenAssetBatchCreateResult`（BrokenAssetExtended, Record<string, unknown>）
+  - types/lostasset.ts:167 `LostAssetBatchCreateResult`（LostAssetExtended, LostAssetBatchItem）
+  - types/recycleasset.ts:180 `RecycleAssetBatchCreateResult`（RecycleAssetExtended, RecycleAssetBatchItem）
+- **收敛先例**：`BatchDeleteResult` 已由各 api 文件统一从 `@/stores/createEntityStore` 引入（单一定义）。
+- **修复内容**：`src/types/common.ts` 新增 `BatchCreateFailItem<F = unknown>` + `BatchCreateResult<T, F = unknown>` 泛型基类型；10 处 interface 改为 type 别名（`export type XxxBatchCreateResult = BatchCreateResult<T, F>`）；7 个 api 文件新增 `import type { BatchCreateResult } from '@/types/common'`；3 个 types 文件追加 BatchCreateResult 到已有 common 导入。
+- **行为等价**：零运行时变更（纯类型层）；消费方零改动（同名导出）；契约无变化。
+- **验证命令**：`npm run type-check`（0 错误）；`npx vitest run src/stores/__tests__ src/api/__tests__`（59 文件 774 测试通过）；`npm run lint`（通过）；`rg -c "export interface.*BatchCreateResult" src/api src/types --glob "*.ts" --glob "!*.d.ts"`（预期仅 common.ts 1 处）。
+
 ---
 
 ## B — 待修复（To Fix）

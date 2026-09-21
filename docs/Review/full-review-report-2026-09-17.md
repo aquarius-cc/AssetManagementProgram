@@ -43,7 +43,7 @@
 | 21 | ~~13 处后端方法 >50 行~~ | ~~`batch_delete_asset`(66)、`create_recycle_asset`(85)、`create_outasset`(68)、`approve_asset_recordcode`(58) 等~~ ✅ **已修复 2026-09-21**（详见「修复追踪」；实测口径修正：原"13 处"计数过时且口径不统一 — 实测物理行口径 38 处、BR-4 语义逻辑行口径 19 处；本项以「guard 门禁 + 台账分批拆分」固化落地） | ~~BR-4~~ |
 | 22 | ~~9 处前端 Composable >200 行~~ | ~~`useOutAssetForm`(358)、`useNotification`(312)、`useDashboardPage`(275) 等~~ ✅ **已修复 2026-09-21**（详见「修复追踪」；口径修正：原"9 处"为物理行口径 — FR-6 条文固化为逻辑行口径（不含空行/整行注释，与 BR-4 `logical_line_count` 对齐）后 guard `--print` 权威清单 6 超限 + 3 贴线出表；F1 两件拆分 ≤200，余 4 孤儿台账登记待去重） | ~~FR-6~~ ✅ guard `check_frontend_invariants.py` + 台账 `FR6_composable_ledger.md` |
 | 23 | ~~`stores/createEntityStore.ts`（501 物理行）~~ | ~~超 DR-5 上限且无 `TECHNICAL_DEBT` 标注~~ ✅ **已处置 2026-09-21**（详见「修复追踪」；口径修正：FR-5 仅约束 `.vue`、FR-6 仅约束 `use*.ts`，`stores/*.ts` 属规则射程缺口非违规；guard `logical_line_count` 权威计数 **363 逻辑行 ≤500 达标**，免标注免拆分）；规则完善：新增 **FR-8**（stores 逻辑行 ≤500，guard 严格模式无台账豁免） | ~~DR-5~~ ✅ FR-8 |
-| 24 | 10 处重复 `XxxBatchCreateResult` 接口 | `api/asset.ts`、`outAsset.ts`、`department.ts` 等 10 个文件定义相同形状 | DR-1/DR-4 |
+| 24 | ~~10 处重复 `XxxBatchCreateResult` 接口~~ | ~~`api/asset.ts`、`outAsset.ts`、`department.ts` 等 10 个文件定义相同形状~~ ✅ **已修复 2026-09-21**（详见「修复追踪」；`src/types/common.ts` 新增 `BatchCreateFailItem<F>` + `BatchCreateResult<T, F>` 泛型基类型，10 处 interface 改为 type 别名；零运行时变更，消费方零改动） | ~~DR-1/DR-4~~ ✅ 活账本 A-26 |
 | 25 | `stores/entityStoreTypes.ts:60` vs `types/common.ts:26` | 两套分页响应类型 `ListResponse`/`PaginatedResponse` 并存，Store 映射不一致 | DR-1 |
 | 26 | `composables/useExcelExport` / `useOperationLogExcelExport` / `useUserExcelExport` | 三处 Excel 导出流程重复实现，仅列配置不同 | DR-1/FR-2 |
 | 27 | 前端 ~80+ 处 `console.error` 无结构化 | catch 块均使用 `console.error('...:', error)`，无 trace_id、无 JSON 格式 | OC-2 |
