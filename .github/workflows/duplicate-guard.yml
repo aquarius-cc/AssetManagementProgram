@@ -16,3 +16,13 @@ jobs:
           submodules: true
       - name: 运行重复代码回归护栏
         run: python scripts/check_duplicate_invariants.py
+
+  function-length-guard:
+    name: "BR-4 函数长度回归护栏"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: 运行 BR-4 函数长度护栏
+        run: python scripts/check_function_length_guard.py

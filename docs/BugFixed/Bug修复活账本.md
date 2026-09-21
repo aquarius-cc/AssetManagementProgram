@@ -1378,3 +1378,68 @@ api-schema-baseline.json                  → 已重导（M-3），仅非破坏�
 ---
 
 *登记人：big-pickle ｜ 状态：门禁全绿，代码级验证完成，2026-09-20*
+
+---
+
+## BF-024 【已闭环】BR-4 长函数治理无门禁兜底——函数行数门禁固化 + 台账分批拆分规划（审查报告 #21）
+
+- **发现日期**：2026-09-17（《full-review-report-2026-09-17.md》P2 #21）
+- **严重级别**：P2（规则级：函数 >50 行超限靠评审/报告人工发现，无 CI 兜底，新增回潮无拦截）
+- **影响范围**：`scripts/check_function_length_guard.py`（新增）、`Rules_Fiels/BR4_function_length_ledger.md`（新增）、`asset_management_backend/pyproject.toml`、`Rules_Fiels/backend-business-rules.md`、`.github/workflows/duplicate-guard.yml`
+- **登记来源**：审查报告 #21；要点——报告点名 4 处超长函数但计数过时，实测口径需修正，且 ruff 无函数**行数**规则（`PLR0915` 为语句口径，偏差可达 40%+），纯靠复审无门禁。
+
+### 一、问题现象
+
+1. `backend-business-rules.md:233` BR-4 明文「>50 行须拆 _helper」，但 `pyproject.toml:79-100` `lint.select` 仅 E/W/F/I/B/C4/UP/RUF，无 PLR/C90 → 超限**零 CI 拦截**。
+2. 报告 #21 原「13 处」计数口径不统一且过时：AST 实测物理行口径 **38 处**、BR-4 语义逻辑行口径 **19 处**（差异源于空行/注释/ docstring 计数方式）。
+3. `PLR0915`(too-many-statements) 属语句口径，与 BR-4 行数语义最大偏差可达 40%+（如 `_delete_one` 物理 94 行 ↔ 语句 ~57），不可直接用作 BR-4 门禁。
+
+### 二、根因（表格式）
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 规则配置 | `pyproject.toml:79-100` 未启用任何函数长度/复杂度规则；`RUF` 已选中且 `fixable=["ALL"]`，若具名 noqa 而无对应启用规则会触发 RUF100 |
+| 2 | 规则语义 | `backend-business-rules.md:233` 定义「不含空行和注释」的行数口径；ruff `PLR0915` 为语句数口径，两者不等价 |
+| 3 | 计数失真 | 报告 #21 原「13 处」为偏小口径；实测物理行 38 / 逻辑行 19（guard `--print` 全量 835 函数抽样） |
+| 4 | 无门禁 | 此前无 AST 扫描脚本，无台账，超限仅靠人工评审报告记录 |
+
+### 三、修复方案（2026-09-21，门禁先行）
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | 新增 BR-4 guard：AST 语义节点扫描 `apps/`（不含迁移/tests），逻辑行口径（物理跨度 − 空行 − `#` 注释，docstring 计行）>50 即超限；台账双向断言（超限未登记即红、已拆分未移除即红）；`--print` 全量导出 | `scripts/check_function_length_guard.py` |
+| 2 | 19 条台账（B1 状态机关键路径 6 / B2 usermanagement+unregisteredasset 9 / B3 selectors+services 尾部 4），行号由 guard 生成不手抄 | `Rules_Fiels/BR4_function_length_ledger.md` |
+| 3 | `lint.ignore` 显式加 `PLR0915`（防御性，防未来启用 PLR 被存量淹没；避免双轨口径） | `asset_management_backend/pyproject.toml` |
+| 4 | v1.14 changelog：计数口径定义 + guard 实施方式 + `[PATCH-BE]` 留痕（实施固化，非规则文本修改） | `Rules_Fiels/backend-business-rules.md` |
+| 5 | CI 追加 `function-length-guard` job（stdlib-only，push/PR 执行） | `.github/workflows/duplicate-guard.yml` |
+
+### 四、对抗审核
+
+- **行号漂移**：台账行号全部由 guard `--print`（AST `node.lineno`）导出，非手工复制报告旧行号；`rg` 抽查 `recycle_asset_service.py:41`/`out_asset_service.py:204`/`asset_selector.py:307` 等 5 处全部一致 ✅
+- **虚报验证**：guard PASS、负向 A/B、ruff 通道均已实际执行；⚠️ 全量 `pytest` **未运行**——本提交零业务 `.py` 变更，如实标注而非虚报"通过"
+- **口径发现（超越原任务）**：实测暴露报告「13 处」口径失真 → 已同步修正报告 #21 行、台账头部规模说明、v1.14 changelog（物理 38 / 逻辑 19）
+- **契约影响**：无跨端契约、无迁移、无 schema 变更；纯门禁 + 文档
+- **登记遗漏检查**：同步三处（报告 #21 行 + 修复追踪 5 行 + 本 BF-024）；`complete-patterns.md`（§1.8 重复代码活账本）**不适用**——函数长度非重复模式，明确排除 ✅
+
+### 五、验证记录
+
+```text
+① guard 正常跑                          → PASS（19 个超长函数 / 13 个文件全部登记，exit 0）✅
+② 负向 A：台账剔除 create_recycle_asset  → FAIL「未登记超长函数」19 处全报教训后回归 PASS ✅
+③ 负向 B：台账插入"行数 45"条目           → FAIL「台账条目非法 45<=50」+ 其余未登记 17 处 ✅
+④ guard --print 全量                     → 835 函数中逻辑行>50 恰为 19 条，与台账一一对应 ✅
+⑤ ruff check（完整后端）                 → 7 处存量（test_ws_consumer F401 + loadtest E402/I001），目标目录 0 新增 ✅
+⑥ workflow YAML 结构                     → duplicate-guard.yml 校验通过 ✅
+⑦ 全量 pytest                           → 未运行（零业务代码变更，如实标注，非"通过"）
+```
+
+### 六、遗留与关联事项
+
+- **19 处拆分（后续提交，台账驱动）**：B1 Top5 状态机关键路径（create_recycle_asset/create_outasset/batch_delete_outasset+_delete_one/approve_asset_recordcode/move_department）→ B2 usermanagement+unregisteredasset → B3 selectors+services 尾部；每批拆前/拆后跑 `pytest apps/assetmanagement -q` + `apps/usermanagement -q` 与覆盖率 ≥90%，guard 5 处出台账。
+- ruff 存量 7 处（tests+loadtest）非本项射程，另立清理。
+- [待确认] BR-4 口径明确定义：docstring 计入代码行（`#` 注释行不计）。若后续裁决 docstring 亦不计入，guard `logical_line_count` 一处即可调整，台账计数随之重导。
+- 关联：报告 #21 行已划线、修复追踪 5 行已追加。
+
+---
+
+*登记人：big-pickle ｜ 状态：门禁落地全绿，验证完成（拆分部分按台账分批推进），2026-09-21*
