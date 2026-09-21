@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.26 | **最后更新**：2026-09-20 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.27 | **最后更新**：2026-09-20 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -550,6 +550,7 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.27 (2026-09-20)**：SC-1 空密钥签名修复（审查报告 #20，安全红线）+ base 抽象基类守卫——① `config/settings/base.py:212` 删除 `SIMPLE_JWT["SIGNING_KEY"] = SECRET_KEY` 物化键：base 加载时快照 `config("SECRET_KEY", default="")` 为空串，simplejwt `api_settings` 命中用户键后永不回落，导致 development/正常部署 JWT 均用空密钥 HMAC 签名（实证空密钥可 decode 任意 token）；删除后 simplejwt `__getattr__` 回落 `DEFAULTS["SIGNING_KEY"] = settings.SECRET_KEY`（运行时、各环境已覆写真实密钥），三环境实证回落正确。② `base.py:34-41` 新增守卫：`DJANGO_SETTINGS_MODULE == config.settings.base` 时 raise ImproperlyConfigured（base 为抽象基类禁止直接部署，模块加载 fail-fast）。③ 修正 :24 不实注释（原称直接部署会抛异常，实为空密钥静默可用）。新增 `config/tests/test_base_settings_guard.py` 4 条（守卫 2 + 回落 2），先红 4 FAILED → 后绿 4 PASSED。非重复代码治理项（SC-1 安全修复），不触发 G 不变量。验证：config/tests 19 + auth 80 + assetmanagement 724 + 其他 211 = 1034 passed；`manage.py check` no issues；ruff 0；mypy `git stash` 前后 23 errors in 10 files 完全一致（零新增，base.py 零 error）。契约零变化，`api-schema-baseline.json` 无需重导出。
 - **v2.9.26 (2026-09-20)**：B9 枚举约束收敛（审查报告 #19，BR-3 落地）+ 双枚举豁免留档——生产态字面量归零：`damaged_asset_service.py:80` `to_state="damaged"`→`Asset.AssetStatus.DAMAGED`、`out_asset_serializers.py:208` queryset `"in_store"`→`IN_STORE`、`asset_selector.py:116` 可用资产 Q 两处→`IN_STORE`/`RECYCLED_PENDING`、`dashboard_selector.py:346` `"in_use"`→`IN_USE`；测试侧仅 `test_damaged_asset_service.py` 16 处收敛（构造 7 + 断言 9，用户裁断最小收敛，其余 29 测试文件维持字面量）。靶点修正：报告 `asset_crud_serializers.py:302` 指控不成立（:302 = asset_purchase_number default，该文件零状态字面量）；报告 `:68` 过时实为 `:80`。**豁免留档（新发现义务 §1.8）**：`state_machine/constants.py::AssetState` 为与 `Asset.AssetStatus` 值完全平行的第二套枚举（从字符面环绕 `AssetState.from_string(asset.asset_current_status)` 反解），属 DR-1 更大矛盾面——非字符串字面量，超出 B9 规则射程，建议另立架构任务（state_machine 改消费 `Asset.AssetStatus`，`from_string` 值等价可互换），本次不动；`batch_serializers.py:100` 仓库类型 choices、`operation_log_service.py:306` 记录类型字段、`operation_log_views.py:65` API enum 参数均非资产状态语义。验证：定向 6 套件 145 passed、assetmanagement 全模块 724 passed、ruff 0 错、mypy 4 源文件零新增（20 errors 全为 dateutil stubs/var-annotated 存量，pre-fix 比对确认）；`to_state="<状态>"` 与 `asset_current_status="<状态>"` 生产字面量全仓归零。契约零变化（TextChoices 成员值等价），无迁移，无 G 不变量触发（B9 系 BR-3 规范收敛，非重复模式新增/关闭）。
 - **v2.9.25 (2026-09-20)**：D-5 条目联动更新（B2 URL 命名一致性整改，审查报告 #18，跨端契约）——`getassetbyrecordcode` 端点随整体 URL 整改更名为 `get_asset_by_recordcode`（`asset_view.py:190` url_path 变更），证据文本旧路径/旧行号（`:182-187`）同步更新；同批整改关联资产/合同两端点（`getassetbyname`→`get_asset_by_name`、`getcontractByname`→`get_contract_by_name`），方法名与 reverse 名不变，D-5 语义（路径参数优先、query 兜底）不受影响。验证命令保持 `test_get_asset_by_recordcode_path_only`（用例名未变）。非重复代码治理项，账本侧仅做 D-5 路径与行号归档修正；本项非新增/关闭条目，不触发 G 不变量。验证：后端三测试文件 69 passed、assetmanagement 全模块 724 passed；前端 api 2 spec 28 passed、相关套件 104 passed、type-check/lint 干净。
 
