@@ -1,10 +1,10 @@
 
 ---
 
-### 📄 文档 5：前端业务规范 `/Rules_Fiels/frontend-business-rules.md` (v1.2)
+### 📄 文档 5：前端业务规范 `/Rules_Fiels/frontend-business-rules.md` (v1.4)
 
 # 前端业务规范与设计思路 (Frontend Business Rules)
-> 版本：v1.2 | 最后更新：2026-07-07
+> 版本：v1.4 | 最后更新：2026-09-21
 > 适用范围：Vue 3.5 + TypeScript 6.0 + Element Plus 2.10 + Vite
 
 ## 一、设计思路（统一与效率）
@@ -56,8 +56,10 @@
 | FR-5 | **组件模板/逻辑行数** | 单个 `.vue` 文件的 `<template>` + `<script setup>` **总行数不得超过 500 行**（不含空行和注释）。超过时，必须将子模板拆分为独立组件，或将逻辑抽离到 Composables。 | 拆分组件/抽离逻辑 |
 | FR-6 | **Composable 函数规模** | 单个 Composable 函数（`use*.ts`）**不得超过 200 行**（不含空行和注释，逻辑行 = 物理行 − 空行 − 整行注释（行注释 `//` 与块注释 `/* */` 起止行），行内/行尾注释计入代码行；计数语义与 BR-4 `logical_line_count` 对齐）。超过时，必须按职责拆分为两个独立的 Composables。计数最小实现为 `scripts/check_frontend_invariants.py`（`--print` 为权威数值来源）。 | 拆分 Composable |
 | FR-7 | **条件与循环嵌套深度** | Vue 模板中的 `v-if`/`v-for` **嵌套不得超过 3 层**（如 `v-if` > `v-for` > `v-if` 为合法，再内嵌第 4 层即违规）。须通过引入计算属性或子组件展平。 | 重构模板结构或引入子组件 |
+| FR-8 | **Store 文件规模** | 单个 `stores/*.ts`（非 `use*.ts`，该集由 FR-6 管）**不得超过 500 逻辑行**，计数口径与 FR-6 完全一致（逻辑行 = 物理行 − 空行 − 整行注释（行注释 `//` 与块注释 `/* */` 起止行剔除），行内/行尾注释计入代码行；字符串/模板串内 `//`、`/*` 不视为注释；语义与 BR-4 `logical_line_count` 对齐）。超过时，必须按职责拆分为独立模块（类型/缓存/请求控制等）。计数最小实现为 `scripts/check_frontend_invariants.py`（逻辑行 `logical_line_count`，`--print` 为权威数值来源，含 stores 段；严格模式无台账豁免）。 | 拆分 Store 模块 |
 
 ## 五、变更日志
+- v1.4 (2026-09-21): 新增 FR-8——`stores/*.ts`（非 `use*.ts`）规模上限 500 逻辑行，计数口径与 FR-6 完全一致，guard（`scripts/check_frontend_invariants.py`）扩展 stores 段扫描（严格模式，无台账豁免），`--print` 输出 stores 权威计数。依据子引擎 §4 本地自适应流程，经人工审批（[HALT] 已确认）后以 `[PATCH-FE]` 留痕应用；同步修正 v1.3 未升头部版本号残留。
 - v1.3 (2026-09-21): FR-6 行数口径基线固化——条文补充"不含空行和注释"及精确计数语义（与 BR-4 `logical_line_count` 对齐，行内/行尾注释计入代码行，块注释整体剔除）；配套门禁 `scripts/check_frontend_invariants.py` + 台账 `Rules_Fiels/FR6_composable_ledger.md` + CI job `fr6-composable-guard`（`duplicate-guard.yml`）。依据子引擎 §4 本地自适应流程，经人工审批（[HALT] 已确认）后以 `[PATCH-FE]` 留痕应用。
 - v1.2 (2026-07-07): 增加对根级安全/可观测性契约的引用（已在设计思路中体现），无实质条款变更。
 - v1.1 (2026-07-07): 新增第四节"前端代码复用与量化规范"（FR-1~FR-7）。

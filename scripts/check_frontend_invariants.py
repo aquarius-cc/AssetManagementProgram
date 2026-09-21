@@ -1,18 +1,23 @@
 # -*- coding: utf-8 -*-
-"""FR-6 Composable 规模回归护栏 (FR-6 Composable Size Regression Guard)
+"""前端规模回归护栏 (Frontend Size Regression Guard)
 
-基于行级扫描检查前端 composables 目录下所有 use*.ts 文件，按 FR-6 逻辑行口径
-（逻辑行 = 物理行 - 空行 - 整行注释；行注释 '//' 与块注释 '/* */' 起止行计入注释
-剔除；行内/行尾注释计入代码行；字符串/模板串内的 '//' 与 '/*' 不视为注释）检查
-是否超过 200 行。计数语义与后端 BR-4 guard 的 logical_line_count 对齐
-（BR-4: 物理跨度行数 - 空行 - '#' 注释行；TS 对应去除块注释，因 TS 无 docstring）。
+两条子规则，计数统一走 logical_line_count（与后端 BR-4 guard 的
+logical_line_count 对齐：BR-4 为物理跨度行数 - 空行 - '#' 注释行；TS
+对应去除块注释/行注释，因 TS 无 docstring）：
 
-台账（豁免登记表）为唯一事实来源：Rules_Fiels/FR6_composable_ledger.md
+  FR-6 (composables)：检查 composables 目录下所有 use*.ts 文件逻辑行是否超过 200。
+       台账（豁免登记表）为唯一事实来源：Rules_Fiels/FR6_composable_ledger.md
+       断言规则：
+         1. 扫描出的每个逻辑行 > 200 的 composable，必须已登记台账（未登记即红，防新增回潮）。
+         2. 台账中的每个条目，当前逻辑行数必须仍 > 200（已拆分/删除未移除即红，防台账腐烂）。
+         3. 台账条目登记的断言行数必须 > 200（数值手写非法即红）。
 
-断言规则：
-  1. 扫描出的每个逻辑行 > 200 的 composable，必须已登记台账（未登记即红，防新增回潮）。
-  2. 台账中的每个条目，当前逻辑行数必须仍 > 200（已拆分/删除未移除即红，防台账腐烂）。
-  3. 台账条目登记的断言行数必须 > 200（数值手写非法即红）。
+  FR-8 (stores)：检查 stores 目录下所有 *.ts（非 use*.ts）文件逻辑行是否超过 500。
+       严格模式：超限即红，无台账豁免（当前全仓 stores 均 ≤500，无存量登记必需）。
+
+逻辑行口径（FR-6 条文，FR-8 沿用）：逻辑行 = 物理行 - 空行 - 整行注释；
+行注释 '//' 与块注释 '/* */' 起止行剔除；行内/行尾注释计入代码行；
+字符串/模板串内的 '//' 与 '/*' 不视为注释。
 
 退出码：
   0 = 全部通过
@@ -20,7 +25,7 @@
 
 用法：
   python scripts/check_frontend_invariants.py            # 正常检查
-  python scripts/check_frontend_invariants.py --print    # 打印全量 composable 计数(生成台账用)
+  python scripts/check_frontend_invariants.py --print    # 打印全量计数(生成台账用)
 """
 
 import argparse
@@ -30,9 +35,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SCOPE_DIR = ROOT / "vue-assetmanagement" / "src" / "composables"
+STORE_SCOPE_DIR = ROOT / "vue-assetmanagement" / "src" / "stores"
 LEDGER = ROOT / "Rules_Fiels" / "FR6_composable_ledger.md"
 
 MAX_LINES = 200
+STORE_MAX_LINES = 500
 
 BLOCKING = []
 WARNINGS = []
@@ -54,12 +61,28 @@ def is_target(path: Path) -> bool:
     return not any(part == "__tests__" for part in parts)
 
 
+def is_store_target(path: Path) -> bool:
+    if path.suffix != ".ts" or path.name.startswith("use"):
+        return False
+    parts = path.parts
+    return not any(part == "__tests__" for part in parts)
+
+
 def iter_composables(scope_dir: Path):
     if not scope_dir.exists():
         WARNINGS.append(f"{scope_dir.as_posix()}: 扫描目录不存在")
         return
     for path in sorted(scope_dir.rglob("use*.ts")):
         if is_target(path):
+            yield path
+
+
+def iter_stores(scope_dir: Path):
+    if not scope_dir.exists():
+        WARNINGS.append(f"{scope_dir.as_posix()}: 扫描目录不存在")
+        return
+    for path in sorted(scope_dir.rglob("*.ts")):
+        if is_store_target(path):
             yield path
 
 
@@ -107,10 +130,10 @@ def logical_line_count(source: str) -> int:
     return count
 
 
-def scan(scope_dir: Path):
-    """扫描 composables 目录，返回 {posix_relpath: logical_count}"""
+def scan(scope_dir: Path, target_iter):
+    """扫描目录，返回 {posix_relpath: logical_count}"""
     result = {}
-    for path in iter_composables(scope_dir):
+    for path in target_iter(scope_dir):
         relative = path.relative_to(scope_dir).as_posix()
         source = read_text(path)
         if not source:
@@ -145,21 +168,28 @@ def read_ledger(path: Path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="FR-6 Composable 规模回归护栏")
-    parser.add_argument("--print", action="store_true", help="打印 composables 全量逻辑行数(生成台账用)")
+    parser = argparse.ArgumentParser(description="前端规模回归护栏 (FR-6 composables / FR-8 stores)")
+    parser.add_argument("--print", action="store_true", help="打印全量逻辑行数(生成台账用)")
     args = parser.parse_args()
 
-    scanned = scan(SCOPE_DIR)
+    scanned = scan(SCOPE_DIR, iter_composables)
+    scanned_stores = scan(STORE_SCOPE_DIR, iter_stores)
 
     if args.print:
+        print("[composables] (FR-6, 红线 200)")
         for relpath, count in sorted(scanned.items(), key=lambda kv: (-kv[1], kv[0])):
             mark = "OVER" if count > MAX_LINES else "ok  "
+            print(f"{mark}  {count:4d}  {relpath}")
+        print("[stores] (FR-8, 红线 500)")
+        for relpath, count in sorted(scanned_stores.items(), key=lambda kv: (-kv[1], kv[0])):
+            mark = "OVER" if count > STORE_MAX_LINES else "ok  "
             print(f"{mark}  {count:4d}  {relpath}")
         return 0
 
     ledger = read_ledger(LEDGER)
 
     over_limit = {r: c for r, c in scanned.items() if c > MAX_LINES}
+    over_limit_stores = {r: c for r, c in scanned_stores.items() if c > STORE_MAX_LINES}
 
     for relpath in sorted(over_limit):
         if relpath not in ledger:
@@ -169,8 +199,11 @@ def main():
         if relpath not in over_limit:
             BLOCKING.append(f"台账含已达标条目(须移除/更新): {relpath}")
 
+    for relpath in sorted(over_limit_stores):
+        BLOCKING.append(f"超限 Store 文件(严格, 无台账豁免): {relpath} 逻辑行数 {over_limit_stores[relpath]} > {STORE_MAX_LINES}")
+
     if BLOCKING:
-        print("[FAIL] FR-6 Composable 规模护栏失败:")
+        print("[FAIL] 前端规模护栏失败:")
         for item in BLOCKING:
             print(f"  - {item}")
         if WARNINGS:
@@ -180,7 +213,8 @@ def main():
         return 1
 
     print(
-        f"[PASS] FR-6 Composable 规模护栏通过({len(over_limit)} 处超限 composable，已全部登记台账)"
+        f"[PASS] 前端规模护栏通过(FR-6 composables {len(scanned)} 文件 / {len(over_limit)} 超限已登记; "
+        f"FR-8 stores {len(scanned_stores)} 文件 / {len(over_limit_stores)} 超限)"
     )
     if WARNINGS:
         print("[WARN]")
