@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.30 | **最后更新**：2026-09-21 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.31 | **最后更新**：2026-09-21 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -203,6 +203,23 @@
 - **修复内容**：`src/types/common.ts` 新增 `BatchCreateFailItem<F = unknown>` + `BatchCreateResult<T, F = unknown>` 泛型基类型；10 处 interface 改为 type 别名（`export type XxxBatchCreateResult = BatchCreateResult<T, F>`）；7 个 api 文件新增 `import type { BatchCreateResult } from '@/types/common'`；3 个 types 文件追加 BatchCreateResult 到已有 common 导入。
 - **行为等价**：零运行时变更（纯类型层）；消费方零改动（同名导出）；契约无变化。
 - **验证命令**：`npm run type-check`（0 错误）；`npx vitest run src/stores/__tests__ src/api/__tests__`（59 文件 774 测试通过）；`npm run lint`（通过）；`rg -c "export interface.*BatchCreateResult" src/api src/types --glob "*.ts" --glob "!*.d.ts"`（预期仅 common.ts 1 处）。
+
+### A-27. 前端双分页响应类型并存（`ListResponse` vs `PaginatedResponse`，审查报告 #25，DR-1）
+- **状态**：✅ 已关闭 | 关闭日期：2026-09-21 | 本次修复
+- **判定**：克隆（DR-1）。`stores/entityStoreTypes.ts` 的 `ListResponse<T>`（count/results/total_pages?/page?/page_size?）与 `types/common.ts` 的 `PaginatedResponse<T>`（DRF 契约全字段：count/next/previous/results/total_pages/page/page_size）各自独立定义分页形状，且 18 个 store 在 `getList` 中手工把 `response.next`/`response.previous` 逐字段搬进映射对象，形成第二套「事实上的分页形状」。
+- **位置**：
+  - `src/stores/entityStoreTypes.ts:63` `ListResponse<T>`（旧为独立 interface，现为派生别名）
+  - `src/types/assettype.ts:98` `AssetTypeListResponse`
+  - `src/types/contract.ts:217` `ContractListResponse`（另含死类型 `ContractListResponseOld`）
+  - `src/types/department.ts:113` `DepartmentListResponse`（另含注释版 `DepartmentListResponseOld`）
+  - `src/types/user.ts:155` `EmployeeListResponse`（另含注释版 `EmployeeListResponseOld`）
+  - `src/types/storage.ts:136` `StorageResponse`
+  - 18 个 `src/stores/*Store.ts` 的 `getList` 映射（authUser/assetType/damagedAsset/brokenAsset/department/contract/harddiskSn/lostAsset/foundAsset/operationLog/outAsset/storage/role/waste/user/recycle/repair/unregistered）
+- **修复内容**：① `entityStoreTypes.ts` 的 `ListResponse<T>` 改为 `PaginatedResponse<T>` 派生别名 —— `Pick<PaginatedResponse<T>, 'count' | 'results'> & Partial<Pick<PaginatedResponse<T>, 'next' | 'previous' | 'total_pages' | 'page' | 'page_size'>>`（`count`/`results` 必填，其余可选以兼容旧消费方），新增 `import type { PaginatedResponse } from '@/types/common'`；② 5 处领域手写接口改为 `export type Xxx = PaginatedResponse<T>` 别名（保留原导出名，消费方零改动）；③ 删除 18 个 store 中冗余的 `next: response.next,` / `previous: response.previous,`（各 2 行，共 36 行）；④ 删除旧兼容死类型 `ContractListResponseOld` 与注释版 `EmployeeListResponseOld`/`DepartmentListResponseOld`。
+- **行为等价**：零运行时变更（纯类型层 + 删除无读取方的死键）。`createEntityStore` 工厂仅消费 `count`/`results`/`total_pages`/`page`/`page_size`；全仓无任何代码读取该映射对象的 `next`/`previous`（`rg` 仅命中 `Map.keys().next()`，非分页语义）。
+- **测试豁免说明**：`vue-assetmanagement/tsconfig.app.json` 的 `exclude` 含 `src/**/__tests__/*`，spec fixture 缺 `total_pages`/`page`/`page_size` 不参与 `type-check`（既有项目设计，vitest 走 esbuild 不做类型检查），故严格化后的领域类型未对测试 mock 产生编译期约束。
+- **验证命令**：`npm run type-check`（0 错误）；`npx vitest run src/stores/__tests__`（32 文件 495 测试通过）；全量 `npm test`（135 文件 1912 测试通过）；`npm run lint` / `npm run format:check`（通过）；`rg "next: response\.next|previous: response\.previous" vue-assetmanagement/src/stores`（预期 0 命中）；`rg "ContractListResponseOld|EmployeeListResponseOld|DepartmentListResponseOld" vue-assetmanagement/src --glob "!__tests__"`（预期 0 命中）。
+- **回滚风险**：`PaginatedResponse` 若未来放宽 `next`/`previous` 必填性，需同步复核 5 处领域别名与 `ListResponse` 的 `Partial` 集；`count`/`results` 为唯一强契约字段，不得移除。
 
 ---
 
@@ -585,6 +602,7 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.31 (2026-09-21)**：关闭 A-27（审查报告 #25，DR-1）——前端双分页响应类型并存收敛：`stores/entityStoreTypes.ts` 的 `ListResponse<T>` 由独立 interface 改为 `types/common.ts` 的 `PaginatedResponse<T>` 派生别名（`Pick` count/results 必填 + `Partial` next/previous/total_pages/page/page_size），5 处领域手写接口（assettype/contract/department/user/storage）同步别名化，删除 18 个 store 的 `next`/`previous` 冗余映射（36 行）与 3 处旧兼容死类型（`ContractListResponseOld` + 注释版 `EmployeeListResponseOld`/`DepartmentListResponseOld`）。纯类型层，零运行时变更（被删键全仓无读取方）；`tsconfig.app.json` 测试目录豁免使 spec fixture 不参与类型检查（既有设计）。验证：`npm run type-check` 0、`npm run lint` 0、`npm run format:check` 全绿、`npx vitest run src/stores/__tests__` 495 passed、全量 `npm test` 1912 passed、`check_duplicate_invariants.py` PASS、`check_frontend_invariants.py` PASS（FR-8 stores 30 文件 / 0 超限）。附带 `prettier --write` 修正 #24 遗留的 brokenasset/recycleasset 格式漂移。契约零变化，`api-schema-baseline.json` 无需重导出。
 - **v2.9.30 (2026-09-21)**：B-22（unregisteredasset 审计留痕 try/except×4）经 C10 收尾①收敛为 `_safe_call_audit`（唯一 try/except + getattr 分派），转「已关闭」归档为 A-25，B-21 遗留孤立验证行清理；B 区清空。
 - **v2.9.29 (2026-09-21)**：B-23（broken/lost 双胞胎）随 BR-4 B3 完结（guard 0/0）转「已关闭」归档为 A-24，C10 落地证据与验证命令留档；B 区只余 B-22 待修复。
 - **v2.9.28 (2026-09-21)**：BR-4 B2 批次登记（审查报告 #21 联动）——新增 B-22（unregisteredasset 审计留痕 try/except×4，C4 已部分收敛为 `_log_create/_update/_approve_audit` 三 helper，delete 内联待收，状态待修复）与 B-23（`mark_asset_broken`/`mark_asset_lost` 状态流转双胞胎，C10 同步统一排程中，六处差异留档）；两者均系 §1.8 新发现义务登记（B2 拆分过程中暴露/沉淀），非新增重复实现，不触发 G-1~G-4 不变量。同批审查报告 #21 追加 B2 拆分修复追踪行与 B2 验证结果。台账由 B2 移除后 4 行（B3 全为 mark_asset_lost 等）→ 保持不变；C10 统一后本条目转亮闭合并移除台账行。
