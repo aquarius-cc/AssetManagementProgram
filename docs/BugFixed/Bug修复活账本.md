@@ -1443,3 +1443,55 @@ api-schema-baseline.json                  → 已重导（M-3），仅非破坏�
 ---
 
 *登记人：big-pickle ｜ 状态：门禁落地全绿，验证完成（拆分部分按台账分批推进），2026-09-21*
+
+---
+
+## BF-025 【进行中】BR-4 函数拆分 B1 落地：状态机关键路径六函数拆至 ≤50 行
+
+- **发现日期**：2026-09-21（BF-024 遗留「19 处拆分（后续提交，台账驱动）」→ 本项为 B1 执行部分）
+- **严重级别**：P2（规则级：函数 >50 行超限；本项为拆分执行，非新增缺陷）
+- **影响范围**：`asset_management_backend/apps/assetmanagement/services/{out_asset,recycle_asset,damaged_asset}_service.py`、`apps/usermanagement/services/department_service.py`、`tests/test_recycle_asset_service.py`、`Rules_Fiels/BR4_function_length_ledger.md`
+- **登记来源**：台账 B1 六条（guard `--print` 逻辑行：create_recycle_asset 103 / create_outasset 85 / batch_delete_outasset 76 / _delete_one 71 / approve_asset_recordcode 56 / move_department 55）
+
+### 一、问题现象
+
+guard 语义口径下六函数逻辑行 >50，且 `batch_delete_outasset`（76）内含嵌套闭包 `_delete_one`（71），嵌套 body 计入外层计数，线性抽取无法清零外层 → 必须 hoist。
+
+### 二、拆分方案（台账驱动，helper 名以 guard 实测为准）
+
+| 原函数（逻辑行→拆后） | helper 产物 |
+|:---|:---|
+| create_recycle_asset（103→38） | `_normalize_recycle_input`（+`OUTASSET_ASSET_MISSING` 防御守卫）→ `_normalize_recycle_refs`；`_finalize_broken_or_lost`（broken/lost 双分支 **DR-1 合并**，trigger/to_state/子记录类 & fallback_jobcode 语义保持） |
+| create_outasset（85→26） | `_validate_outasset_source`、`_build_outasset_snapshot`（P0-2 快照契约纯函数）、`_apply_outasset_to_asset`（锁+FSM+定向 save，返回新锁定 asset 供审计） |
+| batch_delete_outasset（76→10） | **hoist**：`_delete_one` 提升类级 staticmethod（operator 参数化，外层 lambda 适配 `batch_delete_execute`） |
+| _delete_one（71→27） | `_restore_asset_fields`（original_* 优先/落空置 None/in_store 才恢复仓库，loop 化降复杂度 13→7）+ `_resolve_snapshot_employee` |
+| approve_asset_recordcode（56→44） | `_notify_waste_approved`（P1-8 transaction.on_commit 通知，不提前） |
+| move_department（55→25） | `_validate_move_hierarchy`（循环/深度校验返回 new_level）、`_move_to_root`（根移动+子孙级联） |
+
+### 三、对抗审核
+
+- **先红后绿**：拆分落码但台账未移除 → guard FAIL（6 条「已拆分未移除」+ `_finalize_broken_or_lost` 51 行未登记）→ docstring 压缩至 49 + 台账同提交移除后 PASS ✅
+- **类型修复**：mypy 曝光 recycle 返回注解 `OutAsset`→`Asset` 错误（FK 可空），补 None 守卫置 `Asset`；dept 参数 `str|None`→`str`（调用处已收窄）；`_restore_asset_fields` 参数 `AssetStatus`→`str`（DB 字段实际 str）零行为影响 ✅
+- **C90 复杂度**：`_restore_asset_fields` 13>10 → loop+`_resolve_snapshot_employee` 拆分至 7/5；`_normalize_recycle_input` 11>10 → `_normalize_recycle_refs` 拆分至 9 ✅
+- **DR-1 双分支合并等价性**：broken/lost 审计断言（trigger/to_state/子记录类/fallback_jobcode）与合并前逐字一致，`test_recycle_asset_service.py` 原样通过 ✅
+- **契约影响**：纯 Service 层内部重构，API 响应/端点/状态枚举/schema 零变化，`api-schema-baseline.json` 无需重导出 ✅
+- **Test 数据库残留**：首跑 `test_asset_management_backend` 已存在（环境残留）→ `--create-db` 重建后全绿，非代码问题 ✅
+
+### 四、验证记录
+
+```text
+① guard FAIL→PASS                  → 先红 6 条「已拆未移除」→ 台账移除后 PASS（13 函数/9 文件）✅
+② 全量 pytest apps                 → 1017 passed（assetmanagement 724 + usermanagement 99 定向 + 其余含 unregisteredasset）✅
+③ Service 层覆盖率                 → 96%（≥90%；recycle 91 / out 90 / damaged 100 / department 100）✅
+④ ruff / C90                       → 0 新增；mypy 4 目标文件 0 新增（存量 asset_lifecycle_mixin 6 与本次无关）✅
+⑤ 防御分支补测                     → TestDefensiveBranches 2 用例（二次 FSM 失败 INVALID_STATE_TRANSITION / 无关联资产 OUTASSET_ASSET_MISSING），recycle 覆盖 89%→91% ✅
+⑥ 台账同步                         → B1 六行移除、头部 19→13、行号零漂移，guard 双向断言一致 ✅
+```
+
+### 五、遗留与关联事项
+
+- **B2（usermanagement+unregisteredasset 9 处）/ B3（selectors+services 尾部 4 处）**：设计已固化于台账，按批推进，每批拆前/拆后跑定向套件 + 覆盖率 ≥90% + guard 出台账。
+- **弱测试锚（拆分前须补，CT-4）**：`views.batch_delete`、`bind_auth_user`/`replace_auth_user`、`_handle_s1/s3` 无直接行为测试 → B2 前补回归用例。
+- 关联：报告 #21 追踪追加 4 行、台账 B1 六行移除、BF-024 遗留项部分闭环；commit/push 待用户确认后执行。
+
+*登记人：big-pickle ｜ 状态：拆分完成 + 门禁全绿（guard/pytest/覆盖率/ruff/C90/mypy），archive 与提交待确认，2026-09-21*
