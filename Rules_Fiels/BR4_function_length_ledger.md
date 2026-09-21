@@ -16,7 +16,6 @@
 
 | 批次 | 文件（apps/ 相对路径） | 行号 | 函数 | 逻辑行数 | 拆分目标（helper） | 回归测试锚 | 风险标注 | 状态 |
 |:---|:---|:---|:---|:---|:---|:---|:---|:---|
-| B3 | assetmanagement/services/operation_log_service.py | 59 | log_operation | 65 | `_validate_operation_params`(:99-106 类型白名单+编码非空 ~6)；`_insert_operation_log`(:112-135 create+logger ~16)；docstring 压缩 | tests/test_operation_log_service.py | _to_json_safe 幂等归一化（DR-1 既有）保持；日志级别/内容不变 | 待拆分 |
 | B3 | assetmanagement/services/asset_type_service.py | 38 | create_asset_type | 59 | `_resolve_parent_asset_type`(:62-76 parent_type_code/parent 双解析 ~15)；`_compute_level_path`(:78-91 层级/路径+上限校验 ~12)；docstring 压缩 | tests/test_asset_type_service.py | MAX_ASSET_TYPE_LEVEL 上限；parent 业务码/recordcode 双口径；废弃字段清理 | 待拆分 |
 | B3 | assetmanagement/selectors/asset_selector.py | 307 | combine_search | 55 | `_build_fuzzy_q`(:333-346 FIELD_NAME_MAPPING+AND 组合 ~10)；`_apply_exact_filters`(:348-380 asset_type 双尝试+category 分类展开+early none ~24)；无过滤早退(:321-323)留主体；剩余 ~30 | tests/test_asset_selector.py | asset_type recordcode→type_code 双尝试顺序；asset_type_category 分类展开与空集 none() 语义；FIELD_NAME_MAPPING 键名 | 待拆分 |
 | B3 | assetmanagement/services/asset_lifecycle_mixin.py | 89 | mark_asset_lost | 52 | `_get_or_create_lost_record`(:109-119 幂等分支：已 lost→返回现有或补建 ~12)；`_finalize_lost_transition`(:123-150 FSM+save+LostAsset+refresh+日志 ~20)；剩余 ~35 | tests/test_asset_lifecycle.py + test_state_machine.py | 幂等语义（已 lost 不重跑 FSM）；BEQ-02 ensure_asset_visible 行级隔离不丢失；refresh_from_db 日期序列化 | 待拆分 |
