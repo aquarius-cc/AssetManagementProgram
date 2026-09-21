@@ -5,25 +5,30 @@
 > **守则**：① 新增 >50 行函数未登记 → CI 红；② 台账条目已拆分（≤50 行）未移除 → CI 红。台账须与 AST 一一对应。
 > **规模说明**：BR-4 语义口径下生产超长函数 **19 处**（物理行口径参考为 38 处，二者差异源于空行/注释行占比）。
 > 批次规划：B1 = Top5 高风险（状态机关键路径优先）/ B2 = usermanagement + unregisteredasset / B3 = selectors + services 尾部。
+> **新增 3 列语义**（2026-09-21 升格）：`拆分目标（helper）` = 拟抽取/提升的私有方法设计；`回归测试锚` = 该函数拆分前后的既有测试文件；`风险标注` = 拆分时须人工核对的行为要点。
+> **嵌套计数口径**：外层函数逻辑行含嵌套函数 body。实测 `batch_delete_outasset` 总逻辑行 76 = 外层 5 + 嵌套 `_delete_one` 71，故该行拆分目标为 **hoist（提升）** 而非线性抽取。
+> **hoist 约定**：`_delete_one` 提升至类级 staticmethod 后行号迁移，台账须同提交更新行号/关闭条目，guard「已拆分未移除即红」兜底。
+> **B2/B3 拆分设计**（2026-09-21 完成）已固化于各行；helper 名以 guard 实测调整。docstring 计入计数，部分函数设计含「docstring 压缩」（行为无关纯文本，语义保留）。
+> **测试锚缺口**：`views.batch_delete`、`bind_auth_user`/`replace_auth_user`、`_handle_s1/s3` 无直接行为测试（仅经批量契约快照/审批流间接覆盖，或仅 coverage 一致性测试）→ 拆分前须按 CT-4 补回归用例。
 
-| 批次 | 文件（apps/ 相对路径） | 行号 | 函数 | 逻辑行数 | 状态 |
-|:---|:---|:---|:---|:---|:---|
-| B1 | assetmanagement/services/recycle_asset_service.py | 41 | create_recycle_asset | 103 | 待拆分 |
-| B1 | assetmanagement/services/out_asset_service.py | 41 | create_outasset | 85 | 待拆分 |
-| B1 | assetmanagement/services/out_asset_service.py | 199 | batch_delete_outasset | 76 | 待拆分 |
-| B1 | assetmanagement/services/out_asset_service.py | 204 | _delete_one | 71 | 待拆分 |
-| B1 | assetmanagement/services/damaged_asset_service.py | 136 | approve_asset_recordcode | 56 | 待拆分 |
-| B1 | usermanagement/services/department_service.py | 117 | move_department | 55 | 待拆分 |
-| B2 | unregisteredasset/services.py | 317 | approve_and_handle | 88 | 待拆分 |
-| B2 | unregisteredasset/views.py | 272 | batch_delete | 79 | 待拆分 |
-| B2 | usermanagement/services/employee_service.py | 158 | replace_auth_user | 56 | 待拆分 |
-| B2 | usermanagement/services/employee_service.py | 40 | bind_auth_user | 54 | 待拆分 |
-| B2 | usermanagement/services/role_service.py | 46 | assign_role | 53 | 待拆分 |
-| B2 | unregisteredasset/services.py | 121 | create | 54 | 待拆分 |
-| B2 | unregisteredasset/services.py | 245 | update | 51 | 待拆分 |
-| B2 | unregisteredasset/handlers.py | 63 | _handle_s1_create_and_recycle | 55 | 待拆分 |
-| B2 | unregisteredasset/handlers.py | 257 | _handle_s3_correct_and_recycle | 51 | 待拆分 |
-| B3 | assetmanagement/services/operation_log_service.py | 59 | log_operation | 65 | 待拆分 |
-| B3 | assetmanagement/services/asset_type_service.py | 38 | create_asset_type | 59 | 待拆分 |
-| B3 | assetmanagement/selectors/asset_selector.py | 307 | combine_search | 55 | 待拆分 |
-| B3 | assetmanagement/services/asset_lifecycle_mixin.py | 89 | mark_asset_lost | 52 | 待拆分 |
+| 批次 | 文件（apps/ 相对路径） | 行号 | 函数 | 逻辑行数 | 拆分目标（helper） | 回归测试锚 | 风险标注 | 状态 |
+|:---|:---|:---|:---|:---|:---|:---|:---|:---|
+| B1 | assetmanagement/services/recycle_asset_service.py | 41 | create_recycle_asset | 103 | `_normalize_recycle_input`(:53-93 前奏,~28)→storage/person/outasset/operator 归一化+缺参校验；`_finalize_broken_or_lost`(:100-160 broken/lost 双分支合并,~35,DR-1 去重)→FSM 二次转换+AC-61 审计+子记录创建；剩余 ~40 | tests/test_recycle_asset_service.py（normal/broken/lost 路径）+ test_recycle_clear_fields.py | 双分支合并改 trigger/to_state/子记录类（BrokenAsset/LostAsset），须逐字段对比；FSM save 顺序与 fallback_jobcode 保持 | 待拆分 |
+| B1 | assetmanagement/services/out_asset_service.py | 41 | create_outasset | 85 | `_build_outasset_snapshot`(:68-102 纯函数,~30,P0-2 快照契约)；`_validate_outasset_source`(:48-52,~5)；`_apply_outasset_to_asset`(:107-132,~22)→锁+FSM.outasset+字段更新+save(update_fields)；剩余 ~28 | tests/test_out_asset_service.py（#14：双源成功/快照落库/仓库清空） | P0-2 快照字段（applicant/manager/original_*）一字不差；FSM 转换在 create 后、save 前顺序不变 | 待拆分 |
+| B1 | assetmanagement/services/out_asset_service.py | 199 | batch_delete_outasset | 76 | **hoist**：`_delete_one`(:204) 提升为类级 staticmethod，外层仅剩编排回归 **5** 行 | tests/test_out_asset_service.py batch_delete 快照恢复（#14 契约） | 行号迁移；restore 契约为回归屏障；select_for_update/批量编排顺序不变 | 待拆分 |
+| B1 | assetmanagement/services/out_asset_service.py | 204 | _delete_one | 71 | hoist 后独立拆分：`_restore_asset_fields`(:230-288,~35)→applicant/manager/location/storage 快照恢复+update_fields 组装；剩余 ~30 | tests/test_out_asset_service.py batch_delete 快照恢复（仅 in_store 源恢复仓库） | original_* 优先、落空置 None、prev_status==in_store 才恢复仓库 三语义保持 | 待拆分 |
+| B1 | assetmanagement/services/damaged_asset_service.py | 136 | approve_asset_recordcode | 56 | 最小 helper：`_notify_approval`(:190-201,~8)→P1-8 提交后通知；`_create_waste_record` 视 guard 实测决定（不抽则剩余 ~48 达标，优先最小数量） | tests/test_damaged_asset_service.py approve 路径 | 通知为 transaction.on_commit 语义，不得提前；FSM.approve+审计顺序不变 | 待拆分 |
+| B1 | usermanagement/services/department_service.py | 117 | move_department | 55 | `_validate_hierarchy`(:167-189,~14)→循环引用+6 层深度校验（返回 new_level）；`_move_to_root`(:147-157,~9)→根移动+子孙 path/level 更新；剩余 ~32 | usermanagement/tests/test_department_service.py（root/circular/depth 用例）+ test_services.py | 循环/深度错误码（CIRCULAR_REFERENCE/DEPARTMENT_LEVEL_EXCEEDED）不变；子孙更新时 old_path/old_level 语义保持 | 待拆分 |
+| B2 | unregisteredasset/services.py | 317 | approve_and_handle | 88 | `_prepare_approval`(:368-390,~23)→行锁+状态+类型匹配+审批人解析+字段设置；`_execute_handle`(:395-413,~20)→五分支派发+save；docstring 压缩(:324-366→摘要~8)；剩余 ~40 | unregisteredasset/tests/test_services.py + test_concurrent.py（并发审批竞态） | 五分支 APPROVED 设置契约（reject 分支不设）；log_approve 审计解耦（operator 传 approver_employee） | 待拆分 |
+| B2 | unregisteredasset/views.py | 272 | batch_delete | 79 | 推荐下沉 `UnregisteredAssetService.batch_delete(ids,op)`（与 batch_create 同模式,#17 分层收敛先例），View 仅校验 ids/上限+调 service+BatchResponseHelper(~10)；保守替代：View 内 `_delete_one_item`(~18)；docstring 压缩 | test_b5_baseline_snapshot.py（fail_items 批量契约快照）+ test_concurrent.py；test_api 无直测→拆分须补 | fail_items 结构（NOT_FOUND/STATUS_NOT_ALLOWED/VALIDATION_ERROR/INTERNAL_ERROR）；resolve_operator 上下文；下沉后与既有批量模式 DR-1 对齐 | 待拆分 |
+| B2 | usermanagement/services/employee_service.py | 158 | replace_auth_user | 56 | 与 bind 共用 `_resolve_bind_targets`（DR-1 锁员工+auth_user 获取+占用检查，:71-100）；`_fetch_replace_context`(:188-220,H3 相同检查 ~20)；`_perform_replace`(绑定+审计 ~8)；docstring 压缩 | 仅 test_service_coverage.py（coverage 一致性）→ 行为测试缺失，拆分须先补（CT-4） | AUTH_USER_SAME（H3）语义；解绑旧+绑新原子性；行锁顺序 | 待拆分 |
+| B2 | usermanagement/services/employee_service.py | 40 | bind_auth_user | 54 | `_resolve_bind_targets`(:71-100 → 锁员工/已绑检查/auth_user 获取/占用检查 ~22)；`_perform_bind`(绑定+审计 ~8)；docstring 压缩 | 仅 test_service_coverage.py → 行为测试缺失，拆分须先补（CT-4） | EMPLOYEE_ALREADY_BOUND/AUTH_USER_ALREADY_BOUND 错误码；先员工后 auth_user 行锁顺序 | 待拆分 |
+| B2 | usermanagement/services/role_service.py | 46 | assign_role | 53 | `_resolve_role_assignables`(:75-94 用户/角色存在+M3 自定义校验 ~12)；`_commit_role_assignment`(:96-114 update_or_create+recompute+审计 ~12)；docstring 压缩 | usermanagement/tests/test_role_service.py | M3 自定义角色禁分配；D1 data_scope 继承单入口；D2 Employee.save 钩子黑名单 Token 语义 | 待拆分 |
+| B2 | unregisteredasset/services.py | 121 | create | 54 | `_validate_create_scenario`(:157-170 → scenario/S2/S3 related 必填/S1 禁关联 ~14)；`_log_create_audit`(:184-193,~10)；docstring 压缩 | unregisteredasset/tests/test_services.py + test_concurrent.py | 场景类型契约（s1_no_record/s2_no_outasset/s3_status_mismatch）；审计异常不影响主流程 | 待拆分 |
+| B2 | unregisteredasset/services.py | 245 | update | 51 | `_apply_whitelist_edits`(:290-294 白名单过滤 ~8)；`_log_update_audit`(:298-311,~10)；docstring 压缩 | unregisteredasset/tests/test_services.py | UNREGISTERED_UPDATE_ALLOWED_FIELDS 不变量；before_data pk 序列化（hasattr pk→str） | 待拆分 |
+| B2 | unregisteredasset/handlers.py | 63 | _handle_s1_create_and_recycle | 55 | `_create_unregistered_asset`(:84-95 asset_data 构造+create ~18)；`_create_receive_outasset`(:98-105,与 S2/S3 共用 DR-1 ~12)；映射回收关联内联；剩余 ~35 | 经 approve 流间接覆盖（test_services.py 无直接引用）→ 拆分须补 CT-3 锚 | unregistered_create_and_recycle FSM 路径（CT-3 全路径）；asset/outasset/recycle 三表 + unregistered.result_* 关联一致性 | 待拆分 |
+| B2 | unregisteredasset/handlers.py | 257 | _handle_s3_correct_and_recycle | 51 | 复用 `_create_receive_outasset`；`_force_finalize_recycle`(:291-309 锁+force_recycle_from_any+storage 更新+save+回收创建 ~15)；剩余 ~30 | 同上（间接覆盖）→ 拆分须补 CT-3 锚 | force_recycle_from_any 任意态强制回收语义；old_status→recycled_pending 审计描述拼接；storage 字段更新 | 待拆分 |
+| B3 | assetmanagement/services/operation_log_service.py | 59 | log_operation | 65 | `_validate_operation_params`(:99-106 类型白名单+编码非空 ~6)；`_insert_operation_log`(:112-135 create+logger ~16)；docstring 压缩 | tests/test_operation_log_service.py | _to_json_safe 幂等归一化（DR-1 既有）保持；日志级别/内容不变 | 待拆分 |
+| B3 | assetmanagement/services/asset_type_service.py | 38 | create_asset_type | 59 | `_resolve_parent_asset_type`(:62-76 parent_type_code/parent 双解析 ~15)；`_compute_level_path`(:78-91 层级/路径+上限校验 ~12)；docstring 压缩 | tests/test_asset_type_service.py | MAX_ASSET_TYPE_LEVEL 上限；parent 业务码/recordcode 双口径；废弃字段清理 | 待拆分 |
+| B3 | assetmanagement/selectors/asset_selector.py | 307 | combine_search | 55 | `_build_fuzzy_q`(:333-346 FIELD_NAME_MAPPING+AND 组合 ~10)；`_apply_exact_filters`(:348-380 asset_type 双尝试+category 分类展开+early none ~24)；无过滤早退(:321-323)留主体；剩余 ~30 | tests/test_asset_selector.py | asset_type recordcode→type_code 双尝试顺序；asset_type_category 分类展开与空集 none() 语义；FIELD_NAME_MAPPING 键名 | 待拆分 |
+| B3 | assetmanagement/services/asset_lifecycle_mixin.py | 89 | mark_asset_lost | 52 | `_get_or_create_lost_record`(:109-119 幂等分支：已 lost→返回现有或补建 ~12)；`_finalize_lost_transition`(:123-150 FSM+save+LostAsset+refresh+日志 ~20)；剩余 ~35 | tests/test_asset_lifecycle.py + test_state_machine.py | 幂等语义（已 lost 不重跑 FSM）；BEQ-02 ensure_asset_visible 行级隔离不丢失；refresh_from_db 日期序列化 | 待拆分 |
