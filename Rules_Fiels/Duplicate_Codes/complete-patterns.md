@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.29 | **最后更新**：2026-09-21 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.30 | **最后更新**：2026-09-21 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -177,6 +177,14 @@
 - **状态**：✅ 已关闭（2026-09-21，C10）。
 - **验证命令**：`pytest apps/assetmanagement/tests/test_asset_lifecycle.py apps/assetmanagement/tests/test_state_machine.py -q`（78 passed，lost 幂等 :99 锚 + FSM :130 锚原样通过）；`python scripts/check_function_length_guard.py`（PASS 0/0，台账 B3 同提交移除）。
 
+### A-25. 【关闭 2026-09-21】unregisteredasset 审计留痕 try/except×4（原 B-22，C10 收尾①收敛）
+- **判定**：同构重复（DR-1 风险面）。未登记资产业务四类写操作（create/update/approve/delete）各自包裹逐字同构的「审计留痕块」：延迟导入 `UnregisteredAssetAuditAdapter` + `try/except Exception` + `logger.warning(f"审计日志记录失败(<op>): {e}", exc_info=True)` + `【P2-10 修复】` 注释。
+- **位置**：`apps/unregisteredasset/services.py` —— `_log_create_audit`(:88-100)、`_log_update_audit`(:112-132)、`_log_approve_audit`(:184-204)、`delete_unregistered` 内联(:442-451)。
+- **收敛进展（2026-09-21，C4）**：create/update/approve 三处已提升为模块级 `_log_*_audit` helper（重复面由"散落业务方法内"缩小为"独立 helper 间"）；`delete_unregistered` 内联块未处理，仍逐字同构。三 helper 主体仍互为镜像（仅 audit 方法名 + 文案前缀不同）。
+- **关闭手段（2026-09-21，C10 收尾①）**：新增模块级 `_safe_call_audit(operation, *args, **kwargs)`（:89，唯一 try/except + `getattr(UnregisteredAssetAuditAdapter, f"log_{operation}")` 分派 + 唯一 `审计日志记录失败` 文案）；三既有 helper 改为薄委托，`delete_unregistered` 内联块替换为直接调用 `_safe_call_audit("delete", ...)`。行为等价：延迟导入/异常吞并/文案逐字（operation 前缀相同）。
+- **状态**：✅ 已关闭（2026-09-21）。
+- **验证命令**（收敛后）：`rg -n "审计日志记录失败" apps/unregisteredasset/services.py`（仅 :96 `_safe_call_audit` 内 1 处）；`pytest apps/unregisteredasset -q --create-db`（86 passed 零回归）；`python scripts/check_function_length_guard.py`（PASS 0/0）；`ruff check` clean；`mypy` 目标文件 0 新增。
+
 ---
 
 ## B — 待修复（To Fix）
@@ -328,14 +336,6 @@
 - **修复建议**：提取公共兜底 helper（如 `core/exceptions.py` 或 `utils/` 的 `re_raise_or_map_integrity_error(exc, column_token, error_code, detail) -> None`），两处统一委托；或复用 DR-4 的异常归一化/映射收口。
 - **优先级**：低（两处逻辑幂等、无缺陷，收敛候选）。**状态**：待修复。
 - **验证命令**（收敛后）：`pytest apps/assetmanagement/tests/test_damaged_asset_service.py apps/assetmanagement/tests/test_hard_disk_sn_service_integrity.py apps/assetmanagement/tests/test_hard_disk_sn_service.py -q`；`rg -n "except IntegrityError" apps/assetmanagement/services`（预期仅工具函数内 1 处）。
-
-### B-22. 【新发现 2026-09-21】unregisteredasset 审计留痕 try/except×4（C4 部分收敛，delete 仍内联）
-- **判定**：同构重复（DR-1 风险面）。未登记资产业务四类写操作（create/update/approve/delete）各自包裹逐字同构的「审计留痕块」：延迟导入 `UnregisteredAssetAuditAdapter` + `try/except Exception` + `logger.warning(f"审计日志记录失败(<op>): {e}", exc_info=True)` + `【P2-10 修复】` 注释。
-- **位置**：`apps/unregisteredasset/services.py` —— `_log_create_audit`(:88-100)、`_log_update_audit`(:112-132)、`_log_approve_audit`(:184-204)、`delete_unregistered` 内联(:442-451)。
-- **收敛进展（2026-09-21，C4）**：create/update/approve 三处已提升为模块级 `_log_*_audit` helper（重复面由"散落业务方法内"缩小为"独立 helper 间"）；`delete_unregistered` 内联块未处理，仍逐字同构。三 helper 主体仍互为镜像（仅 audit 方法名 + 文案前缀不同）。
-- **修复建议**：单一 `_log_audit(unregistered, operation: str, **kwargs)`（operation 分派 adapter 方法 + 文案前缀映射）收编四块；或 C10 批次内一并收敛。动作后 delete 分支改为调用 helper。
-- **优先级**：低（审计失败不阻断主流程，属维护收敛）。**状态**：待修复（已部分收敛）。
-- **验证命令**（收敛后）：`rg -n "审计日志记录失败" apps/unregisteredasset/services.py`（预期至多 1 处公共 helper 内）；`pytest apps/unregisteredasset/tests/ -q`（190 passed 零回归）。
 
 ---
 
@@ -566,6 +566,7 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.30 (2026-09-21)**：B-22（unregisteredasset 审计留痕 try/except×4）经 C10 收尾①收敛为 `_safe_call_audit`（唯一 try/except + getattr 分派），转「已关闭」归档为 A-25，B-21 遗留孤立验证行清理；B 区清空。
 - **v2.9.29 (2026-09-21)**：B-23（broken/lost 双胞胎）随 BR-4 B3 完结（guard 0/0）转「已关闭」归档为 A-24，C10 落地证据与验证命令留档；B 区只余 B-22 待修复。
 - **v2.9.28 (2026-09-21)**：BR-4 B2 批次登记（审查报告 #21 联动）——新增 B-22（unregisteredasset 审计留痕 try/except×4，C4 已部分收敛为 `_log_create/_update/_approve_audit` 三 helper，delete 内联待收，状态待修复）与 B-23（`mark_asset_broken`/`mark_asset_lost` 状态流转双胞胎，C10 同步统一排程中，六处差异留档）；两者均系 §1.8 新发现义务登记（B2 拆分过程中暴露/沉淀），非新增重复实现，不触发 G-1~G-4 不变量。同批审查报告 #21 追加 B2 拆分修复追踪行与 B2 验证结果。台账由 B2 移除后 4 行（B3 全为 mark_asset_lost 等）→ 保持不变；C10 统一后本条目转亮闭合并移除台账行。
 - **v2.9.27 (2026-09-20)**：SC-1 空密钥签名修复（审查报告 #20，安全红线）+ base 抽象基类守卫——① `config/settings/base.py:212` 删除 `SIMPLE_JWT["SIGNING_KEY"] = SECRET_KEY` 物化键：base 加载时快照 `config("SECRET_KEY", default="")` 为空串，simplejwt `api_settings` 命中用户键后永不回落，导致 development/正常部署 JWT 均用空密钥 HMAC 签名（实证空密钥可 decode 任意 token）；删除后 simplejwt `__getattr__` 回落 `DEFAULTS["SIGNING_KEY"] = settings.SECRET_KEY`（运行时、各环境已覆写真实密钥），三环境实证回落正确。② `base.py:34-41` 新增守卫：`DJANGO_SETTINGS_MODULE == config.settings.base` 时 raise ImproperlyConfigured（base 为抽象基类禁止直接部署，模块加载 fail-fast）。③ 修正 :24 不实注释（原称直接部署会抛异常，实为空密钥静默可用）。新增 `config/tests/test_base_settings_guard.py` 4 条（守卫 2 + 回落 2），先红 4 FAILED → 后绿 4 PASSED。非重复代码治理项（SC-1 安全修复），不触发 G 不变量。验证：config/tests 19 + auth 80 + assetmanagement 724 + 其他 211 = 1034 passed；`manage.py check` no issues；ruff 0；mypy `git stash` 前后 23 errors in 10 files 完全一致（零新增，base.py 零 error）。契约零变化，`api-schema-baseline.json` 无需重导出。
