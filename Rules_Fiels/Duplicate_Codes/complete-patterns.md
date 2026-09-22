@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.40 | **最后更新**：2026-09-22 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.41 | **最后更新**：2026-09-22 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -104,8 +104,9 @@
 - **A-16 变更 (2026-09-13)**：根级决策将 base.txt 的 Django 钉版由 5.2.17-LTS **升至 6.0.5**，对齐方向为"锁文件匹配实际运行环境"而非降级环境。依据：本地 `.venv` 长期运行 Django 6.0.5（assetmanagement 迁移 0021/0022 于 2026-09-12 由其生成）；根 README、CheckReport.md、backend-business-rules 均标注 Django 6.0/6.0.5；dev.txt 钉 django-stubs==6.1.0（Django 6.x 时代 stub），升版后 mypy 门禁与镜像自洽。本变更**推翻**此条目原 5.2.17 判定（原判定语境为 pyproject.toml vs base.txt 的双份清单新旧之争），现明确 base.txt 仍为唯一事实源（DR-1），仅版本值更新。注意：6.0 为功能版本非 LTS，如需 LTS 支持应待 6.2 LTS 发布后另行评估。决策留痕，防止再次回退。
 
 ### A-15. BatchDeleteValidationMixin 收敛 validate_ids×11（F-4）
-- **状态**：✅ 已关闭 | 关闭日期：2026-08-24 | commit 2022814
+- **状态**：✅ 已关闭 | 关闭日期：2026-08-24 | commit 2022814 | **②b 框架代谢见下（v2.9.41）**
 - **修复内容**：新增 `core/batch_mixins.py::BatchDeleteValidationMixin`，替换 11 个 BatchDeleteSerializer 中完全相同的 `validate_ids`。净减 47 行。
+- **迭代补充（②b 批次，v2.9.41）**：11 个存量子类的逐类 `ids` 声明 + 逐类 `MAX_BATCH_SIZE = DEFAULT_MAX_BATCH_SIZE` 行继续构成同类重复 → 新增 `core/batch_mixins.py::BaseBatchDeleteSerializer`（`BatchDeleteValidationMixin` + 通用 `ids` 字段 + 常量类属性，类行 `# type: ignore[type-arg]` 上移至基类一次）作为删除序列化器唯一基类；11 存量（Contract/Storage/AssetType/Broken(新建)/Damaged/Recycle/Out/Department/Employee → batch_serializers 中 Contract/Storage/AssetType/Broken/Lost/Found + damaged/recycle/out/department/employee）改为继承并**仅保留各自带 help_text 的 `ids` 行**（OpenAPI 描述零回归），逐类 MAX 行与 `type: ignore[type-arg]` 全部删除（外部零引用，`rg "type: ignore\[type-arg\]" apps | rg batch_delete` = 0）。骨架同时接管生命周期三视图集 `batch_delete` 入参校验（弃手写 `if not ids` 400，空列表与全仓其余端点一致返回 200 0/0，新增重复项/超限校验）。净减 14 行（12 类 MAX 行 + 删除序列化器类签名冗余）。
 - **validate_items 不收敛**：每个模块唯一性字段不同（contract_code/storage_code/type_code/asset_code/employee_jobcode/department_code），不适合统一 mixin。
 - **验证命令**：`mypy . --config-file pyproject.toml` + `pytest apps/ -q`
 
@@ -276,6 +277,7 @@
 - **证据**：`asset_lifecycle_mixin.py` 6 个删除签名全部含 user 参数；越权路径抛 `AppValidationError(error_code="ASSET_NOT_VISIBLE")`；`repair_asset_view.destroy/batch_delete`、`_lifecycle_base.batch_delete` 均传 `user=request.user`。
 - **验证命令**：`pytest test_asset_lifecycle_service.py test_lifecycle_view_api.py test_batch_contract_snapshot.py -q`（52 passed）+ `test_b5_baseline_snapshot.py` 8 passed + raft 0 错 + mypy scoped 0 新增（资产 FK `Asset | None` 经 `and obj.asset_recordcode is not None` 收窄，不引入 ignore）+ `manage.py check` no issues + 护栏 PASS。新增 `TestDeleteServiceUserScope` 5 用例（跨部门批删拒绝/同部门批删回归/维修批删越权/单删越权/单删同部门回归+审计），夹具镜像 A-29 `TestWritePathDeptScope` 部门 A/B 模式（模块级 `lifecycle_cross_dept_data`）。
 - **边界声明**：destroy 硬删 vs 批量软删不对称（broken/lost/found destroy 走 `core/mixins.py::ResponseWrapperMixin.destroy` 物理删除）由批次②a 处理（已落地，见 v2.9.40）；本批只收口 Service/批量语义的 user 作用域。
+- **批次②b 收口（v2.9.41）**：三 ViewSet `batch_delete` 弃手写 `ids` 判空逻辑，改挂 `batch_delete_serializer`（`Broken/Lost/FoundAssetBatchDeleteSerializer`，继承 A-15 二代基类 `BaseBatchDeleteSerializer`），与全仓其余 8 端点入参校验同一骨架——同部门回归用例零改动通过（OpenAPI 描述不变，批量契约快照 PASS）。
 
 ---
 
