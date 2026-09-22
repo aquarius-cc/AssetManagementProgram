@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.32 | **最后更新**：2026-09-21 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.33 | **最后更新**：2026-09-22 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -362,13 +362,14 @@
 
 ---
 
-### B-15. 【新发现 2026-09-16】审计值 JSON 安全归一化双实现（asset_service._normalize vs operation_log_service._to_json_safe）
+### B-15. 【已关闭 2026-09-22】审计值 JSON 安全归一化双实现（asset_service._normalize vs operation_log_service._to_json_safe）
 - **判定**：重复实现（DR-1 风险面）。同一语义「审计快照值归一位 JSON 安全类型」两处各自内联：`asset_service._normalize` 为方法内嵌局部函数（不可跨模块 import，处理 FK→recordcode + Decimal/date/datetime/time/UUID→str），本次修复在日志唯一写入点新增 `operation_log_service._to_json_safe`（模块级，另支持 dict/list 递归）。两实现幂等且结果一致，存在漂移风险（一方改语义另一方不同步）。
 - **来源**：BE-05（审计留痕）修复过程中为打通 date 序列化雷（修复前 before/after 含 date 时 JSONField 序列化失败被 `_safe_log` 静默吞掉）在写入收口点新增归一化，未在 out/damaged service 复制第三处；此收敛候选需人工排期。
-- **位置**：`apps/assetmanagement/services/asset_service.py:173`（`update_asset_info` 内嵌）vs `apps/assetmanagement/services/operation_log_service.py:31`。
-- **修复建议**：`asset_service.update_asset_info` 改委托 `OperationLogService._to_json_safe`；或按 DR-4 提升至 `utils/` 公共工具，两处统一引用。
-- **优先级**：低（幂等等效、非缺陷，收敛候选）。**状态**：待修复。
-- **验证命令**（收敛后）：`pytest apps/assetmanagement/tests/test_asset_view_api.py apps/assetmanagement/tests/test_asset_service.py -q`；`rg -n "def _normalize" apps/assetmanagement/services/asset_service.py`（预期无命中）。
+- **位置**：原 `apps/assetmanagement/services/asset_service.py:192`（`update_asset` 内嵌局部函数）vs `apps/assetmanagement/services/operation_log_service.py:31`。旧条目位置记 `:173（update_asset_info 内嵌）`为早期方法布局，已随本次修正。
+- **修复（2026-09-22 实施，用户批准）**：删除 `asset_service.py` 内嵌 `_normalize` 局部函数完整体（原 :192-200 含 `return value`）；before_data 改 `{key: getattr(asset, key) for key in update_data}`、after_data 直传 `update_data` 原值；归一化由 `log_operation` :134-135 已落库的 `_to_json_safe` 幂等收口（行为零变化）。同步删除三个孤儿 import（`from datetime import date, datetime, time` / `from decimal import Decimal` / `from uuid import UUID`，均为 `_normalize` 唯一消费方），保留模块级 `import uuid`（:74 消费）。docstring 归一化表述改指写入收口。未采纳替代案：提升至 `utils/` 公共工具（需动三端且与"写入收口"收敛方针相悖）；跨模块 import 私有 `_to_json_safe`（违反模块封装）。
+- **测试（CT-4 新增锚点）**：`test_update_asset_fk_instance` 扩展——update_data 含 FK 模型实例 + `Decimal("2000.00")`，新增快照断言：`before_data` FK 键 == `str(旧类型.recordcode)`、金额 == `"1000.00"`；`after_data` FK 键 == `str(new_type.recordcode)`、金额 == `"2000.00"`。该方法 docstring 本已声明「审计快照归一化」而断言缺失，本次补锚即兑现既有声明。
+- **优先级**：低（幂等等效、非缺陷，收敛候选）。**状态**：✅ 已关闭（2026-09-22）。
+- **验证命令**：`pytest apps/assetmanagement/tests/test_asset_service.py apps/assetmanagement/tests/test_operation_log_service.py apps/assetmanagement/tests/test_asset_view_api.py -q`（97 passed）；`rg -n "def _normalize|_normalize\(" apps/assetmanagement/services/asset_service.py`（实测无命中）；ruff 两改动文件 0；mypy `asset_service.py` 零新增（其余报错为 dateutil stubs/var-annotated 存量，测试目录经 `.*test.*` exclude 不纳入 gate）。
 
 ### B-20. 【已修复 2026-09-18】employee 批量删除守卫直查 Asset（A-19 未收敛的第 4 处裸查询）
 - **判定**：DR-3 风险面（资产查询绕过 Selector 层）——`apps/usermanagement/services/employee_service.py`（修复前 L342-357）在批量删除员工守卫中直接 `Asset.objects.filter(asset_applicant_recordcode__in=..., is_deleted=False).values_list(...)`（申请人/保管人两个 recordcode 集合），与 A-19 收敛的三处删除守卫同属「删除前引用存在性检查」家族。
@@ -615,6 +616,7 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.33 (2026-09-22)**：关闭 B-15（审计归一化双实现收敛，DR-1）——删除 `asset_service.update_asset` 内嵌 `_normalize` 局部函数（原 :192-200），before_data/after_data 改传原值，归一化由 `log_operation` :134-135 已落库的 `_to_json_safe` 幂等收口（唯一实现）；删除 `_normalize` 唯一消费的三个孤儿 import（datetime/Decimal/UUID），保留模块级 `import uuid`；docstring 改指写入收口。测试：`test_update_asset_fk_instance` 扩展 FK 实例 + Decimal 快照断言（CT-4 新增锚点），三套件 97 passed、rg 残留零命中、ruff 0、mypy `asset_service.py` 零新增（其余为 dateutil stubs/var-annotated 存量）。否决替代案：utils/ 公共函数（与写入收口方针相悖）、跨模块 import 私有 `_to_json_safe`（破坏封装）。零行为变化、无契约/迁移。<br>
 - **v2.9.32 (2026-09-21)**：关闭 A-28（审查报告 #26，DR-1/FR-2）——Excel 导出流程三归一并：两专用 composable（`useOperationLogExcelExport` 112 物理→46 逻辑 / `useUserExcelExport` 168 物理→62 逻辑）重写为「列配置 + 组装」薄壳，流程收敛至通用 `useExcelExport.exportList`（唯一实现），通用版零改动。事实纠偏：方案初稿「User 版在用 additionalData」不成立（`excelExporter.ts:39` 声明但 `exportToExcel` 函数体从不读取，部门映射靠 formatter 闭包），故不新增透传并移除 User 死透传与 spec 断言。行为差异四类按用户拍板统一并留痕（文件名去 page / 错误处理统一 / 弹窗未知异常吞→重抛 / 文案统一）。验证：双 spec 先红 11 failed → 17 passed，`useExcelExport.spec.ts` 8 passed，全量 `npm test` 1912 passed，type-check/lint/format 全绿，`check_duplicate_invariants.py` + `check_frontend_invariants.py` PASS。契约零变化，`api-schema-baseline.json` 无需重导出。另立任务：`ExcelExportConfig.additionalData` 死字段清理。
 - **v2.9.31 (2026-09-21)**：关闭 A-27（审查报告 #25，DR-1）——前端双分页响应类型并存收敛：`stores/entityStoreTypes.ts` 的 `ListResponse<T>` 由独立 interface 改为 `types/common.ts` 的 `PaginatedResponse<T>` 派生别名（`Pick` count/results 必填 + `Partial` next/previous/total_pages/page/page_size），5 处领域手写接口（assettype/contract/department/user/storage）同步别名化，删除 18 个 store 的 `next`/`previous` 冗余映射（36 行）与 3 处旧兼容死类型（`ContractListResponseOld` + 注释版 `EmployeeListResponseOld`/`DepartmentListResponseOld`）。纯类型层，零运行时变更（被删键全仓无读取方）；`tsconfig.app.json` 测试目录豁免使 spec fixture 不参与类型检查（既有设计）。验证：`npm run type-check` 0、`npm run lint` 0、`npm run format:check` 全绿、`npx vitest run src/stores/__tests__` 495 passed、全量 `npm test` 1912 passed、`check_duplicate_invariants.py` PASS、`check_frontend_invariants.py` PASS（FR-8 stores 30 文件 / 0 超限）。附带 `prettier --write` 修正 #24 遗留的 brokenasset/recycleasset 格式漂移。契约零变化，`api-schema-baseline.json` 无需重导出。
 - **v2.9.30 (2026-09-21)**：B-22（unregisteredasset 审计留痕 try/except×4）经 C10 收尾①收敛为 `_safe_call_audit`（唯一 try/except + getattr 分派），转「已关闭」归档为 A-25，B-21 遗留孤立验证行清理；B 区清空。
