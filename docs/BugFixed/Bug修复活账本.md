@@ -1676,3 +1676,38 @@ manage.py check                → no issues ✅
 - 无迁移变更（CT-6 N/A）；根 envelope 未变，api-schema-baseline.json 无需重导出；前端零改动；无 `[HALT]`。
 
 *登记人：big-pickle ｜ 状态：已关闭（收口 + 防护 + 契约零变化 + 门禁全绿），2026-09-21*
+
+## BF-031 【已关闭】前端样式双轨收敛 + 暗色渐变补全 + useChartTheme 专属测试（审查报告 #43~#46）
+
+- **发现日期**：2026-09-17（《full-review-report-2026-09-17.md》P3 #43~#46）
+- **严重级别**：P3（#44 设计令牌双轨 DR-1/F1；#45 暗色渐变缺失 F13；#46 CT-1 测试缺口；#43 BR-7 误报）
+- **影响范围**：`src/assets/styles/common-forms.scss`；`src/styles/variables.css`；`src/composables/__tests__/useChartTheme.spec.ts`（新增）
+- **登记来源**：审查报告 #43~#46；#44/#45/#46 属实，**#43 误报**（BR-7 深层链不成立）、**#46 范围大幅收窄**（10 具名中 8 已有 spec，仅 useChartTheme 缺专属 spec）
+
+### 一、各条核实与决策
+
+1. **#43（BR-7 误报反证）**：链路实测 = `recycle_asset_view.py:240-255` cancel_recycle → `RecycleAssetService.batch_delete_recycle_asset(recordcodes=[recycle.recordcode], ...)`（:300，单元素复用批入口，与 #17 同模式）→ 内部闭包 `_delete_one` → `AssetFSM.cancel_recycle`（:326）。View→Service→FSM 恰为 3 层，BR-7 禁的 4 层+（Service→Service）链不存在。原指控行号误指：`:348` 为 `_delete_one` 内 AuditLogger 的 `trigger="cancel_recycle"`，`batch_delete_execute` 返回在 `:353`。处置：❌误报，仅文档注记，零代码。
+2. **#44（DR-1/F1 双轨收敛）**：`common-forms.scss:11-30` 与 `variables.css` 重复维护同一套颜色令牌。实测全仓**无任何外部 SCSS 颜色变量引用**（40 个 `@use as *` 消费组件仅用 mixin，`.vue` 中 `$x` 符号全为 Vue 内建 `$attrs/$emit` 等）→ 删除 `$primary/success/warning/danger/$text-*/$border/$background/$white/$card-shadow/$card-hover-shadow` 15 个 SCSS 变量块，约 40 处 `var(--xx, $yy)` SCSS-fallback 剥离为纯 `var(--xx)`（CSS 变量亮/暗双态均已定义，行为零变化）；保留 `$breakpoint-mobile/tablet`（媒体查询在用）。字面量 fallback 与 `_dashboard-sections.scss` 的 `$section-*` 零触碰。
+3. **#45（F13 暗色梯度缺失）**：`variables.css:72-74` 三个 `--gradient-card-{purple,cyan,green}`（DashboardPage.vue:217/:221/:225 消费）在 `html.dark` 无覆盖，暗色下仪表盘卡片仍显亮色渐变。补暗色变体（收敛冷静版降饱和：purple `#3d3a66→#44306a` / cyan `#1f4a70→#1d5761` / green `#1f533f→#1c5349`），消费端零改动。
+4. **#46（CT-1 范围收窄）**：报告「7 个 composable 无测试」经 `__tests__` 实况核对不成立——10 个具名 composable 中 8 个已有专属 spec，`useEmployeeLinkage` 由 `useAssetFormHelpers.spec.ts:212` 覆盖，**仅 `useChartTheme` 缺专属 spec**（间接依赖 useDashboardCharts.spec）。新增 `useChartTheme.spec.ts` 5 用例：亮色令牌映射 / pieColors 拼接 / 亮暗 tooltip·divider·lineArea 切换（mock getComputedStyle + `useDarkMode().setDark` 驱动）/ CSS 变量缺失回退 FALLBACK。
+
+### 二、验证记录
+
+```text
+npm run build-only                          → ✓ 全组件 SCSS 编译通过（40 use @use as * 消费方）
+npx vitest run useChartTheme.spec.ts        → 5 passed ✅
+全量 composables vitest                     → 608 passed（原 603 +5）✅
+npm run type-check                          → 0 错误 ✅
+npx eslint useChartTheme.spec.ts            → 0 ✅
+npx prettier --check                        → ✓ ✅
+grep 残留（common-forms.scss `, \$|^\$[a-z]`）→ 仅剩 $breakpoint-* 两行 ✅
+grep gradient-card                          → 亮/暗双态各 4 条齐备 ✅
+```
+
+### 三、遗留与关联事项（观察登记）
+
+- `common-forms.scss` 内 `:57-80 form-container .card-header` 与 `:664-692 独立 card-header mixin` 仍存在同体样式双写（DR-2 隐患），本次未纳入 #44 范围，登记观察。
+- `_dashboard-sections.scss` 的 `$section-*` 局部变量为本文件私有且已用于 F3/F5 令牌，保持不动。
+- 无迁移变更（CT-6 N/A）；纯前端样式 + 测试新增，无 API/端点/状态枚举变化，api-schema-baseline.json 无需重导出；无 `[HALT]`。
+
+*登记人：big-pickle ｜ 状态：已关闭（双轨收敛 + 暗色补全 + 测试收口 + 门禁全绿），2026-09-22*
