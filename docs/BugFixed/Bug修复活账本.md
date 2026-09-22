@@ -1835,3 +1835,60 @@ grep gradient-card                          → 亮/暗双态各 4 条齐备 ✅
 - **服务契约与序列化器契约分离**：服务入口键（`asset_recordcode`）与端点契约键（`outasset_asset`）按层次适配，避免在 Service 强制覆盖直接调用方语义。
 
 *登记人：big-pickle ｜ 状态：已闭环（代码级验证通过，先红后绿全程记录），2026-09-22*
+
+## BF-034 【已关闭】batch-delete 跨部门横向越权：A 部门 dept_manager 可取消 B 部门资产待报废记录并连带恢复其资产状态
+
+- **发现日期**：2026-09-22（A-29 观察项收口复核时经实证检出）
+- **严重级别**：高（横向越权写，绕过 View 层单对象 404 作用域兜底）
+- **影响范围**：`damaged_asset_view.py:211-225`（batch-delete 端点）；`damaged_asset_selector.py:28-49/68-75`（两锁查询）；`damaged_asset_service.py`（approve/reject/cancel/update/batch）；`damaged_asset_serializers.py:257`（help_text）
+
+### 一、问题现象与事实基线
+
+1. A 部门 `dept_manager` 向 `POST /api/v1/damaged-assets/batch-delete/` 提交 B 部门资产 recordcode，待报废记录被取消（软删+墓碑）且资产状态被恢复到申请前状态
+2. 单对象写路径（destroy/approve/reject/update）同场景经 `RecordcodeLookupMixin.get_object()`（views/_mixins.py:24-42）返回 404；批量路径却成功——部门作用域兜底在批量分支缺位
+3. `ids` 由 serializer 携带、view 原样透传 Service → `cancel_asset_recordcode` → `get_asset_recordcode_for_update`，**零 user 零作用域**；`BatchDeleteValidationMixin.validate_ids` 仅验长度/去重，无部门校验
+4. 权限门控为角色级 `IsDeptManagerOrAbove`（非部门范围），故任意部门经理可命中
+
+### 二、根因
+
+批量写路径在 A-22（#10）部门作用域加固时遗漏。单对象路径的隔离由 View 层作用域 QuerySet + 404 兜底完成，而 batch 直接调用 Service 锁内查询，未透传请求用户 → 部门边界失效。
+
+### 三、修复方案
+
+| # | 变更 | 位置 |
+|---|------|------|
+| 1 | `get_asset_recordcode_for_update`/`get_for_update` 增加 `user=None`，user 提供时经 `get_asset_linked_queryset_for_user` 过滤（B12 模式：越界≡不存在） | `damaged_asset_selector.py` |
+| 2 | 两锁查询改 `select_for_update(of=("self",))`：作用域 Q 对可空 `asset_recordcode` 生成 LEFT OUTER JOIN，裸 `select_for_update()` 会复现 A-22 NotSupportedError（可空外连接侧封锁） | `damaged_asset_selector.py` |
+| 3 | Service 四方法 + `batch_delete_asset_recordcodes` 增加 `user=None` 并透传（approve/reject/update 调用点同步） | `damaged_asset_service.py` |
+| 4 | View 六写动作（approve/reject/destroy/update/partial_update/batch_delete）传 `user=request.user` | `damaged_asset_view.py` |
+| 5 | ids help_text 修正为「关联资产 recordcode 列表」（原「待报废记录编码列表」误导；spectacular 不输出 ListField child help_text，schema 逐字节无 diff） | `damaged_asset_serializers.py:257` |
+
+**否决 ids 预筛（Option A）**：`batch_delete_execute`（core/batch_mixins.py:157）`total=len(ids)` 且 `success_count+fail_count==total`（:203-204），预筛剔除合格条目会破坏批量响应语义，且预筛不在锁内、存在 TOCTOU 窗口；Service 锁内取消天然守护计数契约。
+
+### 四、对抗审核（自反清单）
+
+1. **先红后绿实据**：5 条用例先行——跨部门批删修复前 `success_count==1`（越权取消成功）→ 修复后 fail `DAMAGED_ASSET_NOT_FOUND`；update/approve 带 `user=` 签名修复前 TypeError（红）
+2. **`of=("self",)` 必要性铁证**：作用域过滤 SQL 为 LEFT OUTER JOIN（可空 OneToOneField），PostgreSQL 对 OF 缺省的外连接可空侧执行 FOR UPDATE 抛 NotSupportedError（A-22 :157 实证）——`of=("self",)` 是启用前置而非可选优化
+3. **非回归**：无 user 直调（既有全部调用）行为等价——无 JOIN 时 `of=("self",)` 与原语义一致；既有 49 条 damaged 用例 + 全量 1048 全过
+4. **serializer help_text 不产生 schema diff**：spectacular 不发射 ListField child 的 help_text，`api-schema-baseline.json` 重导出逐字节一致
+
+### 五、验证记录
+
+```text
+① 定向 damaged 两套件（service + view_api）：先红 5 failed → 修复后 54 passed ✅
+② python -m pytest apps -q → 1048 passed（+5 新用例）✅
+③ pytest --cov=. --cov-fail-under=80 → 整体 81.12% ✅
+④ pytest --cov=apps.assetmanagement.services --cov-fail-under=90 → 96.44% ✅
+⑤ ruff scoped 5 文件 → All checks passed ✅
+⑥ mypy（4 生产文件）→ 0 错（test 文件缺口为既有类别噪声）✅
+⑦ python scripts/check_duplicate_invariants.py → PASS ✅
+⑧ spectacular 重导出 → 无 diff（byte-identical）✅
+```
+
+### 六、教训注记
+
+- **批量/框架通用路径是作用域加固的盲区**：单对象路径 GetObject 404 兜底完备，批量路径直达 Service 锁内查询——每次新增批量端点都要核对用户作用域与部门边界。
+- **安全修复会改变"可选优化"的现实优先级**：`of=("self",)` 从可选增强变必修——优化清单里的条目可能是后续安全/行为修复的启用前置，账本应以启用技术留存。
+- **作用域过滤 JOIN 与行锁的交互要先于编码验证**：数据库方言差异（PostgreSQL FOR UPDATE 限制）应作为实现前置条件在方案阶段确认，而非测试阶段发现。
+
+*登记人：big-pickle ｜ 状态：已闭环（5 用例先红后绿 + 全量门禁全过），2026-09-22*
