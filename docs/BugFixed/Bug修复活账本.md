@@ -1573,3 +1573,38 @@ mypy scoped                 → 目标文件 0 错误；存量 16 vs 修复后 1
 - 无契约变化，前端零改动；跨端契约未破坏。
 
 *登记人：big-pickle ｜ 状态：已关闭（单行对齐 + 测试 + 门禁全绿），2026-09-21*
+
+## BF-028 【已关闭】状态机 docstring 漏 in_use 源态 + reject_to_* 死代码误报纠正（审查报告 #31/#32）
+
+- **发现日期**：2026-09-17（《full-review-report-2026-09-17.md》P3 #31/#32）
+- **严重级别**：P3（#31 纯文档缺陷；#32 误报纠正）
+- **影响范围**：`state_machine/broken_lost_repair.py:27/:44`（docstring 2 行）；`state_machine/scrapping.py:20-21`（防误报注释）；报告/追踪/活账本
+- **登记来源**：审查报告 #31/#32；核实结果——#31 属实、纯文档补齐；#32 结论「不删」成立但论据需修正（见下）
+
+### 一、核实结论（#31）
+
+1. **属实**：`mark_broken`（:27）/`mark_lost`（:44）方法 docstring 仅列 `(in_store|recycled_pending)`，漏 `in_use`。
+2. **权威对照**：transitions.py 三源态均定义 mark_broken/mark_lost（IN_STORE :26-27 / IN_USE :33-34 / RECYCLED_PENDING :39-40）；constants.py:13-14 模块图已含 `in_use`；CT-3 显式 in_use 路径测试（test_state_machine.py:95-137）；消费侧 asset_lifecycle_mixin.py:101/:127、recycle_asset_service.py:162/:164。
+3. 类 docstring :18 仅列方法名，无状态枚举，无需改。
+
+### 二、核实结论（#32，误报纠正）
+
+1. **归属不准**：scrapping.py"131-186 5 个"不实——scrapping.py 仅 3 个（in_use :132 / recycled_pending :157 / repairing :173）；reject_to_broken/lost 在 broken_lost_repair.py:74-104。
+2. **论据修正**：「经 _REJECT_TARGETS+_transition 动态分派到达 5 方法」不成立——`core.py:_transition`（:71-85）仅校验后直接赋值、`reject_to_original`（:98-128）亦直接赋值；transitions.py:61-65 的 `"reject_to_*"` 仅为文档元数据字符串，全仓无方法名分派。
+3. **不删论据（成立）**：5 方法为 `VALID_TRANSITIONS[DAMAGED]`（transitions.py:59-66）的具名转换实现面，与 B12 无入边孤儿 selector（可删）本质不同；AI_REVIEW_NEEDED（scrapping.py:130-144）已裁定保留（reject_to_in_use 为未来"in_use 直报废"扩展位）；5 目标状态已全量行为锚定——test_reject_to_broken:239 / test_reject_to_lost:266 / test_reject_returns_to_original_status:308（参数化 in_use/recycled_pending/repairing + None/in_store 兜底），原方案"补 2 条未测目标"冗余、无需新增。
+
+### 三、决策与实施
+
+- #31：docstring 两行补 `in_use` → `(in_store|in_use|recycled_pending)`（零行为变更）。
+- #32：**零删码**；`_REJECT_TARGETS` 定义处补防误报注释（按实际机制："经 reject_to_original 按 original_status 回退，5 目标已测试锚定；reject_to_* 为具名转换实现面、无方法名分派，勿判死代码删除"）。
+
+### 四、验证记录
+
+```text
+ruff check                    → 0（两目标文件）✅
+定向 pytest                   → test_state_machine.py + test_damaged_asset_service.py 89 passed ✅
+行为变更                      → 零（纯 docstring + 注释）✅
+跨端契约                      → 未破坏；api-schema-baseline.json 无需重导出 ✅
+```
+
+*登记人：big-pickle ｜ 状态：已关闭（纯文档 + 零删码 + 门禁绿），2026-09-21*
