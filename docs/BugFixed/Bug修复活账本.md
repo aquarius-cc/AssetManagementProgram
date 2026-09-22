@@ -1608,3 +1608,38 @@ ruff check                    → 0（两目标文件）✅
 ```
 
 *登记人：big-pickle ｜ 状态：已关闭（纯文档 + 零删码 + 门禁绿），2026-09-21*
+
+## BF-029 【已关闭】安全加固 + DRY 收口批量（审查报告 #33~#37）
+
+- **发现日期**：2026-09-17（《full-review-report-2026-09-17.md》P3 #33~#37）
+- **严重级别**：P3（#34 SC-1 跨环境 key 泄漏最高，其余防御收口/DRY）
+- **影响范围**：`clear_database.py`；`config/settings/{development,production,test}.py`；`core/request_context.py`；`config/settings/base.py`；`core/constants.py`；`apps/assetmanagement/views/asset_view.py`；`apps/assetmanagement/services/asset_service.py`；新增 2 测试文件
+- **登记来源**：审查报告 #33~#37；核实全部属实，方案微调后按批次实施
+
+### 一、各条核实与决策
+
+1. **#33（SC-3/SC-4）**：get_table_count(clear_database.py:127) 独立顶层函数无自白名单；clear_table 内白名单(:191-192)+PROTECTED(:194) 先于 count(:197)/DELETE(:205) 执行，现状安全但依赖调用方自觉。实施 `_validate_table_name` helper 双入口自保证（fail-closed），与内联检查 DR-1 收敛。
+2. **#34（SC-1）**：旧 dev 默认 key（62 字符）不在开发/生产/测试三处 `_INSECURE_KEYS`，被复制进 prod env 时长度 62≥20 且不在黑名单 → 校验拦不住（真实风险路径）。实施默认 key 轮换（`get_random_secret_key()`）+ 旧值入三环境黑名单。**回归实证**：`DJANGO_ENV=production`+旧 key → `ImproperlyConfigured`（exit=1）；dev 默认新值启动正常。
+3. **#35（SC）**：`_get_client_ip` 无条件取 XFF 首值，无配置守卫。实施 `TRUST_PROXY_HEADERS=False`（base 默认 fail-closed）→ False 仅信 REMOTE_ADDR（伪造 XFF 无效），True 才解析首值；`get_current_ip()` 消费面零变化。新增 `core/tests/test_request_context.py` 6 用例。
+4. **#36（DR-1）**：core/constants.py:15-24 重复 8 元组；Model `Asset.ASSET_STATUS_CHOICES`(:109) 权威；唯一消费 asset_view.py:33。删除重复块（不触碰 core>apps 依赖方向），asset_view 改 `dict(Asset.ASSET_STATUS_CHOICES)`；新增 `test_status_choices_singleton.py` 单一来源护栏。
+5. **#37（DR-4）**：create_asset_batch 循环内 `import json`(:135)，文件顶部无。上移模块顶部 import 区，零行为变更。
+
+### 二、验证记录
+
+```text
+全量 pytest apps core --create-db → 1172 passed ✅
+定向 core/tests                → 27 passed（新增 request_context 6 + 黑名单 2）✅
+定向 资产 view/batch/service/type → 96 passed ✅
+ruff check（13 目标文件）        → 0（首轮 import 顺序 4 处 --fix）✅
+mypy 全仓                       → 存量 16=16，零新增 ✅
+DJANGO_ENV=production + 旧 key  → ImproperlyConfigured 拒绝（exit=1）✅
+dev 默认新 key 启动              → OK，TRUST_PROXY_HEADERS=False ✅
+```
+
+### 三、遗留与关联事项（观察登记）
+
+- core/constants.py 其余 *_STATUS_CHOICES（ASSET_APPEARANCE/EMPLOYEE/DEPARTMENT/APPROVAL/CONTRACT/STORAGE/HARDDISK）疑似同病（DR-1），本次仅处置被点名的 ASSET_STATUS_CHOICES，其余登记观察，后续审查处置。
+- **残余风险（ID-2 主动提示）**：仓库内任何硬编码默认 SECRET_KEY（含已验证的新值）都可从源码泄露；生产已是 env 必填 `os.getenv`，dev 默认值仅随 repo 分发，SC-1 严格口径下建议长期迁往 `.env`/密钥管理。
+- 无契约变化，前端零改动；跨端契约未破坏，api-schema-baseline.json 无需重导出。
+
+*登记人：big-pickle ｜ 状态：已关闭（安全加固 + DRY 收口 + 门禁全绿），2026-09-21*
