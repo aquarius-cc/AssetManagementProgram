@@ -76,8 +76,8 @@ CSRF_TRUSTED_ORIGINS = [
 ### 六、遗留与关联事项
 
 - **BF-002【待核查】WebSocket 连接失败**（`ws://127.0.0.1:8000/ws/notifications/<jobcode>/`）：
-  主因为后端 `consumer.accept()` 未回显前端以 subprotocol 方式传入的 JWT（RFC 6455 要求服务器选择一个子协议应答，否则浏览器掐断连接）；次要因素与本案同源——cookie 按 host 隔离（`localhost` 与 `127.0.0.1` 互不可见）。建议修复时统一为 Vite 代理转发 WS（`/ws` 路径加 `ws: true`），消除双 host 结构
-- **改进建议**：前端守卫可区分 403-CSRF 与 401，避免配置类故障被误判为"会话过期"
+  主因为后端 `consumer.accept()` 未回显前端以 subprotocol 方式传入的 JWT（RFC 6455 要求服务器选择一个子协议应答，否则浏览器掐断连接）；次要因素与本案同源——cookie 按 host 隔离（`localhost` 与 `127.0.0.1` 互不可见）。建议修复时统一为 Vite 代理转发 WS（`/ws` 路径加 `ws: true`），消除双 host 结构【已落地 → BF-032】
+- **改进建议**：前端守卫可区分 403-CSRF 与 401，避免配置类故障被误判为"会话过期"【已落地 → BF-032】
 
 ---
 
@@ -156,6 +156,7 @@ await self.accept(subprotocol=self._extract_token())
 ### 六、关联事项
 
 - BF-001（CSRF Origin 白名单）已关闭，与本 bug 相互独立但同属"开发环境双 host 结构"衍生症状；生产环境经 nginx 同源转发不存在本问题的 host 隔离变体
+- BF-002 两条改进建议（Vite `/ws` 代理统一双 host + 403-CSRF 误判分流）已落地，详见 BF-032
 
 ---
 
@@ -1711,3 +1712,71 @@ grep gradient-card                          → 亮/暗双态各 4 条齐备 ✅
 - 无迁移变更（CT-6 N/A）；纯前端样式 + 测试新增，无 API/端点/状态枚举变化，api-schema-baseline.json 无需重导出；无 `[HALT]`。
 
 *登记人：big-pickle ｜ 状态：已关闭（双轨收敛 + 暗色补全 + 测试收口 + 门禁全绿），2026-09-22*
+
+---
+
+## BF-032 【已关闭】BF-002 改进建议落地：Vite `/ws` 代理统一双 host + 403-CSRF 误判分流（登记来源：BF-001 遗留段两条建议）
+
+- **发现日期**：2026-09-22（BF-001/BF-002 遗留待办 → 人工确认采纳后实施）
+- **严重级别**：P3（均为结构统一与误判分流，非现行故障；其中「生产 WS 直连容器内网地址」为部署前置隐患）
+- **影响范围**：`vue-assetmanagement/vite.config.ts`；`src/composables/useNotificationConnection.ts`；`.env.development`；`.env.development.example`；`src/composables/__tests__/useNotification.spec.ts`；`src/api/request.ts`；`src/api/__tests__/request.responseHandler.spec.ts`
+- **契约影响**：无（WS 认证仍走 subprotocol JWT，`/ws/notifications/<jobcode>/` 路径不变；403/500 响应结构未动；无 API 端点、状态枚举、schema 变化）
+
+### 一、问题现象（两条建议对应的事实基线）
+
+1. **双 host 结构（建议 1）**：HTTP 走 `localhost:5173`、WS 走 `ws://127.0.0.1:8000` 直连，cookie 按 host 隔离互不可见；且 `.env.production` 未配 `VITE_WS_BASE_URL`，运行时 fallback 为 `ws://127.0.0.1:8000`（容器内网地址，浏览器不可达）——一旦部署，生产 WS 必连不上（nginx `location /ws/` 已就绪，default.conf.tpl:141-159）。
+2. **403-CSRF 误判（建议 2）**：`request.ts:206` 403 一律提示"没有权限访问该资源"，而 DRF CSRF 校验失败为 `PermissionDenied("CSRF Failed: ...")`（authentication.py:51）→ 403 detail 含 "CSRF" 关键字，被误判为权限问题而非会话校验失败。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | WS 无代理 | `vite.config.ts` proxy 仅 `/api`（修复前 :156-166），无 `/ws` + `ws: true` |
+| 2 | 前端硬编码直连地址 | `useNotificationConnection.ts:21`（修复前）：`const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL \|\| 'ws://127.0.0.1:8000'` |
+| 3 | dev env 显式覆盖 | `.env.development:11`（修复前）`VITE_WS_BASE_URL=ws://127.0.0.1:8000`，使优化前的相对路径方案不生效 |
+| 4 | 生产 WS 配置缺失 | `.env.production` 无 `VITE_WS_BASE_URL` → 生产 fallback = 容器内网直连地址 |
+| 5 | 403 不区分 CSRF | `request.ts` 403 分支固定文案（修复前 :206-208），未读取 `msg` |
+| 6 | 后端 CSRF 失败特征 | `authentication.py:51` `raise PermissionDenied(f"CSRF Failed: {reason}")` → DRF 403 body `detail` 含 "CSRF" |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | proxy 追加 `'/ws': { target: env.VITE_API_TARGET \|\| 'http://127.0.0.1:8000', ws: true, changeOrigin: true, secure: false }`（复用 `/api` 同款 target，DR-4） | `vue-assetmanagement/vite.config.ts:166-173` |
+| 2 | WS 基础地址改同源相对路径：`import.meta.env.VITE_WS_BASE_URL \|\| ''`，去掉硬编码 fallback；`/ws/notifications/<jobcode>/` dev 经 5173 代理、生产经 nginx `/ws/` | `src/composables/useNotificationConnection.ts:24` |
+| 3 | dev env 注释 `VITE_WS_BASE_URL`（保留直连方式示例注释，避免代理失效；grep 确认无其他消费者） | `.env.development:11-12`、`.env.development.example:11-12` |
+| 4 | 测试断言同步：mock 原样存 url，相对路径断言改为 `toContain('/ws/notifications/')` | `src/composables/__tests__/useNotification.spec.ts:118` |
+| 5 | 403 分支按 `msg` 是否含 "csrf"（小写 includes，规避 AR-2 正则标注）分流：CSRF → "页面会话校验失败，请刷新页面后重试"；否则保持"没有权限访问该资源"；401 已由拦截器 :298-300 提前接管，不受影响 | `src/api/request.ts:206-212` |
+| 6 | 新增用例：403 `{detail:'CSRF Failed: Origin checking failed.'}` → 引导刷新文案；普通 403 用例（:195-199）保留不回退 | `src/api/__tests__/request.responseHandler.spec.ts:201-204` |
+
+### 四、对抗审核（自反清单）
+
+1. **行号漂移**：登记行号以 `rg` 实测为基准（vite.config.ts:166-173 / request.ts:209-210 / useNotificationConnection.ts:24 / 两处测试 :118、:201），与工作区一致 ✓
+2. **验证实况**：type-check / lint / format:check 与 2 个目标 spec（66 用例全绿）均已实际执行；**WS 端到端 101 握手冒烟未运行**（需后端 + 登录态，属人工验证项）——如实标注待验证，不虚报 ✓
+3. **契约影响复核**：WS 路径、subprotocol JWT 认证、403/500 响应结构均未变；`api-schema-baseline.json` 无需重导出（前端侧纯配置 + 文案分流）；无迁移（CT-6 N/A）✓
+4. **范围克制**：仅改前端 4 文件 + 2 测试 + 2 env；未触碰 `consumer.py`（BF-002 主因已闭环，consumer.py:82-83），未扩改请求拦截器结构与 401 流程 ✓
+5. **残留引用核对**：`rg 'ws://127.0.0.1:8000|VITE_WS_BASE_URL'` 全部命中为注释/示例/工具函数，无活动代码路径 ✓
+6. **自动化护栏**：`scripts/check_duplicate_invariants.py` PASS（G-1~G-4 未回归）；`useOperationGuard.ts:34` 的 403 注释在普通 403 场景仍成立 ✓
+
+### 五、验证记录
+
+```text
+① npm run type-check            → 0 错误 ✅
+② npm run lint  (eslint . --fix) → 通过 ✅
+③ npm run format:check          → 全部通过 ✅
+④ npx vitest run src/api/__tests__/request.responseHandler.spec.ts
+   src/composables/__tests__/useNotification.spec.ts
+                                → 2 files / 66 passed ✅（含新增 403-CSRF 用例）
+⑤ npm run dev                   → VITE v8.2.2 ready（proxy 配置解析通过）✅
+⑥ python scripts/check_duplicate_invariants.py → PASS ✅（前端 WS/错误文案无重复实现新增）
+⑦ WS 端到端 101 握手经 5173（wscat/浏览器 WS 面板）→ [待验证]（需后端 + 登录态，人工执行）
+```
+
+### 六、遗留与关联事项
+
+- **[待确认] 生产 CI 是否注入 `VITE_WS_BASE_URL`**：若注入则生产 WS 走显式端点；若未注入，改动后生产将走 nginx `/ws/` 同源（已就绪，default.conf.tpl:141-159）——两种路径均在方案覆盖内。
+- **[待验证] 端到端冒烟**：登录 → 后端推送通知 → NotificationBell 实时到达 + 101 握手经 5173；另补 wscat `ws://localhost:5173/ws/notifications/<jobcode>/` 带 token 子协议验证。
+- **[观察登记] dev 直连脚本**：若本地存在依赖 `VITE_WS_BASE_URL=ws://127.0.0.1:8000` 的手工 wscat 脚本，注释后需改用 `ws://localhost:5173/ws/...`。
+- BF-002 主因（subprotocol 回显）修复保持不动，本条目仅落地其两条改进建议；BF-001 遗留段已补指针（见 :78/:80）。
+
+*登记人：big-pickle ｜ 状态：已关闭（代码级验证通过，端到端冒烟 [待验证] 人工执行），2026-09-22*
