@@ -216,8 +216,8 @@ await self.accept(subprotocol=self._extract_token())
 
 ### 五、遗留事项
 
-- 告警闭环(BF-003 Step 4)：node_exporter 当前未部署(monitoring 栈仅 prometheus/grafana/pg-exporter/redis-exporter/alertmanager)，textfile 方案需先加装；短期以容器日志 + exit code 为准，告警去重(状态变化才发)随告警通道一并实施
-- S3 bucket 生命周期策略(30d→IA / 90d 删除)需在 AWS 控制台配置，无法代码化于本仓库
+- 告警闭环(BF-003 Step 4)：✅ 代码/编排侧已收口(2026-09-22)——node-exporter 已定义于 docker-compose.monitoring.yml:63-78 并以 backup_status_data 共享卷采集 textfile 指标；alertmanager send_resolved 已存在(config/alertmanager.yml:32/:37)，adapter resolved 恢复卡已实现且测试覆盖(docker/feishu-webhook/app.py:57-63, test_app.py:30)；M-5C 组新增 BackupMetricsMissing 数据源自活守卫。⚠️ 运行态部署验证(拉起 node-exporter + 失败注入 + 飞书送达)待运维执行，步骤见 10-监控告警SOP §6
+- S3 bucket 生命周期策略：✅ 已代码化(2026-09-22)——scripts/s3_lifecycle.json + scripts/apply_s3_lifecycle.sh(30d→STANDARD_IA / 90d 删除，需 s3:PutLifecycleConfiguration)；一次性基础设施应用操作待运维执行，见 08-数据备份恢复方案 §6
 
 ---
 
