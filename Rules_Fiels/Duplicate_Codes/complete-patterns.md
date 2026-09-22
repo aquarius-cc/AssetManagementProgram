@@ -234,6 +234,23 @@
 - **验证命令**：`npx vitest run src/composables/__tests__/useOperationLogExcelExport.spec.ts src/composables/__tests__/useUserExcelExport.spec.ts`（17 passed，先红 11 failed）；`npx vitest run src/composables/__tests__/useExcelExport.spec.ts`（8 passed）；全量 `npm test`（135 文件 1912 passed）；`npm run type-check`/`lint`/`format:check`（0 错/0/全绿）；`python scripts/check_duplicate_invariants.py` PASS；`python scripts/check_frontend_invariants.py` PASS（FR-6 composables 50 文件 / 4 孤儿已登记）；`rg -n "ElMessageBox\.confirm\(" src/composables`（预期仅 `useExcelExport.ts:90` 一处）。
 - **回滚风险**：若通用版 `exportList` 某日调整范围弹窗交互，两薄壳同步受益（无实体逻辑）；`showErrorMessage` 语义已离场，需在 utils/errorHandler 登记归档。
 
+### A-29. 【关闭 2026-09-22】Service 层 5 处裸查询下沉 Selector + 批量旧错误码 HTML 同步（DR-1/DR-3，§1.8 新发现义务登记）
+- **编号冲突规避**：按 §1.8 新发现义务命名时撞号 A-23（已被 #11 影子 services.py 占用），沿用 v2.9.23 先例顺延命名。
+- **状态**：✅ 已关闭 | 关闭日期：2026-09-22 | 本批修复
+- **判定**：DR-3 违规（Service 层 5 处裸 `OutAsset/DamagedAsset.objects.filter/exists` 直查，未走 Selector 统一入口）+ §1.8 未登记。
+- **靶点修正（归属核对）**：`asset_service.py:215/:219` 实为 A-21 收编时残留的裸守卫，`recycle_asset_service.py:319-321` 无人点名（扫描新发现）；原指该批属「审查报告 #10」系张冠李戴（#10=A-22 damaged approve/reject/cancel，已于 2026-09-20 关闭；其循 A-21 先例检出 3 处 `select_for_update().filter` 手写，与本批不重合）。
+- **修复内容（5 处下沉，逐字保留查询形态，零行为变化）**：
+  1. `OutAssetSelector.has_active_outasset`（`.filter(asset_recordcode=asset, is_deleted=False).exists()`）← `asset_service.py:215`；
+  2. `DamagedAssetSelector.has_active_record`（同型 exists）← `asset_service.py:219`（asset_service 孤儿 import `OutAsset/DamagedAsset` 移除，selectors import 补 `DamagedAssetSelector/OutAssetSelector`）；
+  3. `OutAssetSelector.get_active_outasset(recordcode)`（轻量 `.filter(recordcode, is_deleted=False).first()`）← `recycle_asset_service.py:319-321`；
+  4. `OutAssetSelector.get_outasset_for_update(recordcode)`（`select_for_update().filter(recordcode, is_deleted=False).first()`）← `out_asset_service.py:276`（`_delete_one` 锁内）；
+  5. `DamagedAssetSelector.get_for_update(recordcode)`（`select_for_update().filter(recordcode).first()`）← `damaged_asset_service.py:108`。
+  不复用缘由：③ 不复用 `get_outasset_by_record_code`（其 `with_asset_details()` 有 select_related 开销，破坏轻量语义）；④ 不复用 ③（二者同族但 ④ 需锁，若让 ③ 加锁会扩锁=行为变化）。
+- **:108 观察项**：`get_for_update` 保留既有**不含 `is_deleted`** 的查询形态（行为等价红线，不得擅自加过滤），与 #4 的 `is_deleted=False` 判定不一致处留待加固独立批次，不属本批射程。
+- **决策反转留痕**：A-21 于 2026-09-20 定案「HTML 历史快照 `batch-create-optimization-plan.html` 未改写」（Bug修复活账本 :948 同述）；经用户 2026-09-22 拍板**反转**——HTML :832（错误码示例表 `<td>`）/ :899（示例 JSON `error_code`）同步为 `ASSET_HAS_OUTASSET`，两处上方各加注记，方案文档随现行契约更新。
+- **边界声明（gate 扩围口径）**：下沉后 Service 层残余非 filter ORM 直查 4 处（均非裸过滤查询，import 保留）：`out_asset_service.py:67`（create）/ `:177`（锁内 `get(pk)` 复用引用）、`damaged_asset_service.py:62`（create）、`repair_asset_service.py:260`（create）；gate `rg "OutAsset\.objects\.filter|DamagedAsset\.objects\.filter" apps/assetmanagement/services` = 0 残留。
+- **验证命令**：`rg "OutAsset\.objects\.filter|DamagedAsset\.objects\.filter" apps/assetmanagement/services`（0）; `rg "HAS_OUTASSET_RECORDS" apps core --glob "*.py"`（0，全仓仅历史快照/A-21 已关闭记录）; 定向 5 套件（asset/recycle/out/damaged/recycle_damaged_waste_selector）110 passed；全量 `pytest apps -q` 1043 passed（整体 81.11%）；`--cov=apps.assetmanagement.services` 96.44%（单文件最低 recycle 91% ≥90%）；`ruff` scoped 0 错；`mypy` scoped 0 新增（7 存量噪声不变）；`python scripts/check_duplicate_invariants.py` PASS。
+
 ---
 
 ## B — 待修复（To Fix）
@@ -616,6 +633,7 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.34 (2026-09-22)**：关闭 A-29（DR-3 全清，§1.8 新发现义务）——Service 层 5 处裸 `OutAsset/DamagedAsset.objects` 查询下沉 Selector 共 5 新方法（`has_active_outasset`/`get_active_outasset`/`get_outasset_for_update`/`has_active_record`/`get_for_update`，逐字保留查询形态，零行为变化）；归属修正（`:215/:219` 系 A-21 收编残留、`recycle:319` 系扫描新发现，原「审查 #10」指控张冠李戴）；决策反转（A-21「HTML 快照未改写」定案按用户拍板反转，`batch-create-optimization-plan.html` :832/:899 旧码同步 `ASSET_HAS_OUTASSET` 并加注记）；编号冲突规避（A-23 已被 #11 影子死文件占用，顺延登记 A-29）。验证：定向 110 passed、全量 1043 passed、整体 81.11%、Service 96.44%、ruff 0、mypy 0 新增、护栏 PASS、双 grep 0 残留。
 - **v2.9.33 (2026-09-22)**：关闭 B-15（审计归一化双实现收敛，DR-1）——删除 `asset_service.update_asset` 内嵌 `_normalize` 局部函数（原 :192-200），before_data/after_data 改传原值，归一化由 `log_operation` :134-135 已落库的 `_to_json_safe` 幂等收口（唯一实现）；删除 `_normalize` 唯一消费的三个孤儿 import（datetime/Decimal/UUID），保留模块级 `import uuid`；docstring 改指写入收口。测试：`test_update_asset_fk_instance` 扩展 FK 实例 + Decimal 快照断言（CT-4 新增锚点），三套件 97 passed、rg 残留零命中、ruff 0、mypy `asset_service.py` 零新增（其余为 dateutil stubs/var-annotated 存量）。否决替代案：utils/ 公共函数（与写入收口方针相悖）、跨模块 import 私有 `_to_json_safe`（破坏封装）。零行为变化、无契约/迁移。<br>
 - **v2.9.32 (2026-09-21)**：关闭 A-28（审查报告 #26，DR-1/FR-2）——Excel 导出流程三归一并：两专用 composable（`useOperationLogExcelExport` 112 物理→46 逻辑 / `useUserExcelExport` 168 物理→62 逻辑）重写为「列配置 + 组装」薄壳，流程收敛至通用 `useExcelExport.exportList`（唯一实现），通用版零改动。事实纠偏：方案初稿「User 版在用 additionalData」不成立（`excelExporter.ts:39` 声明但 `exportToExcel` 函数体从不读取，部门映射靠 formatter 闭包），故不新增透传并移除 User 死透传与 spec 断言。行为差异四类按用户拍板统一并留痕（文件名去 page / 错误处理统一 / 弹窗未知异常吞→重抛 / 文案统一）。验证：双 spec 先红 11 failed → 17 passed，`useExcelExport.spec.ts` 8 passed，全量 `npm test` 1912 passed，type-check/lint/format 全绿，`check_duplicate_invariants.py` + `check_frontend_invariants.py` PASS。契约零变化，`api-schema-baseline.json` 无需重导出。另立任务：`ExcelExportConfig.additionalData` 死字段清理。
 - **v2.9.31 (2026-09-21)**：关闭 A-27（审查报告 #25，DR-1）——前端双分页响应类型并存收敛：`stores/entityStoreTypes.ts` 的 `ListResponse<T>` 由独立 interface 改为 `types/common.ts` 的 `PaginatedResponse<T>` 派生别名（`Pick` count/results 必填 + `Partial` next/previous/total_pages/page/page_size），5 处领域手写接口（assettype/contract/department/user/storage）同步别名化，删除 18 个 store 的 `next`/`previous` 冗余映射（36 行）与 3 处旧兼容死类型（`ContractListResponseOld` + 注释版 `EmployeeListResponseOld`/`DepartmentListResponseOld`）。纯类型层，零运行时变更（被删键全仓无读取方）；`tsconfig.app.json` 测试目录豁免使 spec fixture 不参与类型检查（既有设计）。验证：`npm run type-check` 0、`npm run lint` 0、`npm run format:check` 全绿、`npx vitest run src/stores/__tests__` 495 passed、全量 `npm test` 1912 passed、`check_duplicate_invariants.py` PASS、`check_frontend_invariants.py` PASS（FR-8 stores 30 文件 / 0 超限）。附带 `prettier --write` 修正 #24 遗留的 brokenasset/recycleasset 格式漂移。契约零变化，`api-schema-baseline.json` 无需重导出。
