@@ -380,9 +380,9 @@ element-plus:552KB（独立 chunk, 含图标）
 
 ### 六、遗留与关联事项
 
-- **D3（技术债）**：cancel/reject 路径建议统一 `except InvalidTransitionError → AppValidationError(INVALID_STATE_TRANSITION)`（对齐 `create_damaged_asset:53-54`）
-- **D4（技术债）**：`DamagedAsset.asset_recordcode` OneToOne 软删后唯一索引仍占用，重新申请会 IntegrityError；建议 partial unique index `WHERE is_deleted = false` 或复用软删行
-- 需求文档 01/07 无"取消报废"验收条目；本修复依据技术设计文档 03 旧约定修正 + 业务约束第 6 条（新增产品决策），已在 `backend-business-rules.md` v1.11 变更日志注明
+- **D3（技术债）** ✅ **已修复（2026-09-22 复核，无需代码改动）**：cancel/reject 路径建议统一 `except InvalidTransitionError → AppValidationError(INVALID_STATE_TRANSITION)`（对齐 `create_damaged_asset:53-54`）。复核证据：全仓 11 处 `except InvalidTransitionError` 均已统一映射 `error_code="INVALID_STATE_TRANSITION"`——asset_lifecycle_mixin.py:64/:168、asset_service.py:57、damaged_asset_service.py:74、out_asset_service.py:140/:254、recycle_asset_service.py:166/:214/:328、repair_asset_service.py:88、waste_asset_service.py:50；无 `ILLEGAL_STATUS`/裸 raise/吞异常残留；6 个测试锚点断言该 error_code（test_asset_lifecycle.py:65/118/193、test_asset_service.py:236、test_recycle_asset_service.py:365、test_damaged_asset_service.py:162）。报告行标"已修复"
+- **D4（技术债）** ✅ **已修复（2026-09-22 复核，对齐 #15 PR-2 交付）**：`DamagedAsset.asset_recordcode` OneToOne 软删后唯一索引仍占用，重新申请会 IntegrityError；建议 partial unique index `WHERE is_deleted = false` 或复用软删行。复核证据：`apps/assetmanagement/models/damaged_asset.py:113-118` 已为部分唯一索引 `UniqueConstraint(fields=["asset_recordcode"], condition=Q(is_deleted=False), name="uq_damaged_asset_active_asset", violation_error_message=...)`，迁移 `0023_alter_damagedasset_asset_recordcode_and_more.py:22` 同步落地；软删行不再占用唯一槽位，重新申请不会 IntegrityError。报告行标"已修复"
+- 需求文档 01/07 无"取消报废"验收条目；本修复依据技术设计文档 03 旧约定修正 + 业务约束第 6 条（新增产品决策），已在 `backend-business-rules.md` v1.11 变更日志注明（2026-09-22 复核：现行规则文件已演进至 **v1.13**（2026-09-17），v1.11 条目仍保留于变更日志 :242，业务约束第 6 条现位于 :116）
 
 ---
 
