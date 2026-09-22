@@ -794,9 +794,9 @@ element-plus:552KB（独立 chunk, 含图标）
 
 ### 六、遗留与关联事项
 
-- **DR-2 遗留（已登记未修复）**：`composables/useOutAssetForm.ts` 为全仓库零生产调用方的遗留重复实现（`useOutAssetForm` 仅被自身 spec 引用，生产代码无 import）；本次仅同步修正其同款键名，删除/重构另立任务
-- **[待核查] 编辑时人员/地点不落库（独立缺口）**：`OutAssetUpdateSerializer.Meta.fields` 仅含 `outasset_number/outasset_date/outasset_type/outasset_description/return_date`（`out_asset_serializers.py:179-187`），而前端编辑表单可改申请人/保管人/使用地点——`outAssetForm` computed 会提交 `outasset_applicant/outasset_manager/outasset_using_location`（`OutAssetForm.vue:304-305,313`）——这些非写字段按 DRF 默认被忽略，编辑这些项不生效。需业务决策：更新序列化器补写字段，或前端编辑态禁用这些字段
-- **[待核查] 编辑态资产不可更换**：`outasset_code`/`outasset_name` 非 `OutAsset` 模型字段（模型字段为 `asset_recordcode` FK，`models/out_asset.py:71-80`），更新序列化器亦不含资产关联写入字段；编辑页换资产无效，换资产仅能走新增
+- **DR-2 遗留（已闭环 2026-09-22）**：`composables/useOutAssetForm.ts` 零生产调用方核实成立 → **已删除**（连同自身 spec + 7 处文档头引用，能力由 useAssetFormHelpers/useEmployeeSuggestionFetcher/useAutocompleteField 承接）。commit 前端 `7a3137d`；FR6 台账去行，guard `check_frontend_invariants.py` PASS（50→49 文件 / 4→3 孤儿）；vitest composables 41 文件 576 passed、type-check 0
+- **[已闭环 2026-09-22] 编辑时人员/地点不落库（A 选项全口径）**：create+update 序列化器（`OutAssetCreateSerializer`/`OutAssetUpdateSerializer`）新增 `outasset_applicant`/`outasset_manager` 写字段（`SlugRelatedField(slug_field="employee_jobcode")`，缺 jobcode→400）；`update_outasset` 循环前特判映射 FK，抽 `_build_asset_people_update`（create/update 共用，DR-1）并**同步 Asset 主表**（锁定实例 `save(update_fields=...)`，锁序 outasset→asset）；实测补正：`outasset_using_location` 编辑曾"半生效"（仅写 OutAsset、详情/主表读 Asset 侧仍旧值）→ 本轮一并联动；**create 同病一并修**（原序列化器 create() 还 pop 掉 using_location，验证 create 同样静默丢弃）;快照不重写（保历史，编辑走审计 before/after）。commit `bbb3049`；4 新测试 + B8 补强，红→绿 4 failed→9 passed，相关 4 套件 32 passed，ruff/mypy 0；schema 基线重导出 `489e907`。前端零改动
+- **[核实 by design] 编辑态资产不可更换**：两端一致封死——更新序列化器 `recordcode`/`asset_recordcode` 均 `read_only=True`（:174-175），前端出库资产名称/编码 `:disabled="isEditMode"`（OutAssetForm.vue:45/:68）；换资产仅能走新增，符合 PROTECT FK + 快照语义，无需修复
 
 ---
 
