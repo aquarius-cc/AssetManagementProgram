@@ -1533,3 +1533,43 @@ grep LoginDialog                → 源码与生成 d.ts 零残留；仅 3 处�
 - 无契约变化，`api-schema-baseline.json` 无需重导出；前端三项检查 + 全量测试门禁已全绿，提交待用户确认。
 
 *登记人：big-pickle ｜ 状态：已关闭（删除完成 + 门禁全绿），2026-09-21*
+
+## BF-027 【已关闭】recyclable 未分页 fallback 返回裸列表，与 list 响应形状不一致（审查报告 #30 §3）
+
+- **发现日期**：2026-09-17（《full-review-report-2026-09-17.md》P2 #30）
+- **严重级别**：P2（§3 响应形状不一致；核实后定性为「不可达死代码的形状不对称」，非活动缺陷）
+- **影响范围**：`apps/assetmanagement/views/out_asset_view.py:172`（单行对齐）；连带修正 `core/pagination.py:27` 陈腐 docstring；新增/加固 `apps/assetmanagement/tests/test_out_asset_view_api.py` 2 用例
+- **登记来源**：审查报告 #30；核实结果——代码级不一致成立，但「触发条件」不成立（见下）
+
+### 一、核实结论
+
+1. **代码级不一致真实存在**：recyclable 未分页 fallback（:171-172）返回裸列表 `data=serializer.data`；同文件 list（:181-182）返回 `data={"count": queryset.count(), "results": serializer.data}`。
+2. **触发条件不成立（关键纠偏）**：`CustomPageNumberPagination.paginate_queryset`（core/pagination.py:39-60）无 `page`/`page_size` 时注入 `page=1` 后强制 super() 分页；DRF `get_page_number` 缺参默认 1、`get_page_size` 恒回落默认 20；`paginate_queryset` 仅于 `not page_size` 时返回 None——**对任何 HTTP 请求绝不返回 None**，裸列表分支为不可达死代码。报告原「任何不带 page 的调用都会踩中裸列表」不会发生。
+3. **误导源**：core/pagination.py:27 docstring「无分页参数时返回全部数据（不分页）」为 P2-28 修复前旧行为，现与 :47-57 实际行为自相矛盾。
+4. **前端契约**：`usePagedList.ts:24/:72-73` 无条件读 `response.results`/`count`；若裸列表真到达会静默坏数据——该风险在现行分页实现下不可触发，但死分支保留错误形状会随未来分页行为变更随时引爆。
+
+### 二、决策（方案 B：单行对称对齐 + 陈腐文档修正）
+
+- 死代码分支防御性对称：fallback 与 list 逐字节对齐（DR-3 契约一致性），未来若分页行为允许返回 None 时形状即正确。
+- 修正 pagination.py:27 陈腐 docstring，消除误导源。
+- 前端零改动（契约已按 PaginatedResponse 声明）。
+
+### 三、验证记录
+
+```text
+先红后绿                    → stash 还原旧码，mock.patch.object(OutAssetViewSet,'paginate_queryset',
+                              return_value=None) 直驱分支 FAIL（裸列表）→ 恢复修复 PASS（envelope）✅
+定向 pytest --create-db      → test_out_asset_view_api.py 17 passed（原 15 +2）✅
+全量 pytest apps --create-db → 1031 passed ✅
+ruff check                  → 0（1 处 import 顺序 --fix）✅
+manage.py check             → 0 ✅
+mypy scoped                 → 目标文件 0 错误；存量 16 vs 修复后 16，零新增 ✅
+带 page 正常分页路径         → 逐字节不变；schema 无变化，api-schema-baseline.json 无需重导出 ✅
+```
+
+### 四、遗留与关联事项
+
+- pagination.py:27 陈腐 docstring 系本次登记根因之一；全仓其余 list 端点（对照组）fallback 同为不可达死代码但形状已正确，无需改动。
+- 无契约变化，前端零改动；跨端契约未破坏。
+
+*登记人：big-pickle ｜ 状态：已关闭（单行对齐 + 测试 + 门禁全绿），2026-09-21*
