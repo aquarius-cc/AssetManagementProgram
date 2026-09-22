@@ -721,8 +721,8 @@ element-plus:552KB（独立 chunk, 含图标）
 
 ### 六、遗留与关联事项
 
-- **候补 P0**（已登记未修）：`change_outasset_employee` 的 jobcode→recordcode FK 映射 bug，端点当前传 jobcode 字符串就 500；无前端调用方，影响面待确认是否修复（需业务决策：传 jobcode 则应通过 `EmployeeSelector` 解析为实体 recordcode，传 recordcode 则参数名应更正）
-- `transfer_asset_to_storage` 死代码处置（删除 or 接线业务单据）待排期
+- **候补 P0 已修复 2026-09-22**：`change_outasset_employee` jobcode→recordcode FK 映射 bug —— Service 经 `EmployeeSelector.get_employee_by_jobcode` 解析为实体后赋值（先例：damaged/recycle/repair），员工不存在升 `core.exceptions.NotFoundError` 404（决策：传 jobcode，参数名不变）；解析置于 `ensure_asset_visible` 之后保 B12 隔离语义。commit `6aa8300`。测试：视图层从"容忍 500"收紧为精确 200 + FK 落库断言，新增 jobcode 不存在→404 用例；教训注：Service 测试曾传 Employee 实例掩盖 jobcode 路径、视图测试曾容忍 500
+- `transfer_asset_to_storage` 死代码处置：零调用方核实成立 → **已删除 2026-09-22**（方法体 + `StorageSelector` 孤儿 import + 测试类），收尾 grep 0、79 passed。commit `52f6a99`。operator 透传锚（B7）由 `change_outasset_employee` 的 `test_change_employee_success` 继续承载
 
 ---
 
