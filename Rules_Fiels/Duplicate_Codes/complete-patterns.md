@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.31 | **最后更新**：2026-09-21 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.32 | **最后更新**：2026-09-21 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -220,6 +220,19 @@
 - **测试豁免说明**：`vue-assetmanagement/tsconfig.app.json` 的 `exclude` 含 `src/**/__tests__/*`，spec fixture 缺 `total_pages`/`page`/`page_size` 不参与 `type-check`（既有项目设计，vitest 走 esbuild 不做类型检查），故严格化后的领域类型未对测试 mock 产生编译期约束。
 - **验证命令**：`npm run type-check`（0 错误）；`npx vitest run src/stores/__tests__`（32 文件 495 测试通过）；全量 `npm test`（135 文件 1912 测试通过）；`npm run lint` / `npm run format:check`（通过）；`rg "next: response\.next|previous: response\.previous" vue-assetmanagement/src/stores`（预期 0 命中）；`rg "ContractListResponseOld|EmployeeListResponseOld|DepartmentListResponseOld" vue-assetmanagement/src --glob "!__tests__"`（预期 0 命中）。
 - **回滚风险**：`PaginatedResponse` 若未来放宽 `next`/`previous` 必填性，需同步复核 5 处领域别名与 `ListResponse` 的 `Partial` 集；`count`/`results` 为唯一强契约字段，不得移除。
+
+### A-28. 前端 Excel 导出流程三归一并（`useExcelExport` / `useOperationLogExcelExport` / `useUserExcelExport`，审查报告 #26，DR-1/FR-2）
+- **状态**：✅ 已关闭 | 关闭日期：2026-09-21 | 本次修复
+- **判定**：克隆（DR-1）+ 未复用既有抽象（FR-2）。三份实现均含「导出范围选择弹窗 > 当前页/全量分支 > >1000 条大数据确认 > fetch 全量 > exportToExcel 收口」完整流程：
+  - `composables/useExcelExport.ts`（154 行）：通用版，`ExportOptions<T>` 参数化，8+ 详情页在用；
+  - `composables/useOperationLogExcelExport.ts`（112 行）：自建 `ElMessageBox.confirm` 范围弹窗 + 自建分支；
+  - `composables/useUserExcelExport.ts`（168 行）：自建 h() 弹窗 + 自建分支 + 自建部门映射。
+- **位置**：`vue-assetmanagement/src/composables/useOperationLogExcelExport.ts`、`vue-assetmanagement/src/composables/useUserExcelExport.ts`（收敛前）；收敛后仅剩通用 `useExcelExport.ts` 一处流程实现。
+- **事实纠偏（对抗审核）**：方案初稿「User 版实际在用 additionalData」不成立——`ExcelExportConfig.additionalData` 声明于 `excelExporter.ts:39` 但 `exportToExcel` 函数体（:47-129）从不读取；User 版部门映射靠列 formatter **闭包**（`useUserExcelExport.ts:64`）生效，`additionalData: { departmentMapping }` 为死透传。故不新增 additionalData 透传，并移除 User 版传递与 spec 断言。
+- **修复内容**：两专用 composable 重写为「列配置 + 参数组装」薄壳（`useOperationLogExcelExport` 46 逻辑行 / `useUserExcelExport` 62 逻辑行，guard `--print` 权威计数），只保留列配置（9 列/8 列含 formatter 闭包）+ 组装 `ExportOptions`（`entityName`/`columns`/`currentData=store.list`/`totalCount=pagination.total`/`fetchAllData=() => store.getList({page:1,page_size:total})`/`sheetName`）+ 委托通用 `exportList`；签名与导出不变，消费方（OperationLogDetails/UserDetails）零改动；删除去往 `ElMessage/ElMessageBox/exportToExcel/h/showErrorMessage` 的 import。
+- **行为差异清单（用户 2026-09-21 拍板统一）**：a) User 当前页文件名去 `pagination.page`；b) 全量失败 `showErrorMessage` → 通用版 `console.error + ElMessage.error`；c) 范围弹窗未知异常「吞掉」→ 通用版「重抛向上传播」；d) 文案统一（`正在准备全部XX数据，请稍候...`、大数据确认、范围弹窗 OpLog 简版升级为通用 h() 消息体）。
+- **验证命令**：`npx vitest run src/composables/__tests__/useOperationLogExcelExport.spec.ts src/composables/__tests__/useUserExcelExport.spec.ts`（17 passed，先红 11 failed）；`npx vitest run src/composables/__tests__/useExcelExport.spec.ts`（8 passed）；全量 `npm test`（135 文件 1912 passed）；`npm run type-check`/`lint`/`format:check`（0 错/0/全绿）；`python scripts/check_duplicate_invariants.py` PASS；`python scripts/check_frontend_invariants.py` PASS（FR-6 composables 50 文件 / 4 孤儿已登记）；`rg -n "ElMessageBox\.confirm\(" src/composables`（预期仅 `useExcelExport.ts:90` 一处）。
+- **回滚风险**：若通用版 `exportList` 某日调整范围弹窗交互，两薄壳同步受益（无实体逻辑）；`showErrorMessage` 语义已离场，需在 utils/errorHandler 登记归档。
 
 ---
 
@@ -602,6 +615,7 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.32 (2026-09-21)**：关闭 A-28（审查报告 #26，DR-1/FR-2）——Excel 导出流程三归一并：两专用 composable（`useOperationLogExcelExport` 112 物理→46 逻辑 / `useUserExcelExport` 168 物理→62 逻辑）重写为「列配置 + 组装」薄壳，流程收敛至通用 `useExcelExport.exportList`（唯一实现），通用版零改动。事实纠偏：方案初稿「User 版在用 additionalData」不成立（`excelExporter.ts:39` 声明但 `exportToExcel` 函数体从不读取，部门映射靠 formatter 闭包），故不新增透传并移除 User 死透传与 spec 断言。行为差异四类按用户拍板统一并留痕（文件名去 page / 错误处理统一 / 弹窗未知异常吞→重抛 / 文案统一）。验证：双 spec 先红 11 failed → 17 passed，`useExcelExport.spec.ts` 8 passed，全量 `npm test` 1912 passed，type-check/lint/format 全绿，`check_duplicate_invariants.py` + `check_frontend_invariants.py` PASS。契约零变化，`api-schema-baseline.json` 无需重导出。另立任务：`ExcelExportConfig.additionalData` 死字段清理。
 - **v2.9.31 (2026-09-21)**：关闭 A-27（审查报告 #25，DR-1）——前端双分页响应类型并存收敛：`stores/entityStoreTypes.ts` 的 `ListResponse<T>` 由独立 interface 改为 `types/common.ts` 的 `PaginatedResponse<T>` 派生别名（`Pick` count/results 必填 + `Partial` next/previous/total_pages/page/page_size），5 处领域手写接口（assettype/contract/department/user/storage）同步别名化，删除 18 个 store 的 `next`/`previous` 冗余映射（36 行）与 3 处旧兼容死类型（`ContractListResponseOld` + 注释版 `EmployeeListResponseOld`/`DepartmentListResponseOld`）。纯类型层，零运行时变更（被删键全仓无读取方）；`tsconfig.app.json` 测试目录豁免使 spec fixture 不参与类型检查（既有设计）。验证：`npm run type-check` 0、`npm run lint` 0、`npm run format:check` 全绿、`npx vitest run src/stores/__tests__` 495 passed、全量 `npm test` 1912 passed、`check_duplicate_invariants.py` PASS、`check_frontend_invariants.py` PASS（FR-8 stores 30 文件 / 0 超限）。附带 `prettier --write` 修正 #24 遗留的 brokenasset/recycleasset 格式漂移。契约零变化，`api-schema-baseline.json` 无需重导出。
 - **v2.9.30 (2026-09-21)**：B-22（unregisteredasset 审计留痕 try/except×4）经 C10 收尾①收敛为 `_safe_call_audit`（唯一 try/except + getattr 分派），转「已关闭」归档为 A-25，B-21 遗留孤立验证行清理；B 区清空。
 - **v2.9.29 (2026-09-21)**：B-23（broken/lost 双胞胎）随 BR-4 B3 完结（guard 0/0）转「已关闭」归档为 A-24，C10 落地证据与验证命令留档；B 区只余 B-22 待修复。
