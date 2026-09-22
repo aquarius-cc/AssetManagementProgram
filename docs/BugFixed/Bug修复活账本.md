@@ -1780,3 +1780,58 @@ grep gradient-card                          → 亮/暗双态各 4 条齐备 ✅
 - BF-002 主因（subprotocol 回显）修复保持不动，本条目仅落地其两条改进建议；BF-001 遗留段已补指针（见 :78/:80）。
 
 *登记人：big-pickle ｜ 状态：已关闭（代码级验证通过，端到端冒烟 [待验证] 人工执行），2026-09-22*
+
+## BF-033 【已闭环】批量出库 batch-create 全量失败——`outasset_asset` 键名错位 + `row_number` 残留（测试容忍掩盖 100% 失败）
+
+- **发现日期**：2026-09-22（`test_out_asset_view_api.py` 遗留"已知 bug"注释与 try/except 容忍块触发排查）
+- **严重级别**：P1（`POST /api/v1/asset/out-assets/batch-create/` 端点 100% 失败，批量出库功能整体不可用）
+- **影响范围**：`apps/assetmanagement/services/out_asset_service.py:240-252`（`_create_item` 归一）；`apps/assetmanagement/tests/test_out_asset_view_api.py:222-246`（测试转正）；`apps/assetmanagement/tests/test_out_asset_service.py:169-183`（部分失败独立性断言）
+- **契约影响**：无（对外请求键名仍为 `outasset_asset`，响应结构仍走 `BatchResponseHelper`，前端零改动、`api-schema-baseline.json` 无需重导出）
+
+### 一、问题现象与事实基线
+
+1. **全量失败是真实状态**：`OutAssetBatchItemSerializer`（`out_asset_serializers.py:231-235`）以 `outasset_asset`（SlugRelatedField，Asset 实例）输出资产键，`validated_data["items"]` 原样直传 Service（`out_asset_view.py:223-224`）；`create_outasset` 只认 `asset_recordcode`（`out_asset_service.py:46-48`）→ 每条 MISSING_ASSET_CODE → 响应为 **HTTP 200 + `success_count==0`**，批量出库从未成功过。
+2. **旧注释的"500"臆测不实**：`batch_execute` 三条捕获分支均经 `_normalize_input_data`（`batch_mixins.py:118/:132/:145` + `:221-241`）归一化实例后入 fail_items，成功项由 `BatchResponseHelper.create_response` 以 `OutAssetCreateSerializer` 序列化处理结果对象（`:270`），**任何路径都不渲染 500**；"Asset object not JSON serializable"注释系误判。
+3. **row_number 残留为潜在 TypeError**：`OutAssetBatchItemSerializer` 解出 `row_number`（`out_asset_serializers.py:230`），若仅修键名不过滤，`OutAsset.objects.create(**outasset_data)`（`:67`）会收到多余键抛 TypeError → INTERNAL_ERROR。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 键名无归一 | `batch_execute` 直传 serializer 契约键 `outasset_asset`；单条入口 `create_outasset` 期望 `asset_recordcode`（`out_asset_service.py:46`） |
+| 2 | 框架元数据残留 | `row_number` 非 `OutAsset` 模型字段，透传至 `OutAsset.objects.create` 触发 TypeError |
+| 3 | 测试掩盖 | 旧 `test_batch_create` try/except 吞异常 + 容忍 200/400/500，将"100% 失败"粉饰为"已知 bug" |
+
+### 三、修复方案
+
+| # | 变更 | 位置 |
+|---|------|------|
+| 1 | `_create_item` deepcopy 后键名归一：`outasset_asset` 存在则映射为 `asset_recordcode`，并 `pop("row_number", None)`；直接调用方以 `asset_recordcode` 直传时保持透传（服务契约不变，条件适配而非强制替换） | `out_asset_service.py:240-252` |
+| 2 | 测试转正：全成功用例（`asset` + `asset2` 两条独立 in_store → `success_count==2`、FK 落库、主表 IN_USE）；HTTP 重复资产 ×2 → 400 锁定 `validate_items` 去重（`out_asset_serializers.py:254-261`）；服务级部分失败扩展首条状态联动断言；删除 try/except 与"已知 bug"注释 | 两个测试文件 |
+| 3 | 活账本登记（本条） | `docs/BugFixed/Bug修复活账本.md` |
+
+### 四、对抗审核（自反清单）
+
+1. **先红后绿实据**：重写测试先跑（成功用例断言 `success_count==0 == 2` → AssertionError 0==2，即未打补丁时 `success_count==0`），打补丁后转绿 ✓
+2. **服务契约边界**：`batch_create_outasset` 直接调用方（服务级测试 `_outasset_payload` 以 `asset_recordcode` 手建 dict）不受影响——键名归一为"缺则映射、有则透传"的条件适配，交付后确认 `rg batch_create_outasset` 调用方仅 view（serializer 键）+ 测试 ✓
+3. **两轮评审修正过程**：首轮误判"`validate_items` 去重已不存在"（读取截断于 :253）——实测存在于 `out_asset_serializers.py:254-261`，重复资产在 serializer 层 400，**部分失败不可经 HTTP 构造**，改为服务级直测；同资产×2 因去重拦截故未采用 ✓
+4. **重复键安抚**：`outasset_asset` 仅存在于 serializer 定义（契约键名）与 view→service 链路，再无第二实现（`rg outasset_asset` 服务层 0 残留）✓
+5. **门禁全过**：相关 2 套件 29 passed、全量 `1253 passed`、`ruff` 0、mypy 涉改文件 0 新增、`manage.py check` no issues ✓
+
+### 五、验证记录
+
+```text
+① python -m pytest apps/assetmanagement/tests/test_out_asset_view_api.py test_out_asset_service.py -q → 29 passed ✅
+② python -m pytest -q（全量）→ 1253 passed ✅
+③ ruff check 涉改 3 文件 → All checks passed ✅
+④ mypy 单文件 follow-import → 无新错误（残留为既有 models/dateutil 噪声）✅
+⑤ python manage.py check → System check identified no issues ✅
+```
+
+### 六、教训注记
+
+- **测试对"已知 bug"的容忍会掩盖功能整体不可用**：try/except 吞异常 + 多状态码宽容让批量出库 100% 失败长期潜伏；回归测试应断言真实成功语义（本条现断言 `success_count==2`）。
+- **注释臆测不可留**："Asset object not JSON serializable"系推断，实测 200+全 fail 而非 500——修复后已删除。
+- **服务契约与序列化器契约分离**：服务入口键（`asset_recordcode`）与端点契约键（`outasset_asset`）按层次适配，避免在 Service 强制覆盖直接调用方语义。
+
+*登记人：big-pickle ｜ 状态：已闭环（代码级验证通过，先红后绿全程记录），2026-09-22*
