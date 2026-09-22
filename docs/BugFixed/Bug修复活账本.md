@@ -1495,3 +1495,41 @@ guard 语义口径下六函数逻辑行 >50，且 `batch_delete_outasset`（76�
 - 关联：报告 #21 追踪追加 4 行、台账 B1 六行移除、BF-024 遗留项部分闭环；commit/push 待用户确认后执行。
 
 *登记人：big-pickle ｜ 状态：拆分完成 + 门禁全绿（guard/pytest/覆盖率/ruff/C90/mypy），archive 与提交待确认，2026-09-21*
+
+## BF-026 【已关闭】`LoginDialog.vue` 死代码孤儿组件——登录弹窗表单从未提交（审查报告 #29 SC-1）
+
+- **发现日期**：2026-09-17（《full-review-report-2026-09-17.md》P2 #29）
+- **严重级别**：P2（SC-1 指控；核实后定性修正为「死代码孤儿组件」，非安全隐患）
+- **影响范围**：`vue-assetmanagement/src/components/LoginDialog.vue`（93 行，删除）；连带清理 `src/App.vue:7` doc 注释、根 `components.d.ts`（:123/:277）、`src/components.d.ts`（:57/:124）
+- **登记来源**：审查报告 #29；核实结果——「安全隐患」不成立（SC-1 误定性），根因为无意义死代码
+
+### 一、核实结论
+
+1. **纯死 ref**：`userName`/`userPassword`（:16-17）自创建以来从未被读取/提交/校验；唯一动作 `toLogin()`（:19-24）仅 `visible=false + router.push('/login')`。输入值只存在于内存 ref，点「登录」即丢弃。
+2. **SC-1 误定性**：值不发网络、不落 localStorage/console，无泄露通道；真风险为 UX 欺骗（弹窗让用户以为在此登录，实际空操作后跳 /login 重新输入）。
+3. **孤儿组件**：@usedBy 自述「当前未被引用，预留登录入口组件」；全仓 src **0 运行时 import/模板使用**（仅 App.vue:7 doc 注释 + 两个 unplugin 生成的 components.d.ts 声明 + 设计审计文档历史记录）。
+4. **预留被证伪**：真实登录链路 = /login 路由（LogIn.vue 完整表单含 auth_username/password/rememberMe + guards.ts 白名单），与本组件无交互；弹窗式登录无接入计划。
+
+### 二、决策（方案 B，彻底删除）
+
+- 死代码 + 孤儿 + 误导 UX，无保留价值 → 整文件删除。
+- `components.d.ts` 手清悬空声明：**type-check（vue-tsc）不触发 vite 插件再生**，`src/components.d.ts` 被 tsconfig include，悬空 `typeof import('./components/LoginDialog.vue')` 会致 TS2307，必须手动移除后再跑 type-check；根 `components.d.ts` 不在 include 范围，为干净起见一并手清；下次 dev/build 插件再生自动保持干净。
+- **可逆留证**：单文件删除可从 git 历史随时恢复；未来真需弹窗登录时大概率走 authStore.logIn，此壳无复用价值。
+
+### 三、验证记录
+
+```text
+npm run type-check              → 0 错误（手清两 d.ts 悬空声明后，先清后查）✅
+npm run lint / format:check     → 0 / Prettier 全绿 ✅
+vitest 冒烟 src/components+views → 205 passed（14 文件）✅
+全量 npm test                   → 1912 passed（135 文件，零回归）✅
+grep LoginDialog                → 源码与生成 d.ts 零残留；仅 3 处历史文档留档 ✅
+路由/契约                       → /login + LogIn.vue + guards.ts 白名单零触碰 ✅
+```
+
+### 四、遗留与关联事项
+
+- 设计审计核验.md:35/:113 与 style-optimization-proposal.md:432 为历史记录，保留留档（记录组件曾存在于对应核查时点）。
+- 无契约变化，`api-schema-baseline.json` 无需重导出；前端三项检查 + 全量测试门禁已全绿，提交待用户确认。
+
+*登记人：big-pickle ｜ 状态：已关闭（删除完成 + 门禁全绿），2026-09-21*
