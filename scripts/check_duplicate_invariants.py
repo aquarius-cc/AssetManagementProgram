@@ -6,7 +6,7 @@
 
 退出码：
   0 = 全部通过
-  1 = 阻断项失败（G-1~G-3 任一命中）
+  1 = 阻断项失败（G-1~G-3、G-5 任一命中）
 
 用法：python scripts/check_duplicate_invariants.py
 """
@@ -86,10 +86,25 @@ def check_g3_frontend_single_source():
         BLOCKING.append("G-3 Format.ts 内联了资产状态字面量映射(应改为派生)")
 
 
+def check_g5_no_shadow_modules():
+    """G-5: 影子死文件不得复现——同名 .py 不得与包（含 __init__.py）并存（包优先解析使 .py 成死代码）"""
+    apps_dir = BACKEND / "apps"
+    if not apps_dir.exists():
+        return
+    for init in apps_dir.rglob("__init__.py"):
+        pkg_dir = init.parent
+        shadow = pkg_dir.parent / (pkg_dir.name + ".py")
+        if shadow.exists():
+            BLOCKING.append(
+                f"G-5 影子死文件 {shadow.relative_to(ROOT)} 与包 {pkg_dir.relative_to(ROOT)}/ 并存，禁止新增，需删除同名 .py"
+            )
+
+
 def main() -> int:
     check_g1_closed_patterns_absent()
     check_g2_operation_log_single_impl()
     check_g3_frontend_single_source()
+    check_g5_no_shadow_modules()
 
     for item in BLOCKING:
         print(f"[BLOCK] {item}")
