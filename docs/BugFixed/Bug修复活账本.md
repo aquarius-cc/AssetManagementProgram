@@ -864,8 +864,8 @@ element-plus:552KB（独立 chunk, 含图标）
 
 ### 六、遗留与关联事项
 
-- **DR-1/DR-2 遗留（已登记未修复）**：`composables/useAssetBatchImport.ts`（`:167` 走标准链路、`:169-194` 解析 400 明细）为全仓库零生产调用方的孤儿 composable，组件 `handleSubmit` 与其提交逻辑重复。本次按最小改动只消除裸请求，未合并两份逻辑，另立任务
-- **`AssetBatchImport.vue` 其它同类风险未在本次范围**：本次仅按审查报告 #7 收敛批量创建端点，未逐一审计该组件是否还有其它直连请求（审查报告未列，超出边界）
+- **DR-1/DR-2 遗留（2026-09-22 复核后消解）**：`composables/useAssetBatchImport.ts`（:167 走链路、:169-194 解析 400 明细）为全仓库零生产调用方的孤儿 composable。复核证据：① 生产 import 0 命中（仅自身 spec + 3 处 doc 注释：assetStore.ts:9/useBatchImport.ts:8/SubmitBatch.ts:12）；② 组件提交已全部走 store 链路（AssetBatchImport.vue:262 → assetStore.ts:195-196 → assetAPI.batchCreateAssets），其 400 明细解析内联于组件 :263-296，无第三方承载；③ 两份 handleSubmit 文本仍近同构，但**活性重复已消解、仅剩死代码孤儿本体**。结论：**合并任务撤销**，处置归 FR-6 孤儿台账（useAssetBatchImport.ts，228 逻辑行，待去重）独立批次删除
+- **`AssetBatchImport.vue` 其它同类风险（2026-09-22 已全量复查，F11 归零）**：全组件审计——import 区（:137-157）零 `@/api`、零 request，`isAxiosError`（:148）仅用于 400 catch 类型收窄（:265）；无第二处 request import、无端点字符串；`handleExportTemplate` → `downloadExcelTemplate`（templateExport.ts）仅 ExcelJS 客户端生成，无网络。结论：直连请求为零，无需任何动作
 
 ---
 

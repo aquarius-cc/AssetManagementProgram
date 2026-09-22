@@ -583,7 +583,7 @@
   - 修复建议（供后端排期）：后端改为优先路径参数、query 兜底；补纯路径集成测试
   - 风险：低（无前端影响面）
   - **状态：⏳ 已登记待后端处理**
-- **路由直连 API**：39 个 `.vue` 直接 `import @/api/*` 绕过 Pinia Store（实测：45 行 import / 39 唯一文件 = 24 components + 15 views；其中 3 文件属 infra 导入：BasicAssetDetails→`@/api/config`、ScanAssetView→`@/api/request`、AssetBatchImport→`@/api/index`）
+- **路由直连 API**：39 个 `.vue` 直接 `import @/api/*` 绕过 Pinia Store（实测：45 行 import / 39 唯一文件 = 24 components + 15 views；其中 3 文件属 infra 导入：BasicAssetDetails→`@/api/config`、ScanAssetView→`@/api/request`、AssetBatchImport→`@/api/index`）— AssetBatchImport→`@/api/index` 已消除（2026-09-22，BF-014 复核）
   - 修复建议：架构分层问题，涉及 39 文件的行为面重构；分域迁移（asset/contract/user…），每域先补 store 层缺方法，再改组件消费 store；vitest 回归
   - 风险：高（此前已明确“不搭 DRY 顺车，单独评估”）
   - **增量护栏已落地（2026-09-10，v2.9.18）**：eslint.config.ts 新增 `app/store-layer-no-direct-api`（no-restricted-imports 正则 `@/api/<业务模块>` 拦截，infra 三入口放行）+ `app/legacy-direct-api-files`（存量 36 文件豁免清单）——规则只约束新代码，存量迁移一个、从豁免清单移除一个，清单清空即关闭本条目。验证：`npx eslint .` 0 error（门禁全绿）。
