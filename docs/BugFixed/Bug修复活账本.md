@@ -1643,3 +1643,36 @@ dev 默认新 key 启动              → OK，TRUST_PROXY_HEADERS=False ✅
 - 无契约变化，前端零改动；跨端契约未破坏，api-schema-baseline.json 无需重导出。
 
 *登记人：big-pickle ｜ 状态：已关闭（安全加固 + DRY 收口 + 门禁全绿），2026-09-21*
+
+## BF-030 【已关闭】手动状态收口 + 导出防护 + error_code 单条透传（审查报告 #38~#42）
+
+- **发现日期**：2026-09-17（《full-review-report-2026-09-17.md》P3 #38~#42）
+- **严重级别**：P3（#38 潜藏 500 行为修复为本批最高；#41 单条通道 error_code 丢失；#40 OOM 风险；#39/#42 误报/重复）
+- **影响范围**：`services/asset_service.py`；`views/_export_mixin.py`；`config/settings/base.py`；`core/exception_handler.py`；`core/tests/test_exception_handler.py`；`apps/assetmanagement/tests/test_export_excel.py`（新增）；`apps/assetmanagement/tests/test_asset_service.py`；`apps/assetmanagement/tests/test_models.py`
+- **登记来源**：审查报告 #38~#42；#38/#40/#41 属实，#39 与 #30 重复、#42 误报（均按实证标记）
+
+### 一、各条核实与决策
+
+1. **#38（AR-1 收口，行为修复）**：`change_asset_status` 为全仓唯一访问 FSM 私有 `_transition` 的散点（asset_service.py:321）；无 try/except → `InvalidTransitionError` 裸异常逃出服务层，全局 handler 不识别 → 手动改非法状态实为 **500**。实施模块级 `_run_manual_transition`（`AssetFSM._transition` 单点 + `InvalidTransitionError→AppValidationError(error_code="INVALID_STATE_TRANSITION")`）。行为变化（用户已确认 500→400）：既有 `test_change_status_invalid_transition` 断言同步更新。错误码纠偏：全仓规范性 code 为 `INVALID_STATE_TRANSITION`，方案初稿 `LEGACY_STATUS_INVALID` 不存在。
+2. **#39（重复条目）**：与 #30（BF-027）同一缺陷，`out_asset_view.py:172` 现行源码已与 `:182` 逐字节对齐，仅去重标记，零代码。
+3. **#40（OC-7 资源防护）**：`_export_mixin.py:51/:69` 无界全量导出。实施 `EXPORT_MAX_ROWS=10000`（base `config(cast=int)`）+ 导出前 count 超限 400 + `queryset.iterator()` 流式；此前全仓 0 export 测试，新增 4 用例。
+4. **#41（B1，方案纠偏）**：原判「分支不可达」不成立——`AppValidationError(APIException)` 必走 DRF 路径进 :55-78 块，单条通道 error_code 丢失（与批量通道 batch_mixins fail_items 已带 error_code 不一致），真实可达。实施 DRF 路径 `getattr(exc,"error_code")` 并入 `errors` → `data.error_code` 透传，**根 envelope 零变化**（方案 A：不扩 error_response 签名、不动 §3 根结构；用户确认执行）。测试：删旧 not-exposed 断言 → 新透传 + 字段级合并双断言。
+5. **#42（误报反证）**：`RepairAsset.objects = SoftDeleteManager.from_queryset(RepairAssetQuerySet)()`（:86），`get_queryset`（core/models.py:54-56）恒追加 `filter(is_deleted=False)` 且 from_queryset 保留该覆写 → :62/:176/:237 三处查询本就排除软删；「默认 manager 不过滤」不实。用户红用例不可构造（delete_repair_asset 拒软删 IN_PROGRESS）。处置：过滤零改动 + `TestRepairAssetSoftDeleteGuard` 护栏守护组合语义。
+
+### 二、验证记录
+
+```text
+全量 pytest apps core --create-db → 1178 passed ✅（基线 1172 + 净增 6）
+定向 25 passed（export 4 / exception_handler 12 / models 8 / TestChangeAssetStatus）✅
+ruff check（8 目标文件）        → 0 ✅
+mypy 全仓                      → 存量 16=16 零新增（stash 基线对比）✅
+manage.py check                → no issues ✅
+```
+
+### 三、遗留与关联事项（观察登记）
+
+- #41 单条 `data.error_code` 为新增加法字段，前端当前零消费（batch 侧 error_code 亦未消费，G-4 无需注册）；后续前端做精细化错误提示时可按 error_code 分支。
+- `_export_mixin.py:90-91` mypy 错误为存量（`for col in ws.columns` 变量遮蔽），非本次引入，留待后续清理。
+- 无迁移变更（CT-6 N/A）；根 envelope 未变，api-schema-baseline.json 无需重导出；前端零改动；无 `[HALT]`。
+
+*登记人：big-pickle ｜ 状态：已关闭（收口 + 防护 + 契约零变化 + 门禁全绿），2026-09-21*
