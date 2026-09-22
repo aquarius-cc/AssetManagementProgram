@@ -7,12 +7,11 @@
 
 | 批次 | 文件（src/composables/ 相对路径） | 逻辑行 | 处置 | 测试锚 | 消费方证据 | 状态 |
 |:---|:---|:---|:---|:---|:---|:---|
-| O | useContractBatchImport.ts | 233 | 孤儿待去重（不拆） | useContractBatchImport.spec.ts | 全 src `.vue` 无 import，仅 doc 注释引用 | 待去重 |
-| O | useAssetBatchImport.ts | 228 | 孤儿待去重（不拆） | useAssetBatchImport.spec.ts | 全 src `.vue` 无 import，仅 doc 注释引用 | 待去重 |
-| O | useDepartmentEmployeeList.ts | 215 | 孤儿待去重（不拆） | useDepartmentEmployeeList.spec.ts | 全 src `.vue` 无 import，仅 doc 注释引用 | 待去重 |
 
 > F1 已完结（2026-09-21）：useNotification(218→108) 拆出 useNotificationConnection(138)，useDashboardPage(223→195) 拆出 useDashboardUser(34)，均 ≤200，原 F1 台账行已移除（guard `--print` 复核）；useNotification.spec(32)/useDashboardPage.spec(21) + 全量 composables 603 passed，type-check/lint/format:check 通过。
 
 > 贴线扫描结论（guard `--print` 2026-09-21）：usePaginationSearch(189)、useOutAssetDetailCards(150)、useRecycleAssetDetailCards(139) 均 ≤200，不登记、不拆分。
 
-> 2026-09-22：孤儿 useOutAssetForm.ts（326 逻辑行）已删除（连同自身 spec + 7 处文档头引用，能力由 useAssetFormHelpers/useEmployeeSuggestionFetcher/useAutocompleteField 承接），台账行随之移除；另 3 个孤儿（useContractBatchImport/useAssetBatchImport/useDepartmentEmployeeList）保持待去重。
+> 2026-09-22：孤儿 useOutAssetForm.ts（326 逻辑行）已删除（连同自身 spec + 7 处文档头引用，能力由 useAssetFormHelpers/useEmployeeSuggestionFetcher/useAutocompleteField 承接），台账行随之移除。
+
+> 2026-09-22：孤儿批 O 三文件已全部删除——useContractBatchImport.ts(233)/useAssetBatchImport.ts(228)/useDepartmentEmployeeList.ts(215)，连同各自 spec（403/436/372 行）+ 10 处文档头引用（useBatchImport/SubmitBatch/assetStore/contractStore/userStore/api-contract/api-user/errorHandler），台账行随之移除，超限 composable 清零；全 src `.vue` 均使用内联集成实现，能力零依赖，guard 双向红>绿 PASS。
