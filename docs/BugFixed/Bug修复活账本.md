@@ -2111,3 +2111,70 @@ grep gradient-card                          → 亮/暗双态各 4 条齐备 ✅
 4. **complete-patterns**：权限旁路属 RBAC 配置缺陷非重复代码模式，G-1~G-5 护栏不适用；`resolve_viewset_permissions` 为本批新抽公共入口（DR-1 收敛，非新增重复）。
 
 *登记人：opencode（mimo-v2.6-flash-free） ｜ 状态：已关闭（先红后绿 + 全量 1312 passed + schema 零 diff），2026-09-23*
+
+---
+
+## BF-038 【已关闭】未登记资产权限三连：approver 可代签 / discovery_person 可冒名 / 读写路径无行级隔离 + 门禁未按 4.5 矩阵（AtomCode P1-1/2/3 = 融合 F-P1-5/6/7）
+
+- **发现日期**：2026-09-23（AtomCode P1-1/2/3；融合二次取证 V-1~V-3 确认成立）
+- **修复日期**：2026-09-24（用户裁定：F-P1-7 扩到读写全路径并对齐 4.5 角色矩阵；dept_manager update 一并收紧为 403 只读）
+- **严重级别**：高（代签审批审计链失真；冒名提交发现记录；跨部门横向越权改删审）
+- **影响范围**：`core/permissions.py`、`core/department_scope.py`、`apps/unregisteredasset/{views,selectors,services}.py`、5 个测试文件（新建 `test_matrix_permissions.py`）、`api-schema-baseline.json`（仅 create 端点 docstring 描述 1 行，非破坏）；跨端契约零破坏
+
+### 一、问题现象
+
+1. **F-P1-5 approver 可代签**：`approve` 取 `serializer.validated_data.get("approver") or operator_jobcode`——请求传任意有效工号即被采纳，违反 4.5 第 3 条「approver 强制=当前审批人」（`backend-business-rules.md:206`）。
+2. **F-P1-6 discovery_person 可冒名**：`create` 优先取 `request.data`，无角色白名单，违反 4.5 第 2 条「默认=本人；仅 system_admin 可代录」（`:205`）。
+3. **F-P1-7 写路径无行级隔离 + 门禁不符矩阵**：update/destroy/approve 经 `get_by_code()`（无 user 参数）取对象，跨部门/跨本人可改删审；`get_permissions` 未按 4.5 矩阵（`:187-193`）分发——dept_manager 实际拥有 update/delete 写权限（矩阵为 ❌ 只读），list/create 等角色门禁与矩阵不符。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | View 取值来源 | `approver = validated.get(...) or operator` 把请求值当一等公民 |
+| 2 | 代录语义 | `Service.create` 以 operator 兼作 target_jobcode，View 直读 `request.data` 无守卫 |
+| 3 | Selector 签名/门禁 | `get_by_code(code)` 不收 user——读侧已隔离、写侧未接；门禁走 `admin_actions` 默认分支而非矩阵映射 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `_get_user_role`→公开 `get_user_role`（5 调用点 + department_scope docstring 同步）；新增 `is_system_admin`、`IsSystemAdminOrAssetAdmin` | `core/permissions.py` |
+| 2 | 模块级 `_ACTION_PERMISSION_OVERRIDES`（list/retrieve→`IsAssetAdminOrAbove`；create/batch_create/update/partial_update/destroy/batch_delete→`IsSystemAdminOrAssetAdmin`；approve→`IsDeptManagerOrAbove`）；`get_permissions` 走 `resolve_viewset_permissions`——**dept_manager update 403 收紧（用户拍板对齐矩阵）** | `views.py` |
+| 3 | F-P1-6：create 恒 `resolve_operator(request.user)`；`discovery_person` ≠本人且非 system_admin → `PermissionDenied` 403；Service `create` 增 `discovery_person_jobcode`（默认=operator，审计 operator 与代录人解耦） | `views.py` + `services.py` |
+| 4 | F-P1-5：approve 服务端 `approver = operator_jobcode` 无条件覆盖；serializer `required=True` 不动（零 schema 字段变更，传值被忽略） | `views.py` |
+| 5 | F-P1-7 读：`Selector.get_queryset_for_user`（规则1：仅 system 的 None=全量，dm/aa 无部门→空集；规则2 部门+下级；规则3 本人恒可见；规则4 auditor/regular 空集）接入 View `get_queryset` | `selectors.py` + `views.py` |
+| 6 | F-P1-7 写：update/destroy/approve 改 `get_by_code_for_user`，越权 `NotFound` 404（4.5「越权一律 404」） | `views.py` |
+| 7 | F-P1-7 批删 B14：`batch_delete_passes_user=True` → Service 逐条 scoped 查询，越权同构 `NOT_FOUND`（保 `test_b5` 契约、不泄露存在性） | `views.py` + `services.py` |
+| 8 | 测试：conftest 三工厂（`make_role_user` 唯一 auth_phone / `make_dept` 带 path+level / `make_plain_employee`）；新建 `test_matrix_permissions.py`（30 格矩阵 + 行级 + P1-5/6）；selectors +10；services +2；`test_api` 切 `admin_client` + approve 前置 dm | 5 个测试文件 |
+
+### 四、对抗审核（自反清单）
+
+1. **方向全收紧无放宽**：dm update 403（收紧）、代录 403（收紧）、越权 404（收紧）；无部门 asset_admin destroy 403 属 `get_user_role` 既有降级设计（与 `test_api:219` 断言一致，非本次放宽）。
+2. **越权形态**：单条走 `NotFound` 404 对齐 4.5；批删走既有 `NOT_FOUND`→400 框架形状（`test_b5` 契约锚定），语义同为「不可见即不存在」，均不泄露存在性。
+3. **契约**：响应根结构/枚举/分页/时间零变更；serializer 字段集未动（approver 仍 required=True，仅服务端覆盖值）；schema 基线仅 docstring 描述 1 行（M-3 重导随改，非破坏）。
+4. **自生问题三起（已闭环）**：① `views.py` request.data union-attr mypy 错 → `# type: ignore[union-attr]`；② `make_dept` 漏物化 `path` 致 2 条下级部门用例红 → 按既有测试模式补 `path`/`level`（真实先红后绿）；③ `ruff format` 折行致类声明 `# type: ignore[misc]` 错位 3 错 → 移回 `class ... (` 行清零。
+5. **规模**：改动文件最大 `services.py` 414 行 ≤500（DR-5）；调用链 ≤3（DR-6）；`views.py` 类 docstring 权限段同步更正为 4.5 矩阵口径。
+
+### 五、验证记录
+
+```text
+① 修复前留档：AtomCode P1-1/2/3 + 融合 V-1~V-3 代码取证（先红证据=审查报告；安全用例与修复同批落地）
+② 模块（format 后复跑）：pytest apps\unregisteredasset -q → 142 passed ✅
+③ 全量（串行单进程，format 前）：pytest -q → 1368 passed / 0 failed (1063s，较 BF-037 基线 +56) ✅
+④ ruff check：全仓 7 错均为存量（notification F401 + loadtest I001/E402）；本批 10 文件 + apps\unregisteredasset + core → All checks passed ✅
+⑤ ruff format：本批 10 文件已对齐（全仓 117 待格式化存量归口 F-P1-3 独立批）✅
+⑥ mypy .：208 文件 0 错——顺带消除 BF-037 记录的 views.py:138 存量 union-attr ✅
+⑦ schema：spectacular --validate EXIT=0；基线 diff 仅 create docstring 1 行 ✅
+⑧ manage.py check → no issues ✅；根仓 scripts/check_duplicate_invariants.py → PASS (G-1~G-5) ✅
+⑨ 覆盖率（模块+permissions）：TOTAL 89.86%（services 97 / selectors 97 / views 99 / models 100；core.permissions 65% 为单模块口径，其余权限类由 core/tests 覆盖）✅
+```
+
+### 六、遗留与关联事项
+
+1. **ruff format 全仓 117 文件待格式化、ruff check 7 错**——F-P1-3 存量独立批（format+fix 单独提交），非本批红线。
+2. **变异测试 T8 / mutmut**——F-P2-4 开放基线，执行环境待定（WSL/CI），本批未跑（与既往批次一致）。
+3. **H-1 状态机契约源裁定**、F-P2-* 其余项仍开放。
+4. **complete-patterns**：本批为权限/隔离缺陷非重复代码模式，G-1~G-5 不适用；`get_user_role`/`get_queryset_for_user`/`resolve_viewset_permissions` 为收敛单源（DR-1），非新增重复。
+
+*登记人：opencode（mimo-v2.6-flash-free） ｜ 状态：已关闭（全量 1368 passed 0 failed + schema 仅 docstring 漂移 + 护栏 PASS），2026-09-24*
