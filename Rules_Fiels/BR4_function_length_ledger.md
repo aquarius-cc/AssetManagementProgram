@@ -13,6 +13,7 @@
 > **B2/B3 拆分设计**（2026-09-21 完成）已固化于各行；helper 名以 guard 实测调整。docstring 计入计数，部分函数设计含「docstring 压缩」（行为无关纯文本，语义保留）。
 > **B3 已完成**（2026-09-21）：三处全部拆分并移除台账（asset_type_service create_asset_type / asset_selector combine_search / asset_lifecycle_mixin mark_asset_lost），guard 0/0，BR-4 存量清零；asset_type_service 23 passed、asset_selector 60 passed、asset_lifecycle+state_machine 78 passed；mypy 目标文件零新增（mixin 闭包注解修正 :316/:340 → BrokenAsset/LostAsset，Assistant 新增 no-any-return 以 cast 消除）；双胞胎统一入库 complete-patterns.md B-23 转「已关闭」。
 > **测试锚缺口**：`views.batch_delete`、`bind_auth_user`/`replace_auth_user`、`_handle_s1/s3` 无直接行为测试（仅经批量契约快照/审批流间接覆盖，或仅 coverage 一致性测试）→ 拆分前须按 CT-4 补回归用例。
+> 　**↳ B2 视图层 batch_delete 拆分目标已由 A-32 取代**（2026-09-23 注记）：B2 拆分收口的 usermanagement `views.batch_delete` 手写 action 已被批次③ `BatchDeleteViewMixin`（13 端点统一骨架，core/batch_mixins.py）整段替换，`employee_view.py:214-216` / `department_view.py:325-327` 现为类属性声明的差异挂载；该拆分目标的"视图层行为测试缺口"由 `core/tests/test_batch_delete_view_mixin.py`（框架路径 4 条）+ 新建 `usermanagement/tests/test_batch_delete_view_api.py`（端点级接线 success/403/空 ids，2026-09-23 补）双面承接，其余 B2 拆分目标不受影响。
 > **测试锚已补齐**（2026-09-21）：新增 `unregisteredasset/tests/test_batch_delete_view.py`（成功/四种失败结构/权限 7 条）、`unregisteredasset/tests/test_handlers.py`（S1/S3 直接 CT-3 锚 + 关联持久化 3 条）、`usermanagement/tests/test_service_coverage.py` 增审计日志锚（bind/unbind/replace 3 条）；P0 定向 35 passed，全量回归 usermanagement+unregisteredasset 188 / assetmanagement 726，ruff/mypy(C90 仅存量) 零新增，guard PASS。B2 拆分可开工，各行回归测试锚见下。
 
 | 批次 | 文件（apps/ 相对路径） | 行号 | 函数 | 逻辑行数 | 拆分目标（helper） | 回归测试锚 | 风险标注 | 状态 |

@@ -148,6 +148,7 @@ jobs:
       DB_NAME: asset_management_test
       DB_USER: postgres
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      SECRET_KEY: ci-test-generic-key-not-for-any-environment-123
     steps:
       - uses: actions/checkout@v4
         with:
