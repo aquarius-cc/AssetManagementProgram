@@ -1,10 +1,10 @@
 
 ---
 
-### 📄 文档 4：后端业务规范 `/Rules_Fiels/backend-business-rules.md` (v1.13)
+### 📄 文档 4：后端业务规范 `/Rules_Fiels/backend-business-rules.md` (v1.15)
 
 # 后端业务规范与设计思路 (Backend Business Rules)
-> 版本：v1.13 | 最后更新：2026-09-17
+> 版本：v1.15 | 最后更新：2026-09-23
 > 适用范围：Django 6.0 + DRF 3.16 + PostgreSQL 16
 
 ## 一、设计思路（防腐与一致性）
@@ -139,7 +139,7 @@ repairing ──repair_done──┘    │               │                  �
 | 资产管理 | 批量删除 | ✅ 逐条校验 | ✅ 本部门+下级 逐条 | ✅ 本部门 逐条 | ❌ | ❌ |
 | 出库/回收 | 操作 | ✅ | ✅ 本部门+下级 | ✅ 本部门 | ❌ | ❌ |
 | 损坏/遗失 | 登记/找回/送修 | ✅ | ✅ 本部门+下级 | ✅ 本部门 | ❌ | ❌ |
-| 报废审批 | 审批通过/拒绝 | ✅ | ✅ 本部门+下级 | ❌ | ❌ | ❌ |
+| 报废审批 | 申请（单条 create）/审批通过/拒绝/批量删除 | ✅ | ✅ 本部门+下级 | ❌ | ❌ | ❌ |
 | 未登记资产 | 处理审批 | ✅ | ✅ 本部门+下级 | ❌ | ❌ | ❌ |
 | 系统配置 | 类型/仓库/合同/员工/部门/用户 | ✅ | ❌ | ❌ | ❌ | ❌ |
 | 审计日志 | 查看 | ✅ | ❌ | ❌ | ❌ | ✅ |
@@ -236,6 +236,7 @@ repairing ──repair_done──┘    │               │                  �
 | BR-7	| **调用链验证** |	视图（View）→ 服务（Service）→ 选择器（Selector）的纵深不得超过 3 层（View→Service→Selector 为标准深度）。若出现 View→Service→Service→Selector 等 4 层+，必须扁平化或使用事件驱动解耦。|	合并中间层或引入事件 |
 
 ## 六、变更日志
+- v1.15 (2026-09-23): `[PATCH-BE]` 权限矩阵 :142「报废审批」行修订——操作列从「审批通过/拒绝」扩展为「申请（单条 create）/审批通过/拒绝/批量删除」，与实现对齐（`DamagedAssetViewSet.admin_actions` 纳入 `create`，走 `IsDeptManagerOrAbove`；方案 A：asset_admin 对单条 create ❌）。同步 `test_damaged_asset_view_api.py::TestDamagedCreateRBAC` 三角色测试同批落地（BF-037）。
 - v1.14 (2026-09-21): BR-4 函数长度红线实施方式固化（门禁先行，对应审查报告 #21）——① 新增 `scripts/check_function_length_guard.py`：以 AST 语义节点扫描 `apps/`（不含迁移/tests），BR-4 逻辑行口径 = 物理跨度行 − 空行 − `#` 注释行（docstring 计入代码行），>50 行即超限；台账 `Rules_Fiels/BR4_function_length_ledger.md` 为唯一豁免源，guard 断言"超限未登记即红、已拆分未移除即红"；② `pyproject.toml` `lint.ignore` 显式加入 `PLR0915`（ruff 无函数行数规则，此防御性关闭防未来启用 PLR 被存量淹没）；③ 计数口径说明：BR-4 语义口径下生产超长函数 19 处（物理行口径参考 38 处，差异源于空行/注释行占比较高）；④ 本变更属实施方式固化，非规则文本修改，`[PATCH-BE]` 留痕；⑤ CI 接入 `function-length-guard` job。
 - v1.13 (2026-09-17): 新增业务约束第 7 条——资产创建初始状态必须为 `in_store` 且由 `AssetService.create_asset` 统一注入（枚举引用），创建类 Serializer 禁止暴露 `asset_current_status` 写字段（P0-1 FSM 绕过修复的文档同步，含回归确认：`serializers/asset_crud_serializers.py` 移除写字段、`service` 注入枚举、schema baseline 重导出、测试 655 passed）。
 - v1.12 (2026-09-12): 公开扫码最小暴露收敛（R4-04）——匿名扫码响应从 12+ 字段（含价格/仓库/分类/保管人姓名/电话/入库日期，价格仅电话遮罩）收敛为 6 字段白名单；新增 `public_scan` 审计日志（成功查询记 IP，404 不记）；Selector 免 JOIN；新增 §4.6 公开扫码细则；同步 schema baseline 与前端（登录态直达全量详情、未登录公开 6 字段 + 登录引导）。

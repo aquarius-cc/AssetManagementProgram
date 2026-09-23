@@ -1322,6 +1322,7 @@ api-schema-baseline.json        → 已重导（M-3），diff 逐字段符合预
 - 存量单模块覆盖率缺口（out_asset_service 83% / recycle_asset_service 88%，整体已 ≥90% 达标）：本次改动仅涉及 View/Serializer 与输入契约，未触及 Service 代码路径，缺口非本次引入，另立任务跟进。
 - 关联 #15 同批闭环；报告行 16 已划线。
 - [SKILL 建议] 活账本 BF 登记流程（发现→核实结论→方案→验证记录→留痕）已在 BF-020/021/022 重复三次，建议封装为可复用 skill：「bug-ledger-entry」（触发：任一审查报告条目闭环并需活账本登记）。
+  > 已落地为 `.opencode/skills/resolution-fix-ledger-sync`（2026-09-23，原「bug-ledger-entry」提案差额并入该 skill）
 
 ---
 
@@ -1371,9 +1372,13 @@ api-schema-baseline.json                  → 已重导（M-3），仅非破坏�
 ### 四、遗留与关联事项
 
 - `delete_*_asset` 系列无 user/RBAC 参数：单删行级守卫依赖 View `get_object()`，批量入口亦无 RBAC 参数；与 Service 层 `select_for_update` 组合仅做存在性/合法性守卫，未做跨数据范围校验——留档后续统一（不进本次范围）。
+  - **更正（2026-09-23）**：已闭环——四个 delete 方法（`asset_lifecycle_mixin.py:194/:234/:263/:292`）均已加 `user` 尾参 + `ensure_asset_visible` 行级校验，批量闭包透传 `user`（:385/:411）；View 侧 destroy/批量均传 `request.user`。见 complete-patterns **A-31**（批次①，v2.9.39）。
 - destroy 硬删 vs batch 软删语义不对称（destroy 走物理删除、batch 走 `is_deleted` 软删）；broken/lost/found 无 BatchDeleteSerializer，`if not ids` 守卫与 repair 的 serializer 门禁不对称——建议后续统一批量入口校验（`RepairAssetBatchDeleteSerializer` 复用点）。
+  - **更正（2026-09-23）**：已闭环——`_lifecycle_base.py:105-114` 显式覆写 `destroy`（软删+审计+`user=request.user`），替代原物理删除（A-31 批次②a，v2.9.40）；broken/lost/found 各有 BatchDeleteSerializer（`asset_lifecycle_view.py:59/:92/:127`），底层统一 `BaseBatchDeleteSerializer`。见 complete-patterns **A-32**（批次③，v2.9.42）。
 - 标准文案稳定性：`test_b5_baseline_snapshot.py` 锁定全仓 13 端点 `批量删除完成,成功 X 条,失败 Y 条`，后续任何端点改动不得触碰此处。
+  - **复核（2026-09-23）**：护栏在位无动作——`test_batch_contract_snapshot.py:62` 断言 message 逐字锁定 `批量删除完成,成功 1 条,失败 0 条`，:7-12 头部明确"断言失败=契约破坏需回滚"；批次③（A-32）骨架 message 模板统一复用，未触碰快照契约。
 - [SKILL 建议] 活账本 BF 登记已在 BF-020/021/022/023 重复四次，复用 BF-022 已提的「bug-ledger-entry」skill 建议，本次不再重复。
+  > 已落地为 `.opencode/skills/resolution-fix-ledger-sync`（2026-09-23，原「bug-ledger-entry」提案差额并入该 skill）
 - 关联：报告行 17 已划线。
 
 ---
@@ -1447,7 +1452,7 @@ api-schema-baseline.json                  → 已重导（M-3），仅非破坏�
 
 ---
 
-## BF-025 【进行中】BR-4 函数拆分 B1 落地：状态机关键路径六函数拆至 ≤50 行
+## BF-025 【已闭环】BR-4 函数拆分全批次（B1 状态机关键路径六函数 / B2 usermanagement+unregisteredasset 9 处 / B3 selectors+services 尾部 4 处）拆至 ≤50 行
 
 - **发现日期**：2026-09-21（BF-024 遗留「19 处拆分（后续提交，台账驱动）」→ 本项为 B1 执行部分）
 - **严重级别**：P2（规则级：函数 >50 行超限；本项为拆分执行，非新增缺陷）
@@ -1495,7 +1500,27 @@ guard 语义口径下六函数逻辑行 >50，且 `batch_delete_outasset`（76�
 - **弱测试锚（拆分前须补，CT-4）**：`views.batch_delete`、`bind_auth_user`/`replace_auth_user`、`_handle_s1/s3` 无直接行为测试 → B2 前补回归用例。
 - 关联：报告 #21 追踪追加 4 行、台账 B1 六行移除、BF-024 遗留项部分闭环；commit/push 待用户确认后执行。
 
-*登记人：big-pickle ｜ 状态：拆分完成 + 门禁全绿（guard/pytest/覆盖率/ruff/C90/mypy），archive 与提交待确认，2026-09-21*
+### 六、B2/B3 收口补充（2026-09-23 状态订正）
+
+> 本条目登记于 09-21 B1 完成时点，后续 B2/B3 已于同日（2026-09-21）完成并经人工分批落地，此处回写收口证据（含 commit），状态由【进行中】转【已闭环】。
+
+**B2 落地**（usermanagement 4 + unregisteredasset 5，共 13 函数拆分 + 1 新增）：
+
+- 弱测试锚先补（CT-4/CT-3）：`test_batch_delete_view.py`（views.batch_delete 成功/四种失败结构/权限 7 条）、`test_handlers.py`（`_handle_s1`/`_handle_s3` 直接行为锚 + 三表/result_* 关联持久化 3 条）、`test_service_coverage.py` 增 bind/unbind/replace 审计日志锚 3 条 —— commit `9191c6e`（backend）。
+- 拆分落码：`66c77fb`（handlers S1/S2/S3 拆分 + DR-1 共享 helper）、`0090f43`（bind/replace/unbind 拆分 + 共享 helper）、`8595605`（assign_role 拆分 + helper）、`729f541`（unregistered services create/update/approve 拆分 + `batch_delete_unregistered`）、`43f8997`（视图 batch_delete 下沉薄封装）。
+- 回归：usermanagement+unregisteredasset 定向 49 passed + 全量 assetmanagement 726 / usermanagement 99 / unregisteredasset 194；guard FAIL→PASS（先红「已拆分未移除」逐条命中后同提交移除）；mypy 全仓 26 存量零新增；`views.batch_delete` 拆分目标已由 A-32（`BatchDeleteViewMixin` 13 端点统一骨架）取代，见台账 B2 注记。
+
+**B3 落地**：
+
+- `48ae68a`（log_operation 65→36）、`6a5ceb2`（create_asset_type 59→36）、`666ad77`（combine_search 55→18）、`d0a3b52`（mark_asset_broken/lost 双胞胎统一 `_run_lifecycle_transition`，B-23 关闭）+ `eab74dd`（B-22 审计留痕 `_safe_call_audit` 收敛）。
+- 回归：全量 pytest apps 914 passed；guard **0/0，BR-4 存量清零**；mypy 20 存量全与他文件相关；duplicate invariants PASS。
+- 台账：B2 九行 + B3 四行全部移除，头部「19 处」→「0 处」；`Rules_Fiels/BR4_function_length_ledger.md` line 12/14 完成注记。
+
+**当前实证**：`python scripts/check_function_length_guard.py` → PASS（0 未登记 / 0 台账超限，exit 0）；B2 九个目标函数现逻辑行全 ≤50（assign_role 27 / bind 35 / replace 37 / unbind 33 / S1 29 / S2 28 / S3 31 / batch_create_unregistered 35 / batch_delete_unregistered 34 / approve_and_handle 28）。
+
+**跨端契约**：均为纯 Service/视图层内部重构，API 响应/端点/状态枚举/schema 零变化，`api-schema-baseline.json` 无需重导出（B1/B2/B3 三批均确认）。
+
+*登记人：big-pickle ｜ 状态：B1/B2/B3 全批次拆分完成 + 门禁全绿（guard 0/0、pytest 全量、Service 覆盖率 ≥90%、ruff/C90/mypy 零新增），2026-09-21 落地、2026-09-23 由【进行中】收口为【已闭环】*
 
 ## BF-026 【已关闭】`LoginDialog.vue` 死代码孤儿组件——登录弹窗表单从未提交（审查报告 #29 SC-1）
 
@@ -1672,8 +1697,8 @@ manage.py check                → no issues ✅
 
 ### 三、遗留与关联事项（观察登记）
 
-- #41 单条 `data.error_code` 为新增加法字段，前端当前零消费（batch 侧 error_code 亦未消费，G-4 无需注册）；后续前端做精细化错误提示时可按 error_code 分支。
-- `_export_mixin.py:90-91` mypy 错误为存量（`for col in ws.columns` 变量遮蔽），非本次引入，留待后续清理。
+- #41 单条 `data.error_code` 为新增加法字段，处置 = 台账观察项，零代码动作（2026-09-23 复核更正引证：前端源码在本仓可验证——`vue-assetmanagement/src` 中 error_code 仅出现于 batch fail_items 类型/测试夹具 `common.ts:40-48`、`entityStoreTypes.ts:77`、`AssetBatchImport.spec.ts:158`，单条零消费成立；G-4 仅声明于 AGENTS.md:100 与账本 687 行，`scripts/check_duplicate_invariants.py` 无 G-4 实现函数；schema 实测零漂移——当前 spectacular 导出与 `api-schema-baseline.json` 均不含 error_code，运行时注入不进 OpenAPI schema）；后续前端做精细化错误提示时可按 error_code 分支。
+- `_export_mixin.py:90-91` mypy 错误为存量（`for col in ws.columns` 变量遮蔽）——**2026-09-23 已修复**：`:72/:80` 枚举循环改 `column_idx, col_config`、`:89` 列宽循环改 `column_cells`，消除 `int` 遮蔽；`mypy apps/assetmanagement/views/_export_mixin.py` 由 2 错误归零（全仓 20 errors/8 files → 18/7，零新增）、`ruff` 0、`test_export_excel.py` 4 passed。
 - 无迁移变更（CT-6 N/A）；根 envelope 未变，api-schema-baseline.json 无需重导出；前端零改动；无 `[HALT]`。
 
 *登记人：big-pickle ｜ 状态：已关闭（收口 + 防护 + 契约零变化 + 门禁全绿），2026-09-21*
@@ -1707,8 +1732,8 @@ grep gradient-card                          → 亮/暗双态各 4 条齐备 ✅
 
 ### 三、遗留与关联事项（观察登记）
 
-- `common-forms.scss` 内 `:57-80 form-container .card-header` 与 `:664-692 独立 card-header mixin` 仍存在同体样式双写（DR-2 隐患），本次未纳入 #44 范围，登记观察。
-- `_dashboard-sections.scss` 的 `$section-*` 局部变量为本文件私有且已用于 F3/F5 令牌，保持不动。
+- `common-forms.scss` 内 `:57-80 form-container .card-header` 与 `:664-692 独立 card-header mixin` 的同体样式双写（DR-2 隐患）——**2026-09-23 已修复**：内嵌 24 行替换为 `.card-header { @include card-header; }`（3 行，保留外层包裹防子选择器作用域污染），独立 mixin 成为唯一实现；第三处 `info-card` 简化头部（无渐变底、text-dark）判定保留不合并。验证：`build-only`/`type-check`/`lint`/`format:check` 全绿，编译 CSS 抽查值一致（DamagedAssetForm/UserBatchImport/DamagedAssetBasicDetails）。账本登记 A-35/v2.9.45。
+- `_dashboard-sections.scss` 的 `$section-*` 局部变量为本文件私有且已用于 F3/F5 令牌，保持不动（2026-09-23 复核确认：4 变量仅本文件 mixin 内消费、色值全走 CSS 令牌，系布局参数化非 DR-2 跨文件双写）。
 - 无迁移变更（CT-6 N/A）；纯前端样式 + 测试新增，无 API/端点/状态枚举变化，api-schema-baseline.json 无需重导出；无 `[HALT]`。
 
 *登记人：big-pickle ｜ 状态：已关闭（双轨收敛 + 暗色补全 + 测试收口 + 门禁全绿），2026-09-22*
@@ -1892,3 +1917,197 @@ grep gradient-card                          → 亮/暗双态各 4 条齐备 ✅
 - **作用域过滤 JOIN 与行锁的交互要先于编码验证**：数据库方言差异（PostgreSQL FOR UPDATE 限制）应作为实现前置条件在方案阶段确认，而非测试阶段发现。
 
 *登记人：big-pickle ｜ 状态：已闭环（5 用例先红后绿 + 全量门禁全过），2026-09-22*
+
+---
+
+## BF-035 【已闭环】BR-4 护栏红灯回潮：`update_outasset` 未登记超长（53>50）且 `using_location` 落库三段手工实现重复
+
+- **发现日期**：2026-09-23（BR-4 状态核查 + 拆分复用审查，guard `exit 1` 实证）
+- **严重级别**：中（护栏红 + DR-1 重复实现）
+- **影响范围**：`apps/assetmanagement/services/out_asset_service.py`（`update_outasset` :198、`_build_asset_people_update` :135、`_build_update_audit_snapshot` 新增 :167）
+
+### 一、问题现象与事实基线
+
+1. `python scripts/check_function_length_guard.py` 退出码 1：`update_outasset() 逻辑行 53 > 50` 未登记台账——BR-4 台账头部自称「0 处」失效；为全仓唯一超限函数
+2. `update_outasset` 函数体 :214-217 手工重写 `using_location` 落库三段逻辑（`if using_location is not None: asset.asset_using_location=...`），与同文件 `create_outasset` 路径已收敛的公共 helper `_build_asset_people_update`（:135-147，含 using_location 参数 :144-146）语义重复——违反 DR-1「业务逻辑唯一实现」，且未登记入 `complete-patterns.md`（rg 零命中）
+3. 19 处拆分（B1/B2/B3）本身已闭环（台账清空、BF-025 已登记）；本回潮系 `bbb3049`（出库人员/地点写入贯通）拆分后新增回归，未重新入账
+
+### 二、根因
+
+拆分完成于 `e4e97a6`（B1），此后 `bbb3049` 在 `update_outasset` 新增 using_location 落库时**误传 `None` 给 helper 再在函数体手工补写**——既复制造了三段重复代码，又把函数物理长度推到 53 行且未触发任何门禁（护栏只报未登记超长，无人复核的静默红灯）。
+
+### 三、修复方案
+
+| # | 变更 | 位置 |
+|---|------|------|
+| 1 | `update_outasset` 改传 `update_data.get("outasset_using_location")` 至 `_build_asset_people_update`，删除函数体内手工三段重复（净删 3 行） | `out_asset_service.py` |
+| 2 | before/after 审计快照内联（原 :182-190 + :205-209）抽为 `_build_update_audit_snapshot`（26 行，jobcode 口径，含 FK 字段名重映射） | `out_asset_service.py` |
+| 3 | `complete-patterns.md` 登记 A-33（DR-1 新发现义务 + 已修复关闭，v2.9.43） | `Rules_Fiels/Duplicate_Codes/complete-patterns.md` |
+
+**否决新建 `_sync_asset_main_table` helper（原方案）**：既有 `_build_asset_people_update` 已支持 using_location，新建即 DR-1 二次违反；`_to_json_safe`（operation_log_service.py:134）不可复用（pk 降级语义 vs recordcode/jobcode 语义，AR-1 不猜）。
+
+### 四、对抗审核（自反清单）
+
+1. **行为等价**：改传 `update_data.get(...)` 与原 `if ... is not None` 分支逐字条件相同（helper 内 :144-146 同条件）；before_data/after_data 构建顺序、键值、jobcode 口径全同——快照不重写断言（`test_update_out_asset_with_people_and_location`）通过佐证
+2. **护栏先红后绿**：拆分前 guard exit=1（53 行未登记）→ 拆分后 exit=0（`update_outasset` 37 行 + 新 helper 26 行，均 ≤50，0 未登记/0 台账）
+3. **无新增覆盖缺口**：基准（stash HEAD）与拆分后 misses 同 14 行（错误分支 + statistics），`update_outasset` 主路径/双表同步/审计快照全部命中
+4. **复用收敛单点**：`rg "_build_asset_people_update"` 全仓仅 3 处（def :135 + create :161 + update :227）
+
+### 五、验证记录
+
+```text
+① python scripts/check_function_length_guard.py → PASS (exit=0, 0 未登记/0 台账) ✅
+② python scripts/check_duplicate_invariants.py → PASS (G-1~G-5) ✅
+③ pytest apps/assetmanagement/tests/test_out_asset_service.py + test_out_asset_view_api.py + test_outasset_snapshot.py → 31 passed ✅
+④ pytest apps/assetmanagement -q → 749 passed ✅
+⑤ pytest --cov=apps.assetmanagement.services.out_asset_service → 92.00%（≥90）✅
+⑥ ruff check out_asset_service.py → All checks passed ✅
+⑦ mypy out_asset_service.py --strict → 7 errors 全为他文件存量（stash 前后一致，零新增）✅
+⑧ manage.py check 契约零变化，无迁移 → schema 无需重导出 ✅
+```
+
+### 六、教训注记
+
+- **护栏红灯不能静默承载**：拆分后新增代码把函数顶回超长时，必须同步登记台账或现场拆分，禁止放任 guard 长时间红。
+- **复用判断要先于新 helper 设计**：审查阶段先问「是否已有可复用实现」，本 case 的 `_sync_asset_main_table` 若落地即成 DR-1 反例——答案是对既有 `_build_asset_people_update` 做参数透传而非重造。
+- **回归断言比新代码重要**：两次 write-path 同步（create/update）必须共用同一落库 helper，测试锚点应同时锁定双表字段，防再出现"两路径各自实现"的漂移。
+
+*登记人：big-pickle ｜ 状态：已闭环（护栏红→绿 + 定向/全量测试全过 + 覆盖率达标），2026-09-23*
+---
+
+## BF-036 【已关闭】三处 RBAC 权限旁路批量修复：mark-broken/lost、storage batch、lifecycle batch_create（审查报告 F-P1-1/F-P1-2/F-P1-8/F-P2-5）
+
+- **发现日期**：2026-09-23（融合审查报告 F-P1-1/2/8 + F-P2-5；F-P1-8 为本批修复时经用户拍板 A 并入）
+- **严重级别**：高（任意登录用户可写本应 asset_admin+/system_admin 独占的端点）
+- **影响范围**：`assetmanagement/views/asset_view.py`、`storage_view.py`、`_lifecycle_base.py` + 三个测试文件；跨端契约零变更（schema 基线无漂移）
+
+### 一、问题现象
+
+1. **F-P1-1**：`mark_broken`/`mark_lost` 的 `@action(permission_classes=[IsAssetAdminOrAbove])` 被类方法 `get_permissions()` 覆写后失效；两 action 不在 `admin_actions`，落回 `IsAuthenticated`——任意登录用户可对本部门资产标记损坏/遗失。
+2. **F-P1-2**：`StorageViewSet` 继承 `AdminWritePermissionMixin`，其默认 `admin_actions` 不含 `batch_create`/`batch_delete`——任意认证用户可批量建仓/批删，污染全局主数据（矩阵仓库仅 system_admin，`backend-business-rules.md:144`）。
+3. **F-P1-8**（本批新增）：`_lifecycle_base.get_permissions` 原写死元组 `("create","update","partial_update","destroy","batch_delete")`，**漏 `batch_create`**——regular 可批量创建损坏/遗失/找回记录（矩阵 regular 生命周期写 ❌，`:141`）。
+4. **F-P2-5**：上述三处均无 regular→403 反向测试锚，修复无先红后绿护栏。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | DRF 权限解析顺序 | `get_permissions()` 整类覆写，`@action(permission_classes=...)` 被架空（asset_view 原 :383/:396） |
+| 2 | Mixin 默认清单不完整 | `_mixins.py:52-59` 仅 CRUD+change_*，无 batch；contract/asset_type/recycle 已类级补全，Storage 漏 |
+| 3 | lifecycle 手写元组漂移 | `_lifecycle_base` 原 get_permissions 硬编码元组，未随 `batch_create` 端点出现同步（子类已有 batch_create 实现） |
+| 4 | 测试只写正向 | `test_asset_view_api` 仅 admin 200；无 storage rbac 文件；row_isolation 仅断本部门 200 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `admin_actions` 追加 `"mark_broken","mark_lost"`；删除两处 `@action(permission_classes=)` 死参数 | `asset_view.py:59-73` |
+| 2 | 类级全量 `admin_actions`（create/update/destroy/change_status/change_outasset_employee/**batch_create/batch_delete**），经 Mixin `get_permissions` 落 `IsSystemAdmin` | `storage_view.py:45-54` |
+| 3 | 类属性 `admin_actions = [create, update, partial_update, destroy, batch_create, batch_delete]`；`get_permissions` 改读 `self.admin_actions` 返回 `IsAssetAdminOrAbove()`（**否决**继承 Mixin 的 `IsSystemAdmin`，对齐矩阵 asset_admin+） | `_lifecycle_base.py:73-99` |
+| 4 | 新增/改写三组先红后绿测试（见验证） | `test_asset_view_api.py:359` / `test_storage_view_rbac.py:34` / `test_create_row_isolation.py:159` |
+
+**否决**：lifecycle 继承 `AdminWritePermissionMixin` 整类复用——Mixin 返回 `IsSystemAdmin`，矩阵要求 asset_admin 即可写，收紧过头会破坏 asset_admin 正常用例（用户拍板方案 A 已预判此点）。
+
+### 四、对抗审核（自反清单）
+
+1. **权限方向**：全部为收紧（IsAuthenticated→更高），无放宽；regular 从可写变 403，admin/system_admin 正向 200/201 保持。
+2. **Mixin 遮蔽面**：Storage 全量列清单而非只补两项——只补两项会遮蔽 CRUD 导致非 admin 无法增删改（`AdminWritePermissionMixin.admin_actions` 被整体覆盖）。
+3. **死参数清除**：`@action(permission_classes=)` 保留会误导后续维护（以为装饰器生效），一并删除并在 admin_actions 单源。
+4. **相邻同类未修**（不并入，报告已留痕）：`export_excel` 的 `@action(permission_classes)` 同样被架空；damaged 单条 `create` 不在清单。
+5. **契约**：仅权限类收紧，端点路径/响应形状/枚举零变更；`spectacular` 重导 diff 空。
+
+### 五、验证记录
+
+```text
+① 先红（修复前）：F-P1-1 定向 4红/2绿；F-P1-2 3红/2绿；F-P1-8 4红/4绿 ✅
+② 修复后定向：
+   pytest test_asset_view_api.py → 38 passed
+   pytest test_storage_view_rbac.py → 5 passed
+   pytest test_create_row_isolation.py → 11 passed
+   pytest test_lifecycle_view_api.py → 29 passed
+   pytest test_batch_contract_snapshot.py + test_b5_baseline_snapshot.py → 19 passed
+   pytest core/tests/test_rbac*.py 三件套 → 66 passed
+③ 全量（串行单进程）：pytest -q → 1289 passed / 0 failed (810s) ✅
+④ ruff check（6 改动/新增文件）→ All checks passed ✅
+⑤ mypy（三 view）→ Success: no issues found ✅（全仓仅 2 存量无关错）
+⑥ schema：manage.py spectacular --validate → EXIT=0；api-schema-baseline.json 无漂移 ✅
+⑦ export_excel 回归：原 500 系 .venv 缺 openpyxl（ImportError 走 500），pip install openpyxl==3.1.5 后 4 passed
+```
+
+### 六、遗留与关联事项
+
+1. **openpyxl 依赖声明缺口**：`requirements/base.txt` 未声明 openpyxl，但 `_export_mixin.py` 运行时强依赖——建议补入 base.txt（非本批红线，待授权）。
+2. **export_excel 权限旁路**：`@action(permission_classes=[IsAuthenticated])` 同样被 `get_permissions` 架空（矩阵 regular 导出 ❌）——建议登记 F-P1-9 或并入后续权限批次。
+3. **damaged 单条 create**：不在 `damaged_asset_view.admin_actions`，regular 可 201——矩阵口径待确认。
+4. **F-P1-3/4/5/6/7 与 H-1** 仍开放，见融合审查报告。
+5. **complete-patterns**：权限旁路属 RBAC 配置缺陷非重复代码模式，G-1~G-5 护栏不适用，无需登记台账。
+
+*登记人：opencode（mimo-v2.6-flash-free） ｜ 状态：已关闭（先红后绿 + 全量 1289 passed + schema 无漂移），2026-09-23*
+---
+
+## BF-037 【已关闭】export_excel 权限旁路 + damaged 单条 create 收紧 + openpyxl 依赖补录（BF-036 相邻遗留三件套）
+
+- **发现日期**：2026-09-23（BF-036 遗留段 #1/#2/#3 + 用户授权执行）
+- **严重级别**：高（export 任意登录可导全表；damaged create regular 可 201）
+- **影响范围**：`core/permissions.py`、`views/_export_mixin.py`、11 个 View 接线、`damaged_asset_view.py`、`repair_asset_view.py`、`requirements/base.txt`、规则 `:142` v1.15、4 个测试文件；跨端契约零变更（schema 基线零 diff）
+
+### 一、问题现象
+
+1. **export_excel 权限旁路**：`@action(permission_classes=[IsAuthenticated])` 被类级 `get_permissions()` 架空——矩阵 regular 导出 ❌（`:148`）但实际任意登录可导。
+2. **damaged 单条 create 收紧缺口**：`create` 不在 `admin_actions`，落回 `IsAuthenticated`——regular 可 201 提交报废申请（矩阵报废审批行 dept_manager+ 才 ✅）。
+3. **openpyxl 依赖声明缺口**：`_export_mixin` 运行时 `import openpyxl`，但 `requirements/base.txt` 未声明——新环境部署即 ImportError→500。
+4. **导出真 bug**：真实 queryset 带 `prefetch_related` 时 `iterator()` 缺 `chunk_size` → TypeError→500（修复 openpyxl 后暴露）。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | DRF 权限解析顺序 | 同 BF-036：`get_permissions()` 整类覆写，`@action(permission_classes=)` 架空 |
+| 2 | damaged admin_actions 不全 | `damaged_asset_view.py:58` 原清单无 `create` |
+| 3 | 依赖声明漏 | `requirements/base.txt:66` 补录前无 openpyxl 行 |
+| 4 | Django ORM 约束 | `prefetch_related` 后 `iterator()` 必须传 `chunk_size`（Django 文档约束） |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `openpyxl==3.1.5` 补入 `:66`（prometheus-client `:63` 之后） | `requirements/base.txt:66` |
+| 2 | 新增 `CanExportExcel`（矩阵 :148 四角色）+ `resolve_viewset_permissions`（export→CanExport / overrides / admin_actions / 默认 IsAuthenticated 四分支） | `core/permissions.py:152,168` |
+| 3 | 11 处 `get_permissions` 接线公共函数；删 `_export_mixin` 死参数 `permission_classes=[IsAuthenticated]`；修 `iterator(chunk_size=1000)` | `_export_mixin.py:40,82` + 11 view |
+| 4 | `admin_actions` 补 `"create"`（方案 A / 规则 :142 同批）；repair 补全五项 `[create,update,partial_update,destroy,batch_delete]` | `damaged_asset_view.py:58` / `repair_asset_view.py:121` |
+| 5 | 规则 `:142` 操作列扩展为「申请（单条 create）/审批通过/拒绝/批量删除」，header v1.15 + changelog | `backend-business-rules.md:142,239` |
+| 6 | 先红后绿四组测试（见验证） | `test_export_excel_rbac.py` / `test_damaged_asset_view_api.py:209` / `core/tests/test_rbac.py:318` / `test_create_row_isolation.py:105,151` |
+
+### 四、对抗审核（自反清单）
+
+1. **权限方向**：全部收紧或补依赖，无放宽；export regular 200→403，damaged create regular/asset_admin 201→403，dept_manager 保持 201。
+2. **修复过程自生 bug 两起（已闭环）**：① `resolve` 写成 `[cls]()` 调用 list → TypeError，改 `[cls()]`；② `_FakeQueryset.iterator()` 签名不收 `chunk_size` → 3 用例 TypeError，补 kwarg。
+3. **行级隔离测试语义保持**：`test_create_row_isolation` 两用例改用 `dept_manager`（角色收紧后 regular 到不了行级层），另补 `test_regular_create_denied` 403 锚——行级隔离 400/404 语义不变。
+4. **repair admin_actions**：用户修正要求逐项保留原五项，实测 `repair_asset_view.py:121` 五项齐，无漏项放宽。
+5. **契约**：`spectacular --validate` EXIT=0 且 `api-schema-baseline.json` **SCHEMA_ZERO_DIFF=YES**；仅权限类与依赖，端点/响应/枚举零变更。
+
+### 五、验证记录
+
+```text
+① 先红（修复前）：定向 9 failed（export regular 200≠403；damaged regular/asset_admin 400≠403；
+   export 允许角色 500=chunk_size bug；damaged create 400=ASSET_NOT_VISIBLE 夹具问题）✅
+② 修复后定向（串行）：
+   pytest test_export_excel.py + test_export_excel_rbac.py + test_damaged_asset_view_api.py + core/tests/test_rbac.py
+   → 67 passed ✅
+   pytest test_create_row_isolation.py → 12 passed ✅
+③ 全量（串行单进程）：pytest -q → 1312 passed / 0 failed (1540s) ✅
+④ ruff check（本批 17 改动/新增文件）→ All checks passed ✅
+⑤ mypy apps core → 1 存量错（unregisteredasset:138 union-attr，非本批）；本批 _export_mixin/_mixins/permissions 0 新增 ✅
+⑥ schema：spectacular --validate EXIT=0；api-schema-baseline.json SCHEMA_ZERO_DIFF=YES ✅
+⑦ manage.py check → System check identified no issues ✅
+⑧ openpyxl：import openpyxl → 3.1.5 ✅；_export_mixin mypy Success（3 行重命名取消）✅
+```
+
+### 六、遗留与关联事项
+
+1. **ruff 全仓 7 错**（F-P1-3 存量：`notification/tests/test_ws_consumer.py` F401 + `scripts/loadtest/*` I001/E402）——非本批引入，仍开放。
+2. **mypy 存量 1 错**：`unregisteredasset/views.py:138` union-attr——非本批。
+3. **F-P1-3/4/5/6/7 与 H-1** 仍开放，见融合审查报告。
+4. **complete-patterns**：权限旁路属 RBAC 配置缺陷非重复代码模式，G-1~G-5 护栏不适用；`resolve_viewset_permissions` 为本批新抽公共入口（DR-1 收敛，非新增重复）。
+
+*登记人：opencode（mimo-v2.6-flash-free） ｜ 状态：已关闭（先红后绿 + 全量 1312 passed + schema 零 diff），2026-09-23*
