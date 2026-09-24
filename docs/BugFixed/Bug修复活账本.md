@@ -2262,3 +2262,35 @@ CI 静态门禁三连红（`ruff format --check` 102 文件、`ruff check` 7 错
 F-P2-* 其余项、变异测试 T8 仍开放（与 H-1 无关）。
 
 *登记人：opencode（mimo-v2.6-flash-free） ｜ 状态：已关闭（裁定 A 方案2，纯文档 1+1 文件），2026-09-24*
+
+---
+
+## BF-041 F-P2-1/2/3 可观测性与 AI 标注批 2026-09-24
+
+### 一、问题概述
+
+融合审查报告 F-P2 三项：F-P2-1 `/health//ready/` 零测试；F-P2-2 前端 174 处 `console.error/warn` 无结构化（A 方案首批收敛 api/stores/router）；F-P2-3 全仓 7 处 `AI_REVIEW_NEEDED` 滞留（AR-2 要求人工复查后删除或转 TODO）。
+
+### 二、改动面
+
+| # | 项 | 提交 | 内容 |
+|---|-----|------|------|
+| 1 | F-P2-1 | backend `cb7d409` | 新建 `core/tests/test_health_ready.py` 4 用例（health 200/503、ready 200/503 + H-3 不泄露异常详情；假 redis 模块注入） |
+| 2 | F-P2-3 后端 | backend `3e0f165` | throttles/_lifecycle_base/scrapping 删标注改普通注释（docstring 已覆盖）；feishu `build_sign` 转 `TODO_AI_CONFIRM`（上线前核验） |
+| 3 | F-P2-2 首批 + F-P2-3 前端 | frontend `0ca00bc` | 新建 `utils/logger.ts`（JSON: time/level/trace_id/module/message，DR-4 单一 console 出口）；迁 api×3 + stores×4 + router×1 共 36 处；AssetQuickScan/ContractDetails/outAssetFormEditLoader 删/改标注 |
+
+### 三、验证
+
+```text
+① 后端：pytest core/tests/test_health_ready.py → 4 passed；ruff check/format 4 文件双绿 ✅
+② rg AI_REVIEW_NEEDED 全仓 → 0 命中；TODO_AI_CONFIRM → 1（feishu 受控）✅
+③ 前端：type-check/lint/format:check 三项 exit 0；vitest src/utils+src/stores → 748 passed ✅
+④ rg "console\.(error|warn)" src/api src/stores src/router → 0 残留；全局 174→138（首批 -36）✅
+```
+
+### 四、遗留
+
+- F-P2-2 后续批：composables/views/components 约 138 处（用户已批 A 分批）。
+- F-P2-4 变异基线、F-P2-8~13 AC 修订仍开放（见融合报告人工清单）。
+
+*登记人：opencode（mimo-v2.6-flash-free） ｜ 状态：首批已关闭，后续批开放，2026-09-24*
