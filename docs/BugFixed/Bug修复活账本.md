@@ -2309,7 +2309,8 @@ F-P2-* 其余项、变异测试 T8 仍开放（与 H-1 无关）。
 |---|-----|------|------|
 | 1 | F-P2-2 后续批 | frontend `9b49888` | `scripts/migrate-console-logger.mjs` codemod 迁 68 文件/136 处；修 3 处多行 import 插错；RecycleAssetForm `logWarn→logError`；4 处 spec 断言改 `expect.stringContaining` 对齐 JSON logger |
 | 2 | F-P2-6 | 父仓（本轮） | 旧报告 #2/#3/#4/#8 补删除线 + ✅已修复 2026-09-23 + 交叉核对证据（`out_asset_service.py:115/:322`、`asset_selector.py:100`、`recycle_asset_service.py:171`、`security-scan.yml`） |
-| 3 | F-P2-4 基线 | `docs/Review/mutation-baseline-2026-09-24.md` | stryker 聚焦 7 store / 120 mutants / 3m51s：score **60.00**（72 killed / 44 survived / 4 no-cov），break 80 未达 exit 1；后端 mutmut WSL pip Errno 101 网络不可达 [PENDING] |
+| 3 | F-P2-4 基线 | `docs/Review/mutation-baseline-2026-09-24.md` | stryker 聚焦 7 store / 120 mutants / 3m51s：score **60.00**（72 killed / 44 survived / 4 no-cov），break 80 未达 exit 1；后端 mutmut 首跑 WSL pip Errno 101 [PENDING] → 同日镜像装通后补跑 |
+| 4 | F-P2-4 后端 mutmut 基线（补） | 同上文档 §二 | 阿里云 pip 镜像装 mutmut 2.5.1；原生 FS 暂存 `/tmp/am-backend-mutmut` 跑通（`/mnt/d` 9p 丢 `.bak` 崩溃）；`apps/assetmanagement/services` **1385 mutants / 4h15m：65.63%**（909 killed / 476 survived，0 timeout/untested）；runner 绝对路径 + `--ds` + `--tests-dir` |
 
 ### 三、验证
 
@@ -2319,12 +2320,14 @@ F-P2-* 其余项、变异测试 T8 仍开放（与 H-1 无关）。
 ③ rg "console\.(error|warn)" src（非 logger、非测试）→ 生产路径残留 0；仅 logger.ts 出口×2+注释×2 ✅
 ④ 旧报告：rg "已修复 2026-09-23" → #2/#3/#4/#8 共 4 行 ✅
 ⑤ stryker 聚焦：Done in 3m51s；All files 60.00 / break 80 → exit 1（基线预期）✅；reports/mutation/mutation.html 已生成（gitignored）
-⑥ WSL mutmut：pip install 失败 Network unreachable（Errno 101）→ [PENDING]，兜底 ci.yml mutmut 步骤
+⑥ WSL mutmut 首跑：pip install Network unreachable（Errno 101）→ 改阿里云镜像 `https://mirrors.aliyun.com/pypi/simple/` 装通 mutmut 2.5.1 ✅
+⑦ 后端 mutmut 全量（原生 FS）：MUTMUT_RUN_EXIT=0；1385 mutants 全测完；killed 909 / survived 476 → **65.63%**；suite 基线 1373 passed ~19.6s ✅
+⑧ 暂存区与 `.bak` 清理：`rm .mutmut-cache`、无残留 `*.bak`；Windows 侧 backend 仍仅 3 个修复文件未提交 ✅
 ```
 
 ### 四、遗留
 
-- F-P2-4 终态：score 60→≥80（补四 CRUD store 失败/边界用例 + ignoreStatic 分批）；后端 mutmut 待网络或 CI。
+- F-P2-4 终态：前端 60→≥80、后端 65.63→≥80（后端按 survived 行号补 Service 失败/边界/回滚；前端四 CRUD store + ignoreStatic 分批）。
 - F-P2-8~13 AC 修订仍待产品确认。
 
-*登记人：opencode（mimo-v2.6-flash-free） ｜ 状态：F-P2-2/F-P2-6 已关闭，F-P2-4 基线归档部分完成，2026-09-24*
+*登记人：opencode（mimo-v2.6-flash-free） ｜ 状态：F-P2-2/F-P2-6 已关闭，F-P2-4 前后端双基线归档完成（均 <80 待补测），2026-09-24*
