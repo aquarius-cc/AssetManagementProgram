@@ -2294,3 +2294,37 @@ F-P2-* 其余项、变异测试 T8 仍开放（与 H-1 无关）。
 - F-P2-4 变异基线、F-P2-8~13 AC 修订仍开放（见融合报告人工清单）。
 
 *登记人：opencode（mimo-v2.6-flash-free） ｜ 状态：首批已关闭，后续批开放，2026-09-24*
+
+---
+
+## BF-042 F-P2-2 后续批 + F-P2-6 旧报告补标 + F-P2-4 变异基线 2026-09-24
+
+### 一、问题概述
+
+三项收尾：① F-P2-2 后续批——`console.error/warn` 仍余 138 处散布 composables/views/components/utils；② F-P2-6——旧报告 #2/#3/#4/#8 代码已修但未标 ✅，基线状态漂移；③ F-P2-4——stryker 配置就绪但未实际跑出变异得分。
+
+### 二、改动面
+
+| # | 项 | 提交/产物 | 内容 |
+|---|-----|------|------|
+| 1 | F-P2-2 后续批 | frontend `9b49888` | `scripts/migrate-console-logger.mjs` codemod 迁 68 文件/136 处；修 3 处多行 import 插错；RecycleAssetForm `logWarn→logError`；4 处 spec 断言改 `expect.stringContaining` 对齐 JSON logger |
+| 2 | F-P2-6 | 父仓（本轮） | 旧报告 #2/#3/#4/#8 补删除线 + ✅已修复 2026-09-23 + 交叉核对证据（`out_asset_service.py:115/:322`、`asset_selector.py:100`、`recycle_asset_service.py:171`、`security-scan.yml`） |
+| 3 | F-P2-4 基线 | `docs/Review/mutation-baseline-2026-09-24.md` | stryker 聚焦 7 store / 120 mutants / 3m51s：score **60.00**（72 killed / 44 survived / 4 no-cov），break 80 未达 exit 1；后端 mutmut WSL pip Errno 101 网络不可达 [PENDING] |
+
+### 三、验证
+
+```text
+① 前端全量：npx vitest run → 132 files / 1812 tests / EXIT=0 ✅（单跑口径）
+② 前端三项：type-check / lint / format:check → exit 0 ✅
+③ rg "console\.(error|warn)" src（非 logger、非测试）→ 生产路径残留 0；仅 logger.ts 出口×2+注释×2 ✅
+④ 旧报告：rg "已修复 2026-09-23" → #2/#3/#4/#8 共 4 行 ✅
+⑤ stryker 聚焦：Done in 3m51s；All files 60.00 / break 80 → exit 1（基线预期）✅；reports/mutation/mutation.html 已生成（gitignored）
+⑥ WSL mutmut：pip install 失败 Network unreachable（Errno 101）→ [PENDING]，兜底 ci.yml mutmut 步骤
+```
+
+### 四、遗留
+
+- F-P2-4 终态：score 60→≥80（补四 CRUD store 失败/边界用例 + ignoreStatic 分批）；后端 mutmut 待网络或 CI。
+- F-P2-8~13 AC 修订仍待产品确认。
+
+*登记人：opencode（mimo-v2.6-flash-free） ｜ 状态：F-P2-2/F-P2-6 已关闭，F-P2-4 基线归档部分完成，2026-09-24*

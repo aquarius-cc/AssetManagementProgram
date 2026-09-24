@@ -11,18 +11,18 @@
 | # | 文件:行号 | 问题 | 规则 |
 |:--|:----------|:-----|:-----|
 | 1 | ~~`serializers/asset_crud_serializers.py`~~ ~~+ `services/asset_service.py`~~ | ~~`AssetCreateSerializer` 将 `asset_current_status` 暴露在写入字段集，客户端可 POST `{"asset_current_status":"scrapped"}` 直接创建终态资产，绕过 FSM 全部校验~~ ✅ **已修复 2026-09-17**（详见「修复追踪」） | ~~B5, B9~~ |
-| 2 | `services/out_asset_service.py:66-84,215-245` | cancel_outasset 快照只记录出库单的申请人/保管人，未记录出库前资产原值；取消后资产被错误覆写为出库单上的人员而非原始人员，数据不可逆 | B7, 数据完整性 |
+| 2 | ~~`services/out_asset_service.py:66-84,215-245`~~ | ~~cancel_outasset 快照只记录出库单的申请人/保管人，未记录出库前资产原值；取消后资产被错误覆写为出库单上的人员而非原始人员，数据不可逆~~ ✅ **已修复 2026-09-23**（融合审查交叉核对：`out_asset_service.py:115` 快照含 `original_applicant`；`:322` `_restore_asset_fields` 按 `original_*` 还原） | ~~B7, 数据完整性~~ |
 
 ## P1 — 严重级（10 件）
 
 | # | 文件:行号 | 问题 | 规则 |
 |:--|:----------|:-----|:-----|
-| 3 | `selectors/asset_selector.py:73-229` | `get_available_assets`/`search_assets` 等 5 个查询方法未内置行级隔离，完全依赖 View._scoped() 包裹；任何未来 Service 直接调用即泄露跨部门数据 | B12 |
-| 4 | `services/recycle_asset_service.py:100-138` | 回收时 is_broken/is_lost 产生二次 FSM 转换（recycled_pending→broken/lost），第二次转换无 `AuditLogger.log_state_change` 审计 | B7 |
+| 3 | ~~`selectors/asset_selector.py:73-229`~~ | ~~`get_available_assets`/`search_assets` 等 5 个查询方法未内置行级隔离，完全依赖 View._scoped() 包裹；任何未来 Service 直接调用即泄露跨部门数据~~ ✅ **已修复 2026-09-23**（融合审查交叉核对：`asset_selector.py:100` `apply_user_scope`；`:161` `get_available_assets(user=...)`；docstring 显式 B12） | ~~B12~~ |
+| 4 | ~~`services/recycle_asset_service.py:100-138`~~ | ~~回收时 is_broken/is_lost 产生二次 FSM 转换（recycled_pending→broken/lost），第二次转换无 `AuditLogger.log_state_change` 审计~~ ✅ **已修复 2026-09-23**（融合审查交叉核对：`recycle_asset_service.py:171` `AuditLogger.log_state_change` 二次 FSM 审计） | ~~B7~~ |
 | 5 | ~~`services/asset_service.py:358-390`~~ ~~+ `views/asset_view.py:314`~~ | ~~`change_outasset_employee`/`transfer_asset_to_storage` 审计记录 operator_jobcode=None，无法追溯操作人~~ ✅ **已修复 2026-09-20**（详见「修复追踪」） | ~~B7~~ |
 | 6 | ~~`composables/useOutAssetForm.ts:286-289` + `stores/createEntityStore.ts:340`~~ | ~~编辑外借资产提交时 key 不匹配（payload 用 `asset_recordcode`，store 期望 `recordcode`），更新必定失败~~ ✅ **已修复 2026-09-20**（详见「修复追踪」；靶点修正：真实生产路径另有 `components/componentsdetails/detils/OutAssetForm.vue:413` 同款 bug） | ~~CT-4~~ |
 | 7 | ~~`components/componentsdetails/detils/AssetBatchImport.vue:146,269`~~ | ~~组件内直接 `request.post('/assets/assets/batch-create/')` 重复定义已有 API 端点，绕过 unwrapResponse，违反 FR-3 和 F11~~ ✅ **已修复 2026-09-20**（详见「修复追踪」；端点收敛至 `assetStore.batchCreateAssets`） | ~~FR-3, F11, B1~~ |
-| 8 | 缺失 `.github/workflows/security-scan.yml` | SC-7 要求 pip-audit/npm audit 依赖漏洞扫描阻断高危合并，CI 尚未配置 | SC-7 |
+| 8 | ~~缺失 `.github/workflows/security-scan.yml`~~ | ~~SC-7 要求 pip-audit/npm audit 依赖漏洞扫描阻断高危合并，CI 尚未配置~~ ✅ **已修复 2026-09-23**（融合审查交叉核对：`.github/workflows/security-scan.yml` 存在，含 `pip-audit --fail-on=high` + 周扫描 cron `7 3 * * 1`） | ~~SC-7~~ |
 | 9 | ~~`services/asset_service.py:217-242 vs 273-347`~~ | ~~`delete_asset` 与 `batch_delete_asset` 重复实现同一套删除校验逻辑，且错误码分叉~~ ✅ **已修复 2026-09-20**（详见「修复追踪」；靶点修正：真实分叉为 `ASSET_HAS_OUTASSET` vs `HAS_OUTASSET_RECORDS`，报告原述 `IN_USE` vs `ASSET_IN_USE` 有误，行号亦修正） | ~~DR-1~~ |
 | 10 | ~~`services/damaged_asset_service.py:138-147/213-221/277-285`~~ | ~~approve/reject/cancel 三处手写 `DamagedAsset.objects.filter(...)` 绕过已有的 `DamagedAssetSelector.get_asset_recordcode_for_update`~~ ✅ **已修复 2026-09-20**（详见「修复追踪」；靶点修正：原 Selector `get_asset_recordcode_for_update` 自身不可用——`with_asset_details()` 的可空 `select_related` + `select_for_update` 在 PostgreSQL 抛 `NotSupportedError`，需先修 Selector 再收敛调用点） | ~~DR-3~~ |
 | 11 | ~~`apps/usermanagement/services.py`~~ ~~+ `services/` 包~~ | ~~277 行影子版与包各存一套 EmployeeService/DepartmentService，包优先解析致 `.py` 版为影子死代码~~ ✅ **已修复 2026-09-20**（详见「修复追踪」；靶点修正：影子可正常导入——`BusinessLogicError` 存在于 `core/exceptions.py:72`、`ValidationError` 为其别名 `:119`，死因纯系包优先解析；旧审查文档 `services.py:527/182` 行号属更老 527 行版本快照） | ~~DR-1~~ |
