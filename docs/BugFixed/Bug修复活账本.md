@@ -2331,3 +2331,42 @@ F-P2-* 其余项、变异测试 T8 仍开放（与 H-1 无关）。
 - F-P2-8~13 AC 修订仍待产品确认。
 
 *登记人：opencode（mimo-v2.6-flash-free） ｜ 状态：F-P2-2/F-P2-6 已关闭，F-P2-4 前后端双基线归档完成（均 <80 待补测），2026-09-24*
+
+## BF-043 F-P2-8~13 AC 修订批量（行锁 409 收敛 + usage_type + FSM 锚 + 零代码闭环）2026-09-24
+
+### 一、问题概述
+
+F-P2-8~13 六票批量执行（用户拍板 D1 补实现 / D2 取消不回退 / D3 扫码头对齐 4.6）：F-P2-8 出库行锁超时 409 收敛为公共助手；F-P2-9 出库写 usage_type=used；F-P2-11 补 4 条 FSM 正向锚；F-P2-10/12/13 零代码闭环（证据链 / 计数更正 / 文档对齐）。
+
+### 二、改动面
+
+| # | 项 | 提交/产物 | 内容 |
+|---|-----|------|------|
+| 1 | F-P2-8 | `core/locks.py` 新增 + repair×3 / out×3 锁收敛 | `lock_row_or_409(qs, **filters)` + `ASSET_LOCKED` 常量（DR-1 单一实现）；create_repair 行为等价，complete/fail_repair 与 out_asset 3 路径**新增** 409（行为增强）；`batch_execute`/`batch_delete_execute` 捕获 `ResourceConflictError` → fail_items（保留 error_code，不中断批量） |
+| 2 | F-P2-9 | `out_asset_service.py` | `_apply_outasset_to_asset` 写入 `usage_type`（BR-3 枚举 `Asset.UsageType.USED`）并入 `update_fields`；取消/删除不回退；无 API/schema 变更 |
+| 3 | F-P2-11 | `test_state_machine.py` | 补 4 条 FSM 正向锚：repair_failed→damaged、found_and_return→recycled_pending、approve→scrapped、recycle→recycled_pending（mark 403 由 F-P2-5 覆盖不重复） |
+| 4 | F-P2-10 | 零代码 | 证据链闭环：`base.py:153-159` 5 组 validators 含 ComplexPasswordValidator；`serializers.py:57/:129` 均挂 `validators=[validate_password]`；refresh 吊销 `test_dual_channel_auth.py:426` |
+| 5 | F-P2-12 | 零代码 | 计数更正：后端生产 **8 命中 / 3 文件 / 唯一锚 AC-30/32/33/61/65**（repair×4 含 AC-61/65、recycle×3 含 AC-32/33、out_asset×1 为 F-P2-9 补 AC-30）；AC-27 落 test 锚；前端 0 维持 |
+| 6 | F-P2-13 | 零代码 | AC-60f/g 文案对齐 §4.6（6 字段白名单、遮罩废弃改「直接不返回」）；实现 `public_scan_view.py:39-46` 不动 |
+| 7 | 文档 | AC-29/30/60f/g/65 + 融合审查报告 | AC-29 补「usage_type 不回退」；AC-30/65 文案对齐实际 409 消息与 error_code；融合报告六票 ✅ + 清单 4/5 + 顺序 6 |
+| 8 | 登记 | `complete-patterns.md` A-36 + 本条目 | 行锁 409 映射 ×6 与 batch fail_items 组装 ×3 双收敛（DR-1）；`check_duplicate_invariants.py` 复跑 |
+
+### 三、验证
+
+```text
+① 先红后绿：test_out_asset_service 3 新用例（409 / usage_type fresh query / cancel fail_items）先 3 failed 后绿 ✅
+② 定向批量：99 passed（batch 契约快照 / out / recycle / lifecycle / usermanagement batch）✅
+③ 全量单测：1374 passed + 2 环境性 flaky（test_concurrent sqlite 线程锁、feishu-webhook 本地 socket 10053，隔离复跑均绿）✅
+④ ruff check / format --check / C901：All checks passed（core/batch_mixins 与两 service 收敛后均 ≤10 默认阈值）✅
+⑤ mypy --strict：本次 5 处改动文件 0 新增（仓库存量 27 项分布于未触达文件，含环境缺 types-python-dateutil）✅
+⑥ makemigrations --dry-run：No changes detected ✅
+⑦ spectacular --validate：schema 生成通过；无端点变更，baseline 不重导出 ✅
+⑧ check_duplicate_invariants.py：PASS（G-1~G-5 不变量守护）✅
+```
+
+### 四、遗留
+
+- F-P2-4 变异双基线仍 🟡（前端 60.00 / 后端 65.63，均 <80）。
+- F-P2-8 收敛范围台账注明：`out_asset_service:205` OutAsset 行锁 + `out_asset_selector:172` 经 Selector 加锁路径，本批未纳入 `lock_row_or_409`（语义为「经 Selector 预筛 + 锁行」，后续批按需评估）。
+
+*登记人：opencode ｜ 状态：F-P2-8~13 全部关闭/闭环，2026-09-24*

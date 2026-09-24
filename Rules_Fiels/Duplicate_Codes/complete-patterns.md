@@ -316,6 +316,17 @@
 - **验证命令**：`npm run build-only`（built in 13.30s，零报错）；`npm run type-check`（vue-tsc 零错）；`npm run lint`（eslint --fix 零报错）；`npm run format:check`（All matched files use Prettier code style!）；编译 CSS 抽查 `rg "card-header" dist/assets/css/*.css`（Scoped data-v 值一致）；`rg -n "padding: 18px 24px" src/assets/styles/common-forms.scss`（仅 mixin :632 一处，双写已消）。
 - **回滚风险**：低——纯样式单文件收敛，双写两侧编译值一致，视觉零变化；若未来修改独立 mixin 会影响 form-container 头部（行为即 DR-2 收敛意图）。
 
+### A-36. 【关闭 2026-09-24】行锁超时 409 映射 ×6（repair×3 + out×3）+ batch fail_items 组装 ×3 → 单一实现（DR-1）
+- **编号**：顺延登记（A-35 已占用）。**状态**：✅ 已关闭 | 关闭日期：2026-09-24 | 本批修复（F-P2-8 融合批量）
+- **判定（问题 1 — DR-1）**：`Model.objects.select_for_update().get(...)` 的锁超时（OperationalError）→ 409 `ResourceConflictError` 语义映射在 `repair_asset_service`（`_lock_asset_for_repair`/complete_repair/fail_repair）与 `out_asset_service`（`_apply_outasset_to_asset`/update_outasset/_delete_one）反复出现；其中仅 repair 创建路径 1 处带 try/except 守卫，其余 5 处裸锁（锁超时将冒泡为 500）；`ASSET_LOCKED` 业务码字面量散布多文件。
+- **判定（问题 2 — DR-1）**：`core/batch_mixins.py::batch_execute` 四个异常分支（AppValidationError / ResourceConflictError / serializers.ValidationError / Exception）各自复制同一段 fail_item 组装（item_key 取值 + row_number + input_data 归一化）；F-P2-8 若继续就地补 409 分支将进一步膨胀并逼近 C901 阈值。
+- **修复内容**：
+  1. 新增 `core/locks.py`：`lock_row_or_409(qs, **filters)` ——接收调用方已 `select_for_update()` 的查询集，捕获消息含 "lock" 的 OperationalError → `ResourceConflictError(detail="资产被其他用户锁定,请稍后重试", error_code=ASSET_LOCKED)`；`ASSET_LOCKED` 常量唯一来源；禁止 import apps 模型（防 core→apps 循环依赖）。repair×3 + out×3 全部改调：create_repair 行为等价（原有守卫迁移），complete/fail_repair 与 out_asset 3 路径**新增 409**（行为增强）。
+  2. `core/batch_mixins.py`：四异常分支收敛为静态 `_make_fail_item(...)` 公共组装（净减重复 ~30 行，C901 按默认阈值 ≤10 保持绿）；`batch_delete_execute` 补 `except ResourceConflictError` → fail_items（保留 `e.error_code`），不中断整批循环。
+- **证据**：`rg "ResourceConflictError" core/batch_mixins.py` → 两个批量分支；`rg "ASSET_LOCKED"` → `core/locks.py` 唯一定义；`rg "select_for_update()"` 调用点全部经 `lock_row_or_409`（`out_asset_service:205` OutAsset 锁与 `out_asset_selector:172` 经 Selector 锁路径台账注明未纳入，为后续批候选）。
+- **验证命令**：`pytest apps/assetmanagement/tests/test_out_asset_service.py apps/assetmanagement/tests/test_asset_lifecycle.py`（35 passed，3 新用例先红后绿）；`pytest apps/assetmanagement`（779 passed）；`python -m ruff check .` + `python -m ruff format --check .` + `--select C901 core/batch_mixins.py`（均 All checks passed）；`python -m mypy . --strict` 本次改动文件 0 新增；`makemigrations --dry-run`（No changes detected）；根仓 `python scripts/check_duplicate_invariants.py`（PASS，G-1~G-5）。
+- **回滚风险**：低——helper 单点收敛，语义为 superset（裸锁 500→409 属明确修复）；若未来再手写锁超时 try/except 或就地复制 fail_item 组装，将复现本模式（由 code review + 台账判定拦截）。
+
 ---
 
 ## B — 待修复（To Fix）
