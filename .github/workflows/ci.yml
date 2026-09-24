@@ -64,7 +64,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install ruff
       - name: 圈复杂度检查（上限10）
-        run: ruff check . --select C90 --max-complexity 10
+        run: ruff check . --select C90 --config lint.mccabe.max-complexity=10
 
   backend-permission-check:
     name: "后端 - 权限码同步检查 (M-6)"

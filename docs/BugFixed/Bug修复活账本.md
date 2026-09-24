@@ -2178,3 +2178,50 @@ grep gradient-card                          → 亮/暗双态各 4 条齐备 ✅
 4. **complete-patterns**：本批为权限/隔离缺陷非重复代码模式，G-1~G-5 不适用；`get_user_role`/`get_queryset_for_user`/`resolve_viewset_permissions` 为收敛单源（DR-1），非新增重复。
 
 *登记人：opencode（mimo-v2.6-flash-free） ｜ 状态：已关闭（全量 1368 passed 0 failed + schema 仅 docstring 漂移 + 护栏 PASS），2026-09-24*
+
+---
+
+## BF-039 门禁三连红修复（F-P1-3 + F-P2-7 + F-P3-1）2026-09-24
+
+### 一、问题概述
+
+CI 静态门禁三连红（`ruff format --check` 102 文件、`ruff check` 7 错、`mypy --strict` 24 错）+ 生产 C90 超标（`update_user`、`_create_role_permissions` 各 11>10）+ loadtest/test 存量 F401/I001，导致 backend-lint 与 C90 两个 CI job 失败，合并流水线不可用。
+
+### 二、四提交拆分
+
+| # | commit | 内容 | 验证 |
+|---|--------|------|------|
+| 1 | `9fecb97` fix(ruff) | 删 `test_ws_consumer.py` 未用 asyncio(F401)；两 loadtest locustfile `import json` 上移+I001 | `ruff check .` exit 0 |
+| 2 | `210cfa7` style | backend 内 `ruff format .` 107 文件纯格式化零语义 diff | `ruff format --check .` exit 0 |
+| 3 | `272f8e6` fix(mypy) | types-channels 新增；`models.py:122` 自引用校验真缺陷修复（**行为变化**）；employee_audit_adapter `str\|None`；删错位/unused ignore；带原因 type: ignore；CT-4 红测锚 | `mypy . --strict` 208 文件 0 错 + 定向 82 passed |
+| 4 | `3377c91` refactor(complexity) | `update_user` 抽 `_validate_unique_constraints`；`_create_role_permissions` 抽 `_resolve_perms_to_add`；pyproject ruff exclude 加 `.trae`；`clear_database.py` per-file 加 C901；`ci.yml` C90 命令改 `--config`；`AGENTS.md:29` 同步 | C90 exit 0 + 定向 88 passed |
+
+### 三、关键决策（用户已确认）
+
+1. `.trae` 12 处 + `clear_database.py` 1 处 C90 → CI+配置双 exclude（非生产代码，不拆分）。
+2. `ci.yml:67` C90 命令改 `ruff check . --select C90 --config lint.mccabe.max-complexity=10`（防 CLI `--exclude` 整体替换 pyproject ruff exclude 顶掉 `*/migrations/*`）。
+3. mypy 以装 `types-channels==4.3.0.20260518` 为主（非批量 type: ignore）。
+
+### 四、models.py:122 行为变化（Commit 3 显式标注）
+
+原逻辑 `parent_id == self.pk` 恒 False：parent FK `to_field="recordcode"`（models.py:49），`parent_id`(str) 与 `pk`(int) 类型与语义均不匹配，自引用校验从未生效。修复后比对 `self.recordcode` + `Department.objects.filter(recordcode=self.parent_id)`，校验**从永假→生效**。CT-4 锚 `test_department_clean_self_parent_rejected` 先红后绿（stash 回滚实测 RED_EXIT=1）。脏数据扫描 0 条。
+
+### 五、验证记录
+
+```text
+① ruff check . → All checks passed (exit 0) ✅
+② ruff format --check . → 449 files already formatted (exit 0) ✅
+③ mypy . --strict → Success: no issues found in 208 source files (exit 0) ✅
+④ ruff check . --select C90 --config lint.mccabe.max-complexity=10 → exit 0（15→0）✅
+⑤ 定向 test_department_service+test_services+test_service_coverage+notification → 82 passed（串行单进程）✅
+⑥ 定向 apps/authusermanagement+test_init_production_data → 88 passed（串行单进程）✅
+⑦ 无迁移（CT-6）；schema 无端点变更（M-3 不需重导）✅
+```
+
+### 六、遗留与关联事项
+
+1. **变异测试 T8 / mutmut**——F-P2-4 开放基线，执行环境待定（WSL/CI），本批未跑。
+2. **H-1 状态机契约源裁定**、F-P2-* 其余项仍开放。
+3. **complete-patterns**：本批为静态门禁/复杂度收敛非重复代码模式，G-1~G-5 不适用；`_validate_unique_constraints`/`_resolve_perms_to_add` 为拆分单源（DR-1），非新增重复。
+
+*登记人：opencode（mimo-v2.6-flash-free） ｜ 状态：已关闭（四命令 exit 0 + 定向 82/88 passed），2026-09-24*
