@@ -107,13 +107,14 @@
 请逐条检查以下状态转换是否在前后端完整实现，并检查权限、前置条件、后置副作用、审计、通知、异常、测试：
 - `in_store` → `outasset` → `in_use` → `recycle` → `recycled_pending`
 - `in_store` / `in_use` / `recycled_pending` → `broken` / `lost`
-- `broken` / `lost` → `repairing` → `repair_done` → `recycled_pending`
-- `broken` / `lost` → `repairing` → `repair_failed` → `damaged`
+- `broken` → `repairing` → `repair_done` → `recycled_pending`
+- `broken` → `repairing` → `repair_failed` → `damaged`
+- `lost` → `found_and_return` → `recycled_pending` →（若损坏）`broken` → `repairing` → …
 - `damaged` → `approve` → `scrapped`
 - `damaged` → `reject` → `broken` / `lost`
 - `lost` → `found_and_return` → `recycled_pending`
 
-语义约定：维修完成/找回的资产（已使用过）回到 `recycled_pending` 待发放池；`in_store` 仅表示首次入库的新资产。
+语义约定：维修完成/找回的资产（已使用过）回到 `recycled_pending` 待发放池；`in_store` 仅表示首次入库的新资产。遗失资产仅可 `found_and_return` 或申请 `damaged`，**送修前置状态必须为 `broken`**（须先找回）。
 必须验证 CT-3：每条流转路径至少有一个集成测试用例。
 
 【跨端一致性契约检查】

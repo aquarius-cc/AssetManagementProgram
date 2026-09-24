@@ -2221,7 +2221,44 @@ CI 静态门禁三连红（`ruff format --check` 102 文件、`ruff check` 7 错
 ### 六、遗留与关联事项
 
 1. **变异测试 T8 / mutmut**——F-P2-4 开放基线，执行环境待定（WSL/CI），本批未跑。
-2. **H-1 状态机契约源裁定**、F-P2-* 其余项仍开放。
+2. ~~**H-1 状态机契约源裁定**~~ ✅ 已裁定 A（BF-040）；F-P2-* 其余项仍开放。
 3. **complete-patterns**：本批为静态门禁/复杂度收敛非重复代码模式，G-1~G-5 不适用；`_validate_unique_constraints`/`_resolve_perms_to_add` 为拆分单源（DR-1），非新增重复。
 
 *登记人：opencode（mimo-v2.6-flash-free） ｜ 状态：已关闭（四命令 exit 0 + 定向 82/88 passed），2026-09-24*
+
+---
+
+## BF-040 H-1 状态机契约源裁定（F-P1-4）2026-09-24
+
+### 一、问题概述
+
+`lost→repairing` 在 Review.md（L110-111 列 `broken/lost→repairing`）、`03-业务规则与状态机.md`（仅 `broken→repairing`）、`transitions.py:44-57`（LOST 无 REPAIRING 边）三方不一致，触发根级 §1.3 `[HALT] H-1`，裁定前禁止改状态机边。
+
+### 二、裁定与方案
+
+- **用户裁定：A（改文档）+ 方案2（显式写出找回后送修链）**，2026-09-24。
+- 理由：`03` + `transitions.py` + `02-数据模型:444`（维修记录仅 broken 可创建）+ `09-数据字典:245`（RepairAsset 约束必须 broken）四方一致；Review.md 系审查清单对称归组笔误。语义上 `lost`=找不到，须先 `found_and_return` 找回。
+
+### 三、改动面
+
+| # | 文件 | 改动 |
+|---|------|------|
+| 1 | `docs/Review/Review.md` L110-116 | L110-111 删 `lost` 仅保留 `broken→repairing` 两行；新增 `lost→found_and_return→recycled_pending→（若损坏）broken→repairing→…` 显式链；语义约定补「遗失资产仅可 found_and_return 或申请 damaged，送修前置状态必须为 broken（须先找回）」 |
+| 2 | `docs/Review/融合审查报告-2026-09-23.md` | F-P1-4 行修复建议划线标 ✅；人工确认清单/修复顺序 H-1 行闭环；必填审计票红线行改「已裁定 A」 |
+| 3 | `docs/BugFixed/Bug修复活账本.md` | 本条 BF-040 |
+
+**不改**：`transitions.py`、`03-业务规则与状态机.md`、`02/09`、Service/Mixin、前端、backend 子模块——零改动。
+
+### 四、验证
+
+```text
+① rg -n "broken.*lost.*repairing|lost.*/.*repairing" docs/Review/Review.md → 裸 lost 直连 repairing 0 命中（新增为 found_and_return 链式行）✅
+② 融合报告 F-P1-4 含 ✅ 已裁定 A（方案2）；人工清单/修复顺序闭环 ✅
+③ 状态机边未变 → CT-3 无需补测；无迁移（CT-6）✅
+```
+
+### 五、遗留
+
+F-P2-* 其余项、变异测试 T8 仍开放（与 H-1 无关）。
+
+*登记人：opencode（mimo-v2.6-flash-free） ｜ 状态：已关闭（裁定 A 方案2，纯文档 1+1 文件），2026-09-24*
