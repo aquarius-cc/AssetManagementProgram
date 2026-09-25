@@ -348,6 +348,23 @@
 - **验证命令**：`npx eslint <两组件> --rule "complexity: ['error', 10]"` = 0；`npx vitest run .../CommonList.spec.ts` = 15 passed；`npm run type-check` = 0。
 - **回滚风险**：低——纯函数提取，无行为变更；候选字段顺序与集合逐字保持。
 
+### A-39. 【关闭 2026-09-26】扫码资产查询与二维码 URL 双源：组件直连 `@/api` 绕过 Store + 视图内联 BASE_URL 拼串（DR-1 / FE-01 分层；审查报告 Q-03）
+- **编号**：顺延登记（A-38 已占用）。**状态**：✅ 已关闭 | 关闭日期：2026-09-26 | 登记来源：审查报告 Q-03 拆分核查
+- **判定（DR-1 + FE-01 分层）**：同一份"公开扫码资产"契约存在两处独立实现——① `ScanAssetView.vue` 自建 `request.get('/assets/public/scan/${recordcode}/')` 并**内联 interface 重复声明响应结构**；② `BasicAssetDetails.vue` 内联 `` `${BASE_URL}/assets/${id}/qrcode/` `` 重复构造二维码 URL，而 `assetAPI` 已有同类 URL 构造职责。二者均绕过 Pinia Store，与 FE-01（组件禁直连业务 API）冲突。
+- **修复内容**：新增 `src/api/scan.ts`（`scanAPI.fetchPublicScanAsset()`）承载请求；类型 `PublicScanAsset` 按 F15 归位 `src/types/scan.ts`（API 层仅转出）；`assetStore` 新增 `fetchPublicScanAsset()` / `getQrCodeImageUrl()` 两个 action 作唯一代理；二维码 URL 构造收敛至 `assetAPI.getQrCodeImageUrl()`；两组件改走 Store，视图内联 interface 与 `BASE_URL` 拼串一并删除。
+- **证据**：`npm run lint` = 0（`no-restricted-imports` 对 `.vue` 直连业务 `@/api/*` 报红，是本条的自动化回归护栏）；`npx vitest run` = 137 files / 1867 tests passed；整体覆盖 93.11%。`PublicScanAsset` 落地位置由 F15（模型入 types）裁定，非自选。
+- **验证命令**：`npm run lint`；`npm run type-check`；`npx vitest run --maxWorkers=4`；`npx vitest run --maxWorkers=4 --coverage --coverage.threshold=80`。
+- **回滚风险**：低——纯代理层新增，无字段与端点变更；`scanAPI` 沿 `cache.ts` 先例未入 `src/api/index.ts` 桶导出。
+
+### A-40. 【关闭 2026-09-26】资产类型下拉 `page_size: 9999` 与后端 `MAX_PAGE_SIZE = 100` 双源（DR-1；审查报告 Q-04）
+- **编号**：顺延登记。**状态**：✅ 已关闭 | 关闭日期：2026-09-26 | 登记来源：审查报告 Q-04 拆分核查
+- **判定（DR-1）**：前端 3 处下拉硬编码 `page_size: 9999/2000` 意图"一次取全量"，后端 `core/constants.py:12 MAX_PAGE_SIZE = 100` 与 `core/pagination.py:35` 静默钳位——两侧对同一分页契约各持一套数值，属分页上限双源。前端 9999 无任何效果，>100 的数据被后端**静默截断**（无报错、无日志），调用方无从感知。
+- **修复内容**：3 处统一为 100 并就近注释后端上限来源——`useAssetListConfig.ts:36`、`AssetTypeDetails.vue:223`、`UserForm.vue:284`（后者注释原误写 `defaultPageSize: 10`，实际为 20，一并订正）；`useAssetListConfig.ts` 与 `UserForm.vue` 各增 `count/total > list.length` 截断告警（复用既有 `logError`），使静默截断转为可观测。
+- **证据**：`res.count` 类型本就存在于 `src/types/common.ts:28` 与 `src/types/assettype.ts:98`，无需补声明；`npx vitest run` = 1867 passed（`useAssetListConfig.spec.ts` 新增截断/未截断 2 例守护）。
+- **验证命令**：`npx vitest run --maxWorkers=4`；`npm run type-check`；`npm run format:check`。
+- **遗留（另立 BF-046）**：导出族 `useOperationLogExcelExport.ts:59` / `useUserExcelExport.ts:75` 传 `pagination.total` 作为 `page_size`，同样受 100 钳位，属**未关闭**的同型缺陷。
+- **回滚风险**：低——仅改请求参数并新增日志，无响应结构变更。
+
 ---
 
 ## B — 待修复（To Fix）

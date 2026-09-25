@@ -2459,3 +2459,113 @@ F-P2-8~13 六票批量执行（用户拍板 D1 补实现 / D2 取消不回退 / 
 5. **提交状态**：本条目登记时全部改动仍在工作区未提交（type-check/lint/format/test/coverage/护栏均已绿）。按规范需用户显式要求才提交。
 
 *登记人：opencode ｜ 状态：已关闭，完成验证，2026-09-25*
+
+---
+
+## BF-045 【部分关闭】审查报告 Q-05 两处 flaky 测试（前端 router spec mock 竞态 + 后端 SQLite 行级锁）2026-09-26
+
+### 〇、元信息
+
+- **发现日期**：2026-09-25（来源：`docs/Review/opencode-2026-09-25-检查报告.md` Q-05）；**关闭日期**：2026-09-26
+- **严重级别**：P2（测试可靠性；不污染生产代码）
+- **状态口径**：**部分关闭**。仓内潜在竞态已消除并加固；但触发超时的**环境性成因未在仓内修复**（见"六、遗留"第 1 条），故不宣称 Q-05 全面关闭。
+- **影响范围**：
+  - 前端：`src/router/__tests__/index.spec.ts`（mock 机制重写，10 用例语义不变）。
+  - 后端：`apps/unregisteredasset/tests/test_concurrent.py`（新增 `requires_row_lock` 守卫 + 4 处装饰器；串行锚 `test_approve_then_approve_fails` 不受影响）。
+  - **跨端契约变更：无**。
+
+### 一、问题现象
+
+1. **前端**：`npx vitest run`（默认并行）下 `src/router/__tests__/index.spec.ts` 间歇失败，报 `TypeError: vueRouter.__getCapturedConfig is not a function`；同批次 `usePermission.spec.ts`、`useDarkMode.spec.ts`、`assetLifecycleService.spec.ts` 亦出现超时失败。
+2. **后端**：`test_concurrent.py` 4 个多线程用例在 SQLite 下"恰好一个成功"类断言随机抖动。
+
+### 二、根因（实测取证，非推测）
+
+| # | 环节 | 事实 |
+|:--|:-----|:-----|
+| 1 | 前端·超时非阈值问题 | 隔离运行 3 轮，10 用例峰值 **157/183ms**，全绿；默认并行下文件耗时放大至 **18.2s / 74s**，且同时出现 60s、45s 的其他文件超时——**多文件同时劣化**，非单 spec 慢 |
+| 2 | 前端·环境成因 | 本机 16 逻辑核、15.73GB 内存但**仅 4.92GB 空闲**；vitest v4 默认 `maxWorkers ≈ cores-1 = 15`，15 个 happy-dom worker + coverage 在该内存下必然争用 |
+| 3 | 前端·反证（关键） | `npx vitest run --maxWorkers=4` → **137 files / 1867 tests 全绿**（64.81s、74.02s 两次复跑稳定）；默认并行 3 跑 2 败 |
+| 4 | 前端·timeout 无效（已实测否决） | 曾加 `vi.setConfig({ testTimeout: 15_000 })`，默认并行下仍 `4 failed | 74s`（74s ≫ 15s）→ 证明放宽阈值**不能**解决，且属掩盖。**已撤回** |
+| 5 | 前端·真实竞态 | 原 mock 以 `__getCapturedConfig` 导出配合 `vi.resetModules()`；reset 后可能返回不含该导出的模块实例 → `__getCapturedConfig is not a function` |
+| 6 | 后端·成因 | SQLite 不支持 `select_for_update` 行级锁，多线程写入退化为库级写锁争用，断言时序不可靠 |
+
+### 三、修复内容
+
+| # | 变更 | 文件 |
+|:--|:-----|:-----|
+| 1 | 全部 mock 提升至 `vi.hoisted()` 持有器（`mockCapturedConfig` / `mockCreateRouter` / `mockCreateWebHistory` / `mockSetupAuthGuard`），`resetModules()` 不再影响 mock 身份 | `src/router/__tests__/index.spec.ts` |
+| 2 | `loadRouter()` 不再 `import('vue-router')` 取 mock（消除 reset 后取到非 mock 实例的路径），直读持有器；删除 `__getCapturedConfig` 机制 | 同上 |
+| 3 | **不**放宽 `testTimeout`（依据根因第 4 条实测否决），文件头注释留证 | 同上 |
+| 4 | 新增 `requires_row_lock = pytest.mark.skipif(connection.vendor == "sqlite", ...)`，标注 CI 为 `postgres:16` 故守卫不生效 | `apps/unregisteredasset/tests/test_concurrent.py` |
+| 5 | 4 个真并发用例加该装饰器；串行语义用例保持无条件执行 | 同上 |
+
+### 四、验证命令与结果
+
+```text
+① npx vitest run src/router/__tests__/index.spec.ts（隔离）        → 10 passed（tests 299ms）
+② npx vitest run --maxWorkers=4（全量，两次复跑）                 → 137 files / 1867 tests passed（64.81s / 74.02s）
+③ npx vitest run（默认并行，对照组）                              → 3 跑 2 败（18.2s/74s/60s/45s 多文件超时）→ 确认为环境争用
+④ npm run type-check / npm run lint / npm run format:check        → 均 0
+⑤ npx vitest run --maxWorkers=4 --coverage --coverage.threshold=80 → 137/1867 passed；整体 93.11% stmts / 87.56% branch / 87.32% func / 93.89% lines（≥80%）
+⑥ npx vitest run --maxWorkers=4 --coverage --coverage.include="src/stores/**/*.ts" --coverage.threshold=90 → Store 97.72% / 92.17% / 93.91% / 98.19%（≥90%）
+⑦ python -m pytest apps/unregisteredasset/tests/test_concurrent.py -v → 5 passed（skipif 未触发）
+⑧ connection.vendor 探针                                        → postgresql（本地与 CI 同为 PG，守卫为防御性空操作）
+⑨ python -m pytest apps/unregisteredasset -q                     → 142 passed
+⑩ python -m ruff check .                                          → All checks passed（修 1 处 I001 import 顺序）
+⑪ python -m ruff check . --select C90 --config lint.mccabe.max-complexity=10 → All checks passed
+⑫ mypy --strict 回归对比（git stash 基线法）                     → HEAD 35 errors / 当前 35 errors → **零回归**（存量债务）
+⑬ DR-5 规模：test_concurrent.py 337 行、index.spec.ts 123 行，均 ≤500
+```
+
+### 五、关联登记
+
+- 仓内重复模式侧同步登记 `Rules_Fiels/Duplicate_Codes/complete-patterns.md` A-39（Q-03）、A-40（Q-04）。
+- Q-04 同型遗留另立 **BF-046**。
+
+### 六、遗留与关联事项
+
+1. **[未修复·待决策] 环境性超时成因**：本机空闲内存仅 4.92GB，默认 15 workers 下仍会随机超时。**本次刻意未把 `maxWorkers` 写入 `vitest.config.ts`**——为迁就单机内存状况改共享工程配置不妥，且 CI（GitHub Actions 通常 4 核）会自动取 `maxWorkers=3`，无此问题。**本地跑全量请用 `npx vitest run --maxWorkers=4`**。若需固化，属前端 AGENTS §4.1 工程配置自主范围，须先决策（可考虑按 `os.cpus()` 与可用内存动态取值）。
+2. **[存量债务·未处理] `mypy --strict` 本文件 28 errors**：经 `git stash` 基线对比，HEAD 与当前在系统 Python 下**同为 35 errors / 6 files → 零回归**。另注：解释器不同结论不同——用项目 `.venv` 跑为 **28 errors / 1 file**（系统 Python 多出的 5 文件 7 处系环境解析差异，与报告 Q-08「.venv 复跑归零」口径一致）。即本文件 28 处**为真实存量注解债**（集中在测试体缺返回标注，如 L301/L303/L315），非本次引入；不在本批范围，避免范围蔓延。
+3. **[存量·未处理] pytest teardown 告警**：`test_concurrent.py` 结束时报 `Error when trying to teardown test databases ... 6 个会话仍占用`——线程用例连接未显式关闭所致，为告警非失败（exit 0）。属独立技术债。
+4. **提交状态**：本条目登记时全部改动仍在工作区未提交。按规范需用户显式要求才提交。
+
+*登记人：opencode ｜ 状态：部分关闭（仓内竞态已消除；环境性成因留账待决策），2026-09-26*
+
+---
+
+## BF-046 【待修复】导出族 Excel 导出分页被后端 MAX_PAGE_SIZE 静默截断（Q-04 同型遗留）2026-09-26
+
+### 〇、元信息
+
+- **登记日期**：2026-09-26（来源：Q-04 整改核查中发现的同型缺陷；**非**报告原条目）
+- **严重级别**：P1（数据不完整导出，且**静默无提示**；影响财务/台账类交付物）
+- **状态**：🔴 待修复（未实施任何代码变更）
+- **影响范围**：`src/composables/useOperationLogExcelExport.ts:59`、`src/composables/useUserExcelExport.ts:75`
+
+### 一、问题现象
+
+两处导出以「当前筛选下的总条数」作为 `page_size` 传入后端：
+
+- `useOperationLogExcelExport.ts:59` → `page_size: store.pagination.total`
+- `useUserExcelExport.ts:75` → `page_size: userStore.pagination.total`
+
+后端 `core/constants.py:12 MAX_PAGE_SIZE = 100`、`core/pagination.py:35` 静默钳位，故当 `total > 100` 时导出结果**只含前 100 条**，且不报错、不告警。
+
+### 二、根因
+
+与 Q-04 已关闭部分（`page_size: 9999`，登记为 `complete-patterns.md` A-40）**同型**：前端对分页上限的假设与后端钳位不一致。区别在于 A-40 是「硬编码超大值意图取全量」，本条是「动态传 total，同样被钳位」——故 Q-04 整改时**未覆盖**到这两处。
+
+### 三、待决策事项
+
+1. **导出语义**：是"导出全部匹配数据（须后端提供导出专用不分页端点或循环翻页）"，还是"显式限定导出前 N 条并在 UI 标注"？二者在接口契约与用户预期上差异显著，**须产品/用户拍板**。
+2. **前端防御**：在请求前比对 `total > 100` 并给出明确提示（比照 Q-04 已落地的 `logError` 截断告警），可作为不依赖产品决策的**兜底**先落。
+3. **循环翻页**：若选"导出全部"，需按 `page` 逐页拉取并合并，涉及分页参数契约使用方式（不改契约名，仅改调用方式）。
+
+### 四、证据与不确定性标注
+
+- **可验证**：两处 `page_size` 取 `pagination.total`（源码直读）；后端 `MAX_PAGE_SIZE = 100` 与 `core/pagination.py:35` 钳位（源码直读）。
+- **[推测·未实测]** "导出结果实际只含前 100 条"系由上述两事实**推导**，本次**未构造 >100 条数据做端到端复现**。修复前应先补一个 >100 条的回归测试确认现象。
+- 测试 mock 中的 `2000/200/1500` 字面量（`useOperationLogExcelExport.spec.ts` 等）属测试数据，不构成生产缺陷，但会掩盖真实上限，建议同步对齐。
+
+*登记人：opencode ｜ 状态：待修复（未改代码），2026-09-26*
