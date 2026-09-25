@@ -1,0 +1,115 @@
+================================================================================
+M1 / B-M2 变异测试权威数据（sqlite .mutmut-cache 直查）
+生成日期：2026-09-25
+数据源：mutmut 2.5.1 缓存库直查（非进度条解析）
+  M1 全量：/tmp/am-backend-mutmut/.mutmut-cache
+  B-M2 per-file：/tmp/am-backend-{asset,recycle,repair,lifecycle}/.mutmut-cache
+查询表：Mutant(id, line, index, tested_against_hash, status)
+        Line(id, sourcefile, line, line_number) / SourceFile(id, filename, hash)
+================================================================================
+
+【核心订正】归档 MUTATION-BASELINE-2026-09-25.md 与 score-20260925-1325.txt 中的
+「1367 杀灭 / 14 幸存」系误读 mutmut 进度条所致。缓存库直查权威值为：
+
+    1365 杀灭 / 4 幸存 / 1 超时 / 3 可疑 / 12 未测  = 1385 总数
+    得分（killed / tested，tested = 1385 - 12 = 1373）= 99.42%
+
+同目录 results-20260925-1325.txt 与 survivors-20260925-1325.txt 的抓取是准确的
+（Survived 4），原归档「本文件取代 results 的不完整 survivors 抓取」之表述方向颠倒。
+
+================================================================================
+一、M1 全量基线（assetmanagement/services 全目录，48 文件测试套件）
+================================================================================
+
+1.1 全部未杀灭变异体（20 个，含文件/行号/ID）
+--------------------------------------------------------------------------------
+  状态          文件                            行号   变异体ID
+  SURVIVED      damaged_asset_service.py        L29    1
+  SURVIVED      damaged_asset_service.py        L30    2
+  SURVIVED      damaged_asset_service.py        L39    6
+  SURVIVED      damaged_asset_service.py        L45    1386
+  TIMEOUT       asset_service.py                L83    632
+  SUSPICIOUS    out_asset_service.py            L179   309
+  SUSPICIOUS    out_asset_service.py            L180   312
+  SUSPICIOUS    out_asset_service.py            L186   319
+  UNTESTED      damaged_asset_service.py        L88    25
+  UNTESTED      damaged_asset_service.py        L89    26
+  UNTESTED      damaged_asset_service.py        L135   43
+  UNTESTED      damaged_asset_service.py        L136   44
+  UNTESTED      damaged_asset_service.py        L194   60
+  UNTESTED      damaged_asset_service.py        L208   66
+  UNTESTED      damaged_asset_service.py        L209   67
+  UNTESTED      damaged_asset_service.py        L244   77
+  UNTESTED      damaged_asset_service.py        L275   86
+  UNTESTED      damaged_asset_service.py        L276   87
+  UNTESTED      damaged_asset_service.py        L309   95
+  UNTESTED      damaged_asset_service.py        L323   99
+
+1.2 per-file 汇总
+--------------------------------------------------------------------------------
+  文件                              杀灭  幸存  超时  可疑  未测  总数   得分
+  asset_lifecycle_mixin.py           149     0     0     0     0    149  100.00%
+  asset_service.py                   173     0     1     0     0    174   99.43%
+  asset_type_service.py               71     0     0     0     0     71  100.00%
+  contract_service.py                145     0     0     0     0    145  100.00%
+  damaged_asset_service.py            83     4     0     0    12     99   95.40%
+  hard_disk_sn_service.py            133     0     0     0     0    133  100.00%
+  operation_log_service.py           90     0     0     0     0     90  100.00%
+  out_asset_service.py               191     0     0     3     0    194   98.45%
+  recycle_asset_service.py           166     0     0     0     0    166  100.00%
+  repair_asset_service.py             79     0     0     0     0     79  100.00%
+  storage_service.py                  36     0     0     0     0     36  100.00%
+  waste_asset_service.py              49     0     0     0     0     49  100.00%
+  --------------------------------------------------------------------------------
+  TOTAL                             1365     4     1     3    12   1385   99.42%
+
+  得分口径 = 杀灭 / (总数 - 未测)。12 文件中 9 个 100%。
+
+================================================================================
+二、B-M2 per-file 迭代终局（补测后，4 个目标文件）
+================================================================================
+
+  副本                        文件                        杀灭  幸存 超时  总数   得分
+  am-backend-asset           asset_service.py            145    28    1    174   83.33%
+  am-backend-recycle         recycle_asset_service.py    139    27    0    166   83.73%
+  am-backend-repair          repair_asset_service.py       71     8    0     79   89.87%
+  am-backend-lifecycle       asset_lifecycle_mixin.py    130    19    0    149   87.25%
+  ------------------------------------------------------------------------------
+  合计                                                  485    82    1    568   85.39%
+
+  算术校验：145+28+1=174 / 139+27=166 / 71+8=79 / 130+19=149  —— 全部自洽。
+  归档 md 中 asset_service「幸存者 28」为正确值（174-145=29 含 1 个超时，
+  故幸存者 28 + 超时 1 = 29），此前对其算术差 1 的质疑不成立，特此订正。
+
+================================================================================
+三、口径差异（关键，影响结论解读）
+================================================================================
+
+同一 4 个文件在两种测试范围下结果迥异：
+
+  文件                        M1 全量套件(48 文件)      B-M2 per-file 范围
+  asset_service.py            99.43% (173/174)          83.33% (145/174)
+  recycle_asset_service.py    100.00% (166/166)         83.73% (139/166)
+  repair_asset_service.py     100.00% (79/79)           89.87% (71/79)
+  asset_lifecycle_mixin.py    100.00% (149/149)         87.25% (130/149)
+
+  M1 全量套件下，repair / recycle / lifecycle 三文件变异体 100% 被杀灭，
+  asset_service 仅 1 个超时。即 B-M2 逐文件「首轮约 50%」所反映的并非全量套件
+  下的真实质量缺口，而是将测试范围收窄至单文件自身测试后的必然结果。
+
+  因此 B-M2 新增 127 用例的实际收益应表述为「提升单文件测试独立性」，
+  而非「修复全量套件下的变异测试缺口」。两种口径的数字不可直接比较。
+
+  runner：pytest -x -q --assert=plain（md 头部已记）
+  mutmut 版本：2.5.1
+  环境：WSL /tmp 独立副本 + SQLite 内存库
+
+================================================================================
+四、复现命令
+================================================================================
+  wsl -e bash -lc "cd /tmp/am-backend-mutmut && /tmp/mutmut-venv/bin/mutmut results"
+  wsl -e bash -lc "/tmp/mutmut-venv/bin/python <probe>.py /tmp/am-backend-mutmut/.mutmut-cache"
+
+  注：/tmp 副本会话结束后回收。权威数据已于 2026-09-25 直查落盘于本文件，
+  后续复核以本文件为准，无需依赖 /tmp。
+================================================================================
