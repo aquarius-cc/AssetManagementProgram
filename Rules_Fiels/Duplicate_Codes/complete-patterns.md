@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.45 | **最后更新**：2026-09-23 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.46 | **最后更新**：2026-09-25 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -316,16 +316,37 @@
 - **验证命令**：`npm run build-only`（built in 13.30s，零报错）；`npm run type-check`（vue-tsc 零错）；`npm run lint`（eslint --fix 零报错）；`npm run format:check`（All matched files use Prettier code style!）；编译 CSS 抽查 `rg "card-header" dist/assets/css/*.css`（Scoped data-v 值一致）；`rg -n "padding: 18px 24px" src/assets/styles/common-forms.scss`（仅 mixin :632 一处，双写已消）。
 - **回滚风险**：低——纯样式单文件收敛，双写两侧编译值一致，视觉零变化；若未来修改独立 mixin 会影响 form-container 头部（行为即 DR-2 收敛意图）。
 
-### A-36. 【关闭 2026-09-24】行锁超时 409 映射 ×6（repair×3 + out×3）+ batch fail_items 组装 ×3 → 单一实现（DR-1）
-- **编号**：顺延登记（A-35 已占用）。**状态**：✅ 已关闭 | 关闭日期：2026-09-24 | 本批修复（F-P2-8 融合批量）
+### A-36. 【关闭 2026-09-24, 后续候选 2026-09-25 收编 ×8】行锁超时 409 映射 ×8（repair×3 + out×5）+ batch fail_items 组装 ×3 → 单一实现（DR-1）
+- **编号**：顺延登记（A-35 已占用）。**状态**：✅ 已关闭（2026-09-24，F-P2-8 融合批量）| 修复延伸 2026-09-25（F-P2-4 阶段 0）：台账原标注"未纳入"的两个遗留裸锁点收编为 `guard_lock_conflict` 统一映射 | 关闭日期：2026-09-24 | 本批修复（F-P2-8 融合批量）
 - **判定（问题 1 — DR-1）**：`Model.objects.select_for_update().get(...)` 的锁超时（OperationalError）→ 409 `ResourceConflictError` 语义映射在 `repair_asset_service`（`_lock_asset_for_repair`/complete_repair/fail_repair）与 `out_asset_service`（`_apply_outasset_to_asset`/update_outasset/_delete_one）反复出现；其中仅 repair 创建路径 1 处带 try/except 守卫，其余 5 处裸锁（锁超时将冒泡为 500）；`ASSET_LOCKED` 业务码字面量散布多文件。
 - **判定（问题 2 — DR-1）**：`core/batch_mixins.py::batch_execute` 四个异常分支（AppValidationError / ResourceConflictError / serializers.ValidationError / Exception）各自复制同一段 fail_item 组装（item_key 取值 + row_number + input_data 归一化）；F-P2-8 若继续就地补 409 分支将进一步膨胀并逼近 C901 阈值。
 - **修复内容**：
   1. 新增 `core/locks.py`：`lock_row_or_409(qs, **filters)` ——接收调用方已 `select_for_update()` 的查询集，捕获消息含 "lock" 的 OperationalError → `ResourceConflictError(detail="资产被其他用户锁定,请稍后重试", error_code=ASSET_LOCKED)`；`ASSET_LOCKED` 常量唯一来源；禁止 import apps 模型（防 core→apps 循环依赖）。repair×3 + out×3 全部改调：create_repair 行为等价（原有守卫迁移），complete/fail_repair 与 out_asset 3 路径**新增 409**（行为增强）。
   2. `core/batch_mixins.py`：四异常分支收敛为静态 `_make_fail_item(...)` 公共组装（净减重复 ~30 行，C901 按默认阈值 ≤10 保持绿）；`batch_delete_execute` 补 `except ResourceConflictError` → fail_items（保留 `e.error_code`），不中断整批循环。
-- **证据**：`rg "ResourceConflictError" core/batch_mixins.py` → 两个批量分支；`rg "ASSET_LOCKED"` → `core/locks.py` 唯一定义；`rg "select_for_update()"` 调用点全部经 `lock_row_or_409`（`out_asset_service:205` OutAsset 锁与 `out_asset_selector:172` 经 Selector 锁路径台账注明未纳入，为后续批候选）。
-- **验证命令**：`pytest apps/assetmanagement/tests/test_out_asset_service.py apps/assetmanagement/tests/test_asset_lifecycle.py`（35 passed，3 新用例先红后绿）；`pytest apps/assetmanagement`（779 passed）；`python -m ruff check .` + `python -m ruff format --check .` + `--select C901 core/batch_mixins.py`（均 All checks passed）；`python -m mypy . --strict` 本次改动文件 0 新增；`makemigrations --dry-run`（No changes detected）；根仓 `python scripts/check_duplicate_invariants.py`（PASS，G-1~G-5）。
+  3. **F-P2-4 阶段 0 延伸（2026-09-25）**：`lock_row_or_409` 内部再抽调 `guard_lock_conflict(fn: Callable[[], T]) -> T`（PEP695 泛型 helper，try/except→409 映射的唯一实现），`lock_row_or_409` 退化为委托 `guard_lock_conflict(lambda: qs.get(**filters))`；台账原"后续候选"的 `out_asset_service:209` update OutAsset 行锁与 `out_asset_selector:172` 批量删除守卫（`.filter(...).first()` 锁内取数路径）一并改调。至此 8 个锁点（repair×3 + out×5：_apply/_delete/update-OutAsset/update-Asset/selector 守卫）全部收敛，无任何就地 try/except 残留于 409 映射语义。
+- **证据**：`rg "ResourceConflictError" core/batch_mixins.py` → 两个批量分支；`rg "ASSET_LOCKED"` → `core/locks.py` 唯一定义；`rg "guard_lock_conflict" core/locks.py apps/assetmanagement` → helper 定义 + `lock_row_or_409` 委托 + `out_asset_selector.py` 1 处 `select_for_update().filter().first()` 锁点。锁定事实：**核心外仍有 ≈25 处裸 `select_for_update()`**（recycle/damaged/asset_service/waste/lifecycle_mixin/state_machine 等），属 F-P2-4 变异门禁之后续候选，不在本批次范围（A-36/BF-043 关闭注释"后续候选扩大"，由后续批逐步收编）。
+- **验证命令**（F-P2-4 阶段 0 延伸）：`pytest apps/assetmanagement/tests/test_out_asset_service.py apps/assetmanagement/tests/test_batch_contract_snapshot.py apps/assetmanagement/tests/test_asset_lifecycle.py`（67 passed）；全量 `pytest --ds=config.settings.test`（**1385 passed**）；`python -m ruff check/format --check` + `--select C901`（全绿）；`python -m mypy . --strict`（27 存量错误不变，改动文件 0 新增）；`makemigrations --dry-run`（No changes detected）。新增测试 ①update 真 409（select_for_update().get 经 guard）②selector 守卫 409 ③混合批单条锁超时→fail_items ASSET_LOCKED 其余成功 ④批量创建单条锁超时→fail_items ⑤取消出库 usage_type 保持 used 回归锚。ac-patterns 回归护栏未受影响（无前端改动）。
 - **回滚风险**：低——helper 单点收敛，语义为 superset（裸锁 500→409 属明确修复）；若未来再手写锁超时 try/except 或就地复制 fail_item 组装，将复现本模式（由 code review + 台账判定拦截）。
+
+### A-37. 【关闭 2026-09-25】`GET /users/employees/search/` 端点 API 层三处独立实现 → 单一实现（DR-1 / FR-3；审查报告 Q-02）
+- **编号**：顺延登记（A-36 已占用）。**状态**：✅ 已关闭 | 关闭日期：2026-09-25 | 登记来源：`docs/Review/opencode-2026-09-25-检查报告.md` Q-02（P2，规范/DRY）
+- **判定（DR-1 / FR-3）**：同一端点 `/users/employees/search/` 在 API 层存在三处独立 `request.get` 实现——`api/user.ts:66`（`getFuzzySearch`）、`api/user.ts:98`（`getUserByName`）、`api/authusers.ts:111`（`searchEmployees`）；同文件 2 处 + 跨文件 1 处，同名能力分散，新增参数需改三处，查询行为可能漂移。
+- **修复内容**：
+  1. `api/user.ts`：`getUserByName` 内部改为委托唯一实现 `userAPI.getFuzzySearch({ keyword })`，保留原 `try/catch + logError` 契约（行为等价，无契约变更）。
+  2. `api/authusers.ts`：`searchEmployees` 改为导入 `userAPI` 复用，并**修正契约缺陷**——原实现把 DRF 分页对象当数组直接返回，现正确取 `.results` 返回 `Employee[]`（后端 `employee_view.py:301` 经 `paginate_queryset` + `get_paginated_response` L316/L319 返回 `{count,next,previous,results}`；`unwrapResponse` 只解包 `res.data`，不碰 `.results`）。
+  3. 连带修正上游类型失真：删除虚构类型 `EmployeeBrief`，新增 `BoundEmployee extends Employee { auth_user: number | null }`，对齐后端 `EmployeeDetailSerializer`（`employee_serializers.py:70-72` `fields = "__all__"` → `auth_user` 序列化为 `authusermanagement/models.py:110` `auth_id = AutoField` 即 number）。**`auth_user_username` 在后端全仓（含 `api-schema-baseline.json`）零命中 → 判定为前端虚构字段**，`BindAuthUserDialog.vue:34` 改用 `props.authUser?.username` 渲染。
+- **证据**：生产代码对 `/users/employees/search` 的 `request.get` 仅剩 1 处（`api/user.ts:66`）；另 3 处 grep 命中全部位于 `api/__tests__/user.spec.ts` 的断言文本，非实现。`EmployeeBrief` 全仓 grep = 0 命中。`auth_user_username` 后端仓库 grep = 0 命中。
+- **验证命令**：`npm run type-check`（vue-tsc 0 错）；`npm run lint` = 0；`npm run format:check` = 0；整改面 vitest（`user.spec.ts` + `authusers.spec.ts` + `userStore.spec.ts` + `authUserStore.spec.ts` + `BindAuthUserDialog.spec.ts`）5 files / 67 tests passed；全量 `npx vitest run` = **136 files / 1860 tests passed**。新增/更新测试：`authusers.spec.ts` 新增「复用 getFuzzySearch 端点并提取 results」用例；`BindAuthUserDialog.spec.ts`（新建 2 用例）锁定用户名渲染。`python scripts/check_duplicate_invariants.py` = PASS（G-1~G-5 未受扰）。
+- **契约影响**：**无**——未新增/修改/删除端点，未改响应结构（仅复用既有端点 + 修正前端类型与解包）。故 api-schema 基线**不需重导出**。
+- **回滚风险**：低——收敛为单点委托；`searchEmployees` 的 `.results` 解包属**缺陷修复**（原实现会把分页对象当数组，返回值不可用），回滚将复现该缺陷。
+
+### A-38. 【关闭 2026-09-25】`CommonList.getRowKey` 标识符候选链标量判定重复 → 提取 `asRowKey`（DR-1；Q-01 迁移中触发复杂度门禁）
+- **编号**：顺延登记（A-37 已占用）。**状态**：✅ 已关闭 | 关闭日期：2026-09-25 | 登记来源：Q-01 迁移的复杂度门禁命中（§1.8 新发现义务）
+- **判定（DR-1）**：`CommonList.vue::getRowKey` 内对候选标识符字段的"取值 → 判空 → 判标量 → 返回"四步判定**完整复制两遍**：一遍用于 `props.rowKey` 指定字段，一遍用于 14 个回落候选字段（`id`/`code`/`asset_code`/…/`waste_asset_code`）。同函数内重复实现，且使该函数圈复杂度达 **11**（超 `complexity: 10` 门禁）。
+- **修复内容**：提取模块级常量 `ROW_KEY_FALLBACK_FIELDS`（消除每次调用的数组重建）与纯函数 `asRowKey(value)`（标量判定唯一实现）；`getRowKey` 退化为对 `[props.rowKey, ...ROW_KEY_FALLBACK_FIELDS]` 的单循环，复杂度降至 4。**语义等价**：`rowKey` 为空串或其值非标量时仍回落候选字段链；`null`/`undefined`/对象值仍被跳过。
+- **证据**：`npx eslint src/components/commoncomponents/CommonList.vue --rule "complexity: ['error', 10]"` 迁移前命中 L163 复杂度 11 → 迁移后 0 错。行为等价由 `CommonList.spec.ts` 的 3 个 `getRowKey` 用例守护（指定字段优先 / 回落候选链 / 跳过 null·undefined·非标量）。
+- **验证命令**：`npx eslint <两组件> --rule "complexity: ['error', 10]"` = 0；`npx vitest run .../CommonList.spec.ts` = 15 passed；`npm run type-check` = 0。
+- **回滚风险**：低——纯函数提取，无行为变更；候选字段顺序与集合逐字保持。
 
 ---
 
@@ -709,6 +730,9 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.46 (2026-09-25)**：关闭 **A-37**（审查报告 Q-02，DR-1/FR-3）——`GET /users/employees/search/` 端点在 API 层三处独立 `request.get`（`api/user.ts:66` `getFuzzySearch` + `api/user.ts:98` `getUserByName` + `api/authusers.ts:111` `searchEmployees`）收敛为前者单一实现；连带修正两处契约缺陷：①`searchEmployees` 把 DRF 分页对象当数组返回，改为取 `.results`（后端 `employee_view.py:301` 经 `paginate_queryset`/`get_paginated_response` 返回 `{count,next,previous,results}`）；②`auth_user_username` 为前端虚构字段（后端全仓含 schema 基线零命中），删除虚构类型 `EmployeeBrief`、新增对齐 `EmployeeDetailSerializer`（`fields="__all__"`）的 `BoundEmployee`，`BindAuthUserDialog.vue:34` 改用 `props.authUser?.username`。验证：端点 `request.get` 生产实现 grep = 1 处（另 3 处命中均在测试断言）；type-check/lint/format:check 全 0；整改面 5 files/67 tests、全量 136 files/1860 tests passed；`check_duplicate_invariants.py` PASS（G-1~G-5 未受扰）。契约零变化（未增删改端点与响应结构），`api-schema-baseline.json` 无需重导出。
+- **v2.9.46 (2026-09-25)**：关闭 **A-38**（Q-01 迁移触发复杂度门禁，§1.8 新发现义务）——`CommonList.getRowKey` 内"取值→判空→判标量→返回"四步判定完整复制两遍（`props.rowKey` 指定字段 + 14 个回落候选字段），致圈复杂度 11（超 `complexity: 10`）；提取模块级 `ROW_KEY_FALLBACK_FIELDS` 与纯函数 `asRowKey`，主函数降为单循环、复杂度 11→4，语义等价（`rowKey` 空串或值非标量仍回落候选链）。验证：`npx eslint <两组件> --rule "complexity: ['error', 10]"` = 0；`CommonList.spec.ts` 15 passed（3 个 `getRowKey` 用例守护等价性）；type-check = 0。
+- **v2.9.46 (2026-09-25)**：Q-01 落地联动——`CommonList.vue` / `SmartListContainer.vue` 由 Options API 迁至 `<script setup lang="ts" generic="T extends object">`（props→类型化 `defineProps`+`withDefaults`、emits→类型化 `defineEmits`、`expose`→`defineExpose`），行类型经泛型 `T` 贯通至 10 个 `*Details.vue` 消费方（`types/common.ts` 的 `SmartListContainerExpose<T = unknown>` 以默认参数保持消费方零改动）；迁移使 vue-tsc 暴露 11 处既有类型漏洞（`selectedRows: object[]` 传入各实体数组，原被 Options API 的 `any` 插槽推断掩盖），经泛型化合法消解。全仓 117 个 `.vue` 的 `export default defineComponent` / `methods:` / `<script lang="ts">` 三标记均归零。验证：type-check/lint/format:check 全 0；全量 136 files/1860 tests passed（较基线净增 3 files/29 tests）；触及文件 complexity 门禁 = 0；`npx vitest run --coverage` = 0（整体 93.15% stmts/87.54% branch/93.93% lines ≥80%，Store 97.89%/92.17%/94.55% ≥90%）；`check_frontend_invariants.py` PASS（FR-6 composables 46 文件 0 孤儿、FR-8 stores 30 文件 0 超限）。两组件迁移前**零测试覆盖**（284 处引用），已补 27 个测试锚（CT-1/CT-4）。
 - **v2.9.45 (2026-09-23)**：关闭 **A-35**（DR-2）——`common-forms.scss` form-container 内嵌 `.card-header` 块（原 :35-58）与独立 `@mixin card-header`（原 :647-670）同体样式双写收敛：内嵌 24 行替换为 `.card-header { @include card-header; }`（3 行，净 -21 行），保留外层包裹防子选择器（`.el-icon`/`span`）作用域污染；第三处 `info-card` 简化头部判定保留。验证：`build-only`/`type-check`/`lint`/`format:check` 全绿 + 编译 CSS 抽查值一致（DamagedAssetForm/UserBatchImport/DamagedAssetBasicDetails）。
 
 - **v2.9.43 (2026-09-23)**：关闭 A-33（DR-1，BR-4 拆分核查连带）——`update_outasset` 使用地点落库三段手工逻辑（原 out_asset_service.py:215-217）与既有公共 helper `_build_asset_people_update`（:135-147，create/update 两写路径共用）语义重复，判定「业务逻辑唯一实现」违反（§1.8 新发现义务登记）。修复：`update_outasset` 改传 `update_data.get("outasset_using_location")` 复用 helper、删除手工三段（净删 3 行）；同类 nowrap 审计快照内联（before/after 组装）一并抽出为 `_build_update_audit_snapshot`（26 行）。联动效果：`update_outasset` 53 → 37 逻辑行，BR-4 护栏由 FAIL（唯一未登记超长函数）转 PASS（0 未登记 / 0 超限台账）；`_build_asset_people_update` 全仓收敛为 def :135 + 消费 :161/:227 三引用。验证：`check_function_length_guard.py` exit=0、`test_out_asset_service.py` + `test_out_asset_view_api.py` 定向回归（含 `test_update_out_asset_using_location` 双表同步与 `test_update_out_asset_with_people_and_location` 快照不重写断言）、ruff 0 新增、mypy scoped 0 新增。契约零变化，`api-schema-baseline.json` 无需重导出。

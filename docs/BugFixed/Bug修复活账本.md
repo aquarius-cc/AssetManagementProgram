@@ -2370,3 +2370,92 @@ F-P2-8~13 六票批量执行（用户拍板 D1 补实现 / D2 取消不回退 / 
 - F-P2-8 收敛范围台账注明：`out_asset_service:205` OutAsset 行锁 + `out_asset_selector:172` 经 Selector 加锁路径，本批未纳入 `lock_row_or_409`（语义为「经 Selector 预筛 + 锁行」，后续批按需评估）。
 
 *登记人：opencode ｜ 状态：F-P2-8~13 全部关闭/闭环，2026-09-24*
+
+## BF-044 【已关闭】审查报告 Q-01/Q-02 整改（共享列表组件 script setup 泛型化 + 员工搜索端点 DRY 收敛）2026-09-25
+
+### 〇、元信息
+
+- **发现日期**：2026-09-25（来源：`docs/Review/opencode-2026-09-25-检查报告.md` Q-01 / Q-02，均 P2）
+- **严重级别**：P2（规范偏离 + 契约失真；无 P0/P1）
+- **影响范围**：
+  - Q-01：`src/components/commoncomponents/CommonList.vue`、`SmartListContainer.vue`、`src/types/common.ts`（`SmartListContainerExpose`）；**间接受影响的 10 个 `*Details.vue` 消费方最终零改动**。
+  - Q-02：`src/api/user.ts`、`src/api/authusers.ts`、`src/types/authuser.ts`、`src/stores/authUserStore.ts`、`src/components/system/BindAuthUserDialog.vue`。
+  - 新增测试：`src/components/commoncomponents/__tests__/CommonList.spec.ts`、`SmartListContainer.spec.ts`。
+  - **跨端契约变更：无**（未增删改端点、响应结构、状态枚举、分页参数名、日期格式）。
+
+### 一、问题现象
+
+1. **Q-01（F6 规范）**：`CommonList.vue`（原 L83）与 `SmartListContainer.vue`（原 L46）以 `export default defineComponent` 编写，未采用项目强制的 `<script setup lang="ts">`；两组件被 284 处引用。
+2. **Q-02（FR-3 / DR-1）**：端点 `GET /users/employees/search/` 在 API 层三处独立 `request.get` 实现（同文件 2 处 + 跨文件 1 处）。
+3. **连带缺陷 a（类型失真）**：跨文件那份 `searchEmployees` 把 DRF 分页对象当数组直接返回；`unwrapResponse`（`src/api/request.ts:418-424`）只解包 `res.data`、不碰 `.results`，故返回值不可用。
+4. **连带缺陷 b（虚构字段）**：`EmployeeBrief` 类型与 `auth_user_username` 字段在前端存在，但后端全仓（含 `api-schema-baseline.json`）零命中；`BindAuthUserDialog` 依赖该字段渲染「绑定用户」栏，导致**恒显示「无」**。
+5. **连带缺陷 c（被掩盖的类型漏洞）**：迁移使 vue-tsc 暴露 **11 处** `selectedRows: object[]` 传入各实体数组（`AssetDetail[]` / `Contract[]` / …）的类型错误——原 Options API 组件的插槽 props 被推断为 `any`，长期掩盖。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|:--|:-----|:-----|
+| 1 | 组件写法 | `CommonList.vue` 原 L90 `export default defineComponent({...})`、`SmartListContainer.vue` 原 L97 同构；违反 `vue-assetmanagement/AGENTS.md` §1.2「强制 `<script setup lang="ts">`，禁止 Options API」 |
+| 2 | 端点重复 | `api/user.ts:66`（`getFuzzySearch`）、`api/user.ts:98`（`getUserByName`）、`api/authusers.ts:111`（`searchEmployees`）各自 `request.get` 同一 URL；违反 FR-3 唯一实现 |
+| 3 | 分页解包 | 后端 `apps/usermanagement/views/employee_view.py:301` `global_search` 经 `paginate_queryset` + `get_paginated_response`（L316/L319）→ 返回 `{count,next,previous,results}`；search 路径 `get_serializer_class`（L154-162）返回 `EmployeeSerializer`（`employee_serializers.py:14-49`，字段集**不含** `auth_user`） |
+| 4 | 绑定员工序列化 | by-auth-user 路径 `employee_view.py:178` 用 `EmployeeDetailSerializer`（`employee_serializers.py:70-72`，`fields = "__all__"`）→ 含 `auth_user`，指向 `authusermanagement/models.py:110` `auth_id = AutoField(primary_key=True)`，故序列化为 **number** |
+| 5 | 虚构字段成因 | 前端按「嵌套 username」直觉自造 `auth_user_username`，后端从不返回；`EmployeeBrief` 亦为自造类型 |
+| 6 | 类型漏洞成因 | Options API 组件的插槽 props 推断为 `any`，掩盖 `object[]` → 实体数组的不兼容；`<script setup>` 会精确推断插槽 props 类型，故漏洞现形 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|:--|:-----|:-----|
+| 1 | Options API → `<script setup lang="ts" generic="T extends object">`；21 props → 类型化 `Props` + `withDefaults`（默认值逐项对齐原声明）；10 emits → 类型化 `defineEmits`（顺带消除 3 处 `@typescript-eslint/no-explicit-any` 豁免）；`expose()` → `defineExpose()`；模板 `$emit(...)` → `emit(...)`；泛型 `T` 贯通 `data`/`selectionChange`/`edit`/`delete`/`detail` | `CommonList.vue`（L83/L115/L134/L224） |
+| 2 | `getRowKey` 等价重构：提取模块级 `ROW_KEY_FALLBACK_FIELDS` + 纯函数 `asRowKey`，主函数降为单循环（复杂度 11→4，消解迁移触发的 `complexity: 10` 门禁命中） | `CommonList.vue`（L163/L189） |
+| 3 | `setup(props, { slots, expose })` 整体并入顶层；3 props → 类型化声明 + `withDefaults`；`usePaginationSearch<object>` → `<T>`；删除 setup 返回值中的 `slots`（模板只用 `$slots`，该项冗余） | `SmartListContainer.vue`（L46/L104/L125/L178） |
+| 4 | `SmartListContainerExpose` → `SmartListContainerExpose<T = unknown>`，`data: Ref<unknown[]>` → `Ref<T[]>`；**默认参数保证 10 个消费方 `ref<SmartListContainerExpose \| null>` 零改动** | `types/common.ts`（L131） |
+| 5 | `getUserByName` 改为委托唯一实现 `userAPI.getFuzzySearch({ keyword })`，保留 `try/catch + logError` | `api/user.ts`（L95/L97） |
+| 6 | `searchEmployees` 改为复用 `userAPI.getFuzzySearch`，**正确取 `.results`** 返回 `Employee[]` | `api/authusers.ts`（L118） |
+| 7 | 删除虚构 `EmployeeBrief`；新增 `BoundEmployee extends Employee { auth_user: number \| null }`；`getBoundEmployee` 返回类型改为 `BoundEmployee` | `types/authuser.ts`（L189）、`api/authusers.ts`（L61） |
+| 8 | Store 签名同步：`searchEmployees: (keyword: string) => Promise<Employee[]>`、`getBoundEmployee: (authId: number) => Promise<BoundEmployee>` | `stores/authUserStore.ts`（L32/L39） |
+| 9 | 「绑定用户」栏由 `boundEmployee.auth_user_username \|\| '无'` 改为 `props.authUser?.username \|\| '无'`（修真实 UI bug） | `system/BindAuthUserDialog.vue`（L34） |
+| 10 | 补测试锚：两组件迁移前**零覆盖**却共 284 处引用（CT-1/CT-4 强制）。`CommonList.spec.ts` 15 例（默认值/分页事件桥/选择·编辑·删除·详情事件桥/搜索透传/`getRowKey` 三类语义/expose 委派与 API 面/插槽透传）；`SmartListContainer.spec.ts` 12 例（自动加载参数优先级 `initialPageSize` > `defaultPageSize` > 20 / `autoLoad=false` / 加载失败双通道与消息回落 / 默认插槽 18 项契约 / 选中行追踪 / 命名插槽透传 / expose 委派） | 两处 `__tests__/` 新建 |
+
+### 四、对抗审核
+
+- **行号漂移**：登记行号均以修复后工作区 `Select-String` 实测（`CommonList.vue` L83/L115/L134/L163/L189/L224、`SmartListContainer.vue` L46/L104/L125/L178、`types/common.ts` L131、`api/user.ts` L60/L95/L97、`api/authusers.ts` L61/L118、`types/authuser.ts` L189、`authUserStore.ts` L32/L39、`BindAuthUserDialog.vue` L34），**未沿用报告第 2 节原始定位**（原 L83/L46/L66/L98/L111 已因迁移漂移，报告该两行已划线标注）。
+- **虚报验证**：本条目「五、验证记录」所列命令与数字**全部实际执行**，无「未运行」项通过声称。首轮 `type-check` 曾报 11 errors、`vitest` 曾 2 failed、Prettier 曾 1 warn，均为真实失败并已修复，非事后美化。
+- **扫描对抗点（发现更深问题，未静默吞掉）**：
+  1. **覆盖率门禁盲区**——`vitest.config.ts:22` 的 `coverage.include` 为 `['src/**/*.ts']`，**不含 `.vue`**，故所有组件覆盖率对 80%/90% 门禁**结构性不可见**。本条两个组件的真实覆盖率（`CommonList.vue` 100% 行/语句/函数、95% 分支；`SmartListContainer.vue` 92.59% 行、92.85% 语句、100% 函数）系定向 `--coverage.include` 实测所得，**不在官方门禁口径内**。详见「六、遗留」①。
+  2. **`CommonList` expose 的可选链只防 null 不防缺方法**——`actionsRef.value?.search()` 在子实例存在但未 expose `search` 时抛 `TypeError`。生产环境 `CommonListActions.vue`（已是 script setup）确有 expose，故非现网缺陷；但该写法**不构成「子实例缺失即安全」的保证**。曾误写为测试预期并失败，已改为锁定真实契约（expose API 面为函数）。详见「六、遗留」②。
+  3. **复杂度门禁为仓外存量欠债**——`npx eslint . --rule "complexity: ['error', 10]"` 全仓 53 errors，其中**仅 1 处属本次触及文件**（`CommonList.vue:163`，已修）；其余 52 处分布于 20+ 未触达文件，属存量。详见「六、遗留」③。
+- **契约影响**：**无跨端契约变更**。未新增/修改/删除任何端点，未改 `code`/`data`/`message` 根结构、状态枚举键名、分页参数名、日期格式。Q-02 仅复用既有端点并修正前端类型与解包；Q-01 为组件内部写法与类型泛化。故 **api-schema 基线不需重导出**（与报告 L28「本次审查无端点变更，基线未变化」口径一致）。
+- **登记遗漏**：本条三处登记源已互查——报告 Q-01/Q-02 行（划线 + 指向「7. 修复追踪」）↔ 报告「7. 修复追踪」2 小节 12 行 ↔ 台账 A-37/A-38 + v2.9.46 三行变更记录 ↔ 本 BF-044。台账 v2.9.45 及历史条目未改写（历史快照豁免）。
+
+### 五、验证记录
+
+```text
+① npm run type-check（vue-tsc --build）                → 0（首轮 11 errors，已由泛型化消解）
+② npm run lint（eslint . --fix）                        → 0
+③ npm run format:check（prettier --check src/）         → 0（首轮 SmartListContainer.spec.ts 1 warn，--write 后复跑全绿）
+④ npx vitest run（整改面 src/components+api+stores）      → 74 files / 996 tests passed
+⑤ npx vitest run（全量）                                → 136 files / 1860 tests passed
+   （基线 133 files / 1831 tests → 净增 3 files / 29 tests）
+⑥ npx eslint <CommonList|SmartListContainer>.vue --rule "complexity: ['error', 10]" → 0
+   （全仓同规则 53 errors，本次触及文件迁移前 1 → 迁移后 0）
+⑦ npx vitest run --coverage（项目官方口径）              → 0；整体 93.15% stmts / 87.54% branch / 87.45% func / 93.93% lines（≥80%）；Store 97.89% / 92.17% / 94.55% / 98.38%（≥90%）
+⑧ npx vitest run --coverage --coverage.include="src/components/commoncomponents/**"（定向）→ CommonList.vue 100% stmts/funcs/lines、95% branch；SmartListContainer.vue 92.85% stmts、90.9% branch、100% funcs、92.59% lines；authUserStore.ts 94.11% stmts / 92.85% funcs / 96.96% lines
+⑨ python scripts/check_duplicate_invariants.py           → PASS（G-1~G-5 全部通过）
+⑩ python scripts/check_frontend_invariants.py            → PASS（FR-6 composables 46 文件 0 孤儿；FR-8 stores 30 文件 0 超限）
+⑪ 端点 DRY grep：生产代码 `/users/employees/search` 的 request.get → 1 处（api/user.ts:66）；另 3 处命中均在 api/__tests__/user.spec.ts 断言文本
+⑫ EmployeeBrief 全仓 grep                                → 0 命中
+⑬ auth_user_username 后端仓库 grep（含 api-schema-baseline.json）→ 0 命中
+⑭ Options API 全仓清零：117 个 .vue 中 `export default defineComponent` = 0、`methods: {`（2 空格缩进）= 0、`<script lang="ts">` = 0
+⑮ 规模红线（DR-5）：CommonList.vue 359 行、SmartListContainer.vue 204 行、两 spec 290/230 行，均 ≤500
+```
+
+### 六、遗留与关联事项
+
+1. **[待决策] 覆盖率门禁不含 `.vue`**：`vitest.config.ts:22` `coverage.include: ['src/**/*.ts']` 使组件覆盖率对 80%/90% 门禁不可见，CT-2「核心模块覆盖率」在组件层实际未受门禁保护。修法为并入 `'src/**/*.vue'`，但会立即拉低整体数值（大量存量组件零覆盖，如 `commoncomponents/InfoCard.vue`、`NotificationBell.vue` 等实测 0%），需先补测试或分阶段设阈值。属工程配置标准变更（前端 AGENTS §4.1 自主范围），**本次未擅自改动**，提请决策。
+2. **[已记录·不改] expose 可选链语义**：`CommonList.vue` 的 `actionsRef.value?.search()` 仅在子实例为 null 时短路；子实例存在但缺方法时抛错。生产 `CommonListActions.vue` 已 expose `search`/`clearSearch`，当前无实际风险；如未来该子组件 expose 面变化需同步复核。
+3. **[待决策] 复杂度存量欠债 52 处**：全仓 `complexity: 10` 门禁 53 errors，本次触及文件已清零，其余 52 处分布于 `AssetForm.vue`、`*BatchImport.config.ts`、`useOutAssetDetailCards.ts`、`createEntityStore.ts`、`request.ts` 等未触达文件。规范未把该规则写入 eslint 配置（`npm run lint` 不含），故为人工核验项。建议纳入后续批次并考虑先入 eslint 配置 + 沙盒警告期（根级 §5.4）。
+4. **关联未处理项**：报告 Q-03（页面绕过 store/api 直连请求层）、Q-05（两处 flaky 测试）本次未动，仍在「6. 结论与后续建议」待办清单中。Q-05 前端项（`src/router/__tests__/index.spec.ts`）在本次全量跑（③④⑤）中 136 files 全绿通过，但隔离复跑亦通过，**未复现**，故仍按存量 flaky 挂账不关闭。
+5. **提交状态**：本条目登记时全部改动仍在工作区未提交（type-check/lint/format/test/coverage/护栏均已绿）。按规范需用户显式要求才提交。
+
+*登记人：opencode ｜ 状态：已关闭，完成验证，2026-09-25*
