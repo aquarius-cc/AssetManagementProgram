@@ -1,0 +1,30 @@
+To apply a mutant on disk:
+    mutmut apply <id>
+
+To show a mutant:
+    mutmut show <id>
+
+
+Timed out ⏰ (1)
+
+---- apps/assetmanagement/services/asset_service.py (1) ----
+
+632
+
+Suspicious 🤔 (3)
+
+---- apps/assetmanagement/services/out_asset_service.py (3) ----
+
+309, 312, 319
+
+Survived 🙁 (4)
+
+---- apps/assetmanagement/services/damaged_asset_service.py (4) ----
+
+1-2, 6, 1386
+
+Untested/skipped (12)
+
+---- apps/assetmanagement/services/damaged_asset_service.py (12) ----
+
+25-26, 43-44, 60, 66-67, 77, 86-87, 95, 99
