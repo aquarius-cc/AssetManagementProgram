@@ -1,10 +1,10 @@
 
 ---
 
-### 📄 文档 4：后端业务规范 `/Rules_Fiels/backend-business-rules.md` (v1.15)
+### 📄 文档 4：后端业务规范 `/Rules_Fiels/backend-business-rules.md` (v1.17)
 
 # 后端业务规范与设计思路 (Backend Business Rules)
-> 版本：v1.15 | 最后更新：2026-09-23
+> 版本：v1.17 | 最后更新：2026-09-26
 > 适用范围：Django 6.0 + DRF 3.16 + PostgreSQL 16
 
 ## 一、设计思路（防腐与一致性）
@@ -254,6 +254,33 @@ repairing ──repair_done──┘    │               │                  �
 
 **【不在本细则范围】** `get_department_by_jobcode` 返回部门而非员工档案，跨部门部门可见性未评估。
 
+### 4.8 OpenAPI 契约声明细则（增补，不改其他节原文）
+
+> 本节为「文档必须与运行时一致」的落地纪律，**不修改** B1-B10、§4.2 矩阵与第五节 BR 条文。落地背景：BF-049 / BF-050——两处端点文档失真在 **1595 个用例全绿**的情况下长期存在，因为既有测试只断言 HTTP 行为，**没有任何一处断言文档**。
+
+**【机制一：响应形态决定筛选参数发现】** drf-spectacular 0.29 的 `AutoSchema.get_filter_backends()` 受 `_is_list_view()` 门控：响应非 list（聚合字典、xlsx 二进制）时**整体关闭** FilterSet / Search / Ordering 参数的自动发现。故非 list 端点若运行期确实消费筛选参数，**必须显式补回**。
+
+| 反面 | 现象 |
+|:--|:--|
+| 漏声明 | 端点支持筛选但文档没有（BF-049 导出端点） |
+| 连锁 | 修对 `responses`（改成分页数组 → 聚合字典）会**静默翻转**该门控，把原有筛选参数全部抹掉（BF-050 修第 ① 项时触发） |
+
+**【机制二：手工声明只替换、不校正】** `@extend_schema(parameters=…)` / `responses=…` 与自动注入是「同名覆盖」而非「互补合并」，写错不会被 spectacular 纠正，直接进基线（BF-050 修第 ②③ 项、BF-047 回归均由是）。
+
+**【补回方式：显式 opt-in，禁止改全局】** 使用 `core.schema.ForceFilterDiscoverySchema` + ViewSet 类属性 `force_filter_discovery_actions`（`frozenset`）。
+
+| ID | 规范项 | 约束内容 |
+| :--- | :--- | :--- |
+| OS-1 | **显式 opt-in** | 禁止覆写 `_is_list_view()` 或全局 `AutoSchema`。只有**运行期确实消费筛选参数**的 action 才可列入名单；未列入的端点行为完全不变 |
+| OS-2 | **名单取 action 方法名** | `view.action` 取自 DRF `action_map`，其值是**方法名**（`export_excel`）而非 `url_path`（`export`）。写错不报错、**静默不生效**，是本机制最易复发的坑 |
+| OS-3 | **能自动产出的一律不手写** | FilterSet / 分页器 / 认证类已能产出的声明禁止手工重写（会削平 `enum` / `title` / 选项说明）。手工声明只用于自动注入**确实无法表达**的语义（如 `keyword`） |
+| OS-4 | **重声明同一 action 必须复用共享片段** | 子类重声明 Mixin 的 action 时，`summary` / `responses` / 分页参数一律从共享字典取（如 `EXPORT_ACTION_SCHEMA`），且只 `super()` 委托、不复制实现体（DR-1） |
+| OS-5 | **双向红线** | 「文档超前于运行时」同样是失真：禁止为迁就文档去改运行时口径，也禁止给不消费参数的端点硬加参数声明 |
+| OS-6 | **校对义务** | 任何改动 `@extend_schema` / 新增端点的 PR，必须重导出 `api-schema-baseline.json` 并 diff，确认变更**只落在预期端点**；无消费方的失真同样要修（它坑未来接入方与生成客户端） |
+| OS-7 | **契约类端点必须有 schema 护栏** | 仅 HTTP 行为测试无法发现文档失真。涉及 OpenAPI 声明的端点须有用例**对照运行时事实**断言（响应结构 / 参数集 / enum），且**必须包含反向护栏**（OS-5）；断言值取自权威源（如 `TextChoices`），禁止硬编码字面量 |
+
+**【聚合响应结构】** 响应体即 payload，`code` / `message` 属响应包装、**不入 schema**。无写入/校验需求的聚合端点用 `inline_serializer` 显式声明字段；不得为「文档需要」新增一个存在误导的 Serializer（会让读者误以为存在写入路径）。
+
 ## 五、后端代码复用与量化规范（DRY 落地）
 本细则对应宪法级规则 DR-1、DR-3、DR-5、DR-6，所有后端代码必须遵守。
 
@@ -268,6 +295,7 @@ repairing ──repair_done──┘    │               │                  �
 | BR-7	| **调用链验证** |	视图（View）→ 服务（Service）→ 选择器（Selector）的纵深不得超过 3 层（View→Service→Selector 为标准深度）。若出现 View→Service→Service→Selector 等 4 层+，必须扁平化或使用事件驱动解耦。|	合并中间层或引入事件 |
 
 ## 六、变更日志
+- v1.17 (2026-09-26): 新增 §4.8 OpenAPI 契约声明细则（增补）——BF-049 / BF-050 落地。① 记录两条实测机制：`AutoSchema.get_filter_backends()` 的 `_is_list_view()` 门控（非 list 响应静默关闭筛选参数发现，且改 `responses` 会连锁翻转）、`@extend_schema` 手工声明「只替换不校正」；② OS-1~OS-7：显式 opt-in（`ForceFilterDiscoverySchema` + `frozenset`，禁改全局启发式）、名单取 action **方法名**（OS-2，附"写错静默不生效"坑点记录）、自动可产出的不手写、重声明复用共享片段、**文档超前于运行时同属失真**、PR 须 diff 基线、契约端点必须有对照运行时事实的 schema 护栏；③ 明确聚合响应用 `inline_serializer` 且不新增误导性 Serializer。附带订正：v1.16 只更新了变更日志、未升头部版本号（两处均为 v1.15），本次同步至 v1.17。本节属细则增补，不修改 B1-B10、§4.2 矩阵与 BR 条文。
 - v1.16 (2026-09-26): 新增 §4.7 员工域细则（增补，4.2 矩阵原文不改）——B12 行级隔离在员工域首次落地（BF-048）：`EmployeeViewSet` 此前直接用 `queryset` 类属性全量返回，`dept_manager` 持 `CanExportExcel` 可导出全公司员工档案。① 收窄口径完全委托既有 `get_department_codes_for_user`（三态语义与操作日志侧同源，零新业务规则）；② 收窄入口唯一化为覆写 `get_queryset()`，一次覆盖 list/retrieve/search/statistics/export，并显式收窄 `active_employees` / `by-auth-user` / `employees/{jobcode}` 三个旁路；③ 附带修正 `by-auth-user` 畸形 ID 返回 500（`ValueError`）为 404；④ `statistics` 聚合口径改随权限收窄（数值范围变化，响应结构不变）；⑤ 越权一律 404；⑥ 回归屏障 `test_employee_rbac_scope.py` 14 用例。本节属细则增补与既有规则的落地记录，不修改 4.2 矩阵原文。
 - v1.15 (2026-09-23): `[PATCH-BE]` 权限矩阵 :142「报废审批」行修订——操作列从「审批通过/拒绝」扩展为「申请（单条 create）/审批通过/拒绝/批量删除」，与实现对齐（`DamagedAssetViewSet.admin_actions` 纳入 `create`，走 `IsDeptManagerOrAbove`；方案 A：asset_admin 对单条 create ❌）。同步 `test_damaged_asset_view_api.py::TestDamagedCreateRBAC` 三角色测试同批落地（BF-037）。
 - v1.14 (2026-09-21): BR-4 函数长度红线实施方式固化（门禁先行，对应审查报告 #21）——① 新增 `scripts/check_function_length_guard.py`：以 AST 语义节点扫描 `apps/`（不含迁移/tests），BR-4 逻辑行口径 = 物理跨度行 − 空行 − `#` 注释行（docstring 计入代码行），>50 行即超限；台账 `Rules_Fiels/BR4_function_length_ledger.md` 为唯一豁免源，guard 断言"超限未登记即红、已拆分未移除即红"；② `pyproject.toml` `lint.ignore` 显式加入 `PLR0915`（ruff 无函数行数规则，此防御性关闭防未来启用 PLR 被存量淹没）；③ 计数口径说明：BR-4 语义口径下生产超长函数 19 处（物理行口径参考 38 处，差异源于空行/注释行占比较高）；④ 本变更属实施方式固化，非规则文本修改，`[PATCH-BE]` 留痕；⑤ CI 接入 `function-length-guard` job。

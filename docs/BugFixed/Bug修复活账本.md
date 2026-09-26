@@ -2834,47 +2834,91 @@ F-P2-8~13 六票批量执行（用户拍板 D1 补实现 / D2 取消不回退 / 
 
 ---
 
-## BF-049 【待修复】导出端点 OpenAPI 未声明其实际支持的筛选参数 2026-09-26
+## BF-049 【已修复·部分】导出端点 OpenAPI 未声明其实际支持的筛选参数 2026-09-26
 
 ### 〇、元信息
 
 - **登记日期**：2026-09-26（来源：BF-047 收尾时新发现）
+- **修复日期**：2026-09-26
 - **严重级别**：P3（文档失真，不影响运行时行为）
-- **状态**：🔴 待修复
-- **影响范围**：`core/excel_export/mixin.py` / `schema.py`（后端）
+- **状态**：✅ 已修复（**部分修复**，见「六、边界与未修部分」；回归屏障：`apps/usermanagement/tests/test_employee_openapi_contract.py`）
+- **影响范围**：`core/schema.py`（新增）、`core/excel_export/{mixin,schema}.py`、`apps/usermanagement/views/employee_view.py`（后端）
+- **提交**：`18c22c7`
 
 ### 一、问题现象
 
-BF-047 后 `GET /api/v1/users/employees/export/` **实际接受并生效** `keyword` / `employee_status` / `department_code`，但其 OpenAPI 声明中**不含**这三个参数——因为 Mixin 的 `@extend_schema(parameters=EXPORT_PAGINATION_PARAMETERS)` 会**覆盖** drf-spectacular 对该 action 自动注入的 filterset 参数。
+BF-047 后 `GET /api/v1/users/employees/export/` **实际接受并生效** `keyword` / `employee_status` / `department_code`，但其 OpenAPI 声明中**不含**这三个参数。
 
-即"接口支持但文档未声明"，与本次修复的 `statistics` 端点问题（已声明却忽略，属反向失真）同源、成因不同。
+即"接口支持但文档未声明"，与 BF-050（已声明却忽略，属反向失真）同源、成因不同。
 
-### 二、根因
+### 二、根因（原登记判断有误，已订正）
 
-共享的 `EXPORT_PAGINATION_PARAMETERS` 是 11 个端点共用片段（DR-1），而 `keyword` 是员工域特有语义，直接加进去会污染另外 10 个端点的文档；Mixin 的 `extend_schema` 为静态装饰器参数，无法在类定义期读取 `self` 的实例/类属性，故缺少"按 ViewSet 追加参数"的扩展点。
+**原登记判断**：「Mixin 的 `@extend_schema(parameters=EXPORT_PAGINATION_PARAMETERS)` 会**覆盖** drf-spectacular 对该 action 自动注入的 filterset 参数」。
 
-### 三、待决策事项
+**订正后（实测）**：覆盖不是根因。真正机制在 drf-spectacular 0.29 的 `AutoSchema.get_filter_backends()`：
 
-1. 在 `ExportExcelMixin` 增加类属性式扩展点（如 `export_query_parameters: list[OpenApiParameter] = []`），由 `EmployeeViewSet` 声明员工域参数——需解决 `@extend_schema` 静态求值问题（改用子类重声明 action，或运行时拼装）。
-2. 或者接受"导出端点筛选参数不入文档"，改在前端 `useUserExcelExport.ts` 注释与 `X-Export-Total-Count` 响应头中说明——成本低但文档失真仍在。
+```python
+def get_filter_backends(self):
+    if not self._is_list_view():
+        return []          # ← 非 list 响应直接不返回任何 filter backend
+    return ...
+```
 
-### 四、证据与不确定性标注
+xlsx 二进制响应触发 `_is_list_view() == False` → **整个筛选参数发现被关闭**，此时 Mixin 的 `parameters=` 根本没有机会与自动注入竞争（同一 ViewSet 的 `list` 端点同样带 `parameters`，但 4 个筛选参数完好，佐证覆盖不成立）。
 
-- **可验证**：`api-schema-baseline.json` 中 `/api/v1/users/employees/export/` 的 `parameters` 仅 `limit` / `offset`（重导出后实测）；同文件 `/list` 与 `/search` 均含 `department_code`。
-- **[推测]** 是否有外部集成方依赖该导出端点的 OpenAPI 生成客户端，**未核实**；若有，缺参数声明会导致生成代码无法传入筛选条件。
+补充证据：`operation-logs/export/` 手工声明了 6 个业务参数且正常产出，说明「手工 `parameters=` 本身不抑制自动注入」。
 
-*登记人：opencode ｜ 状态：待修复，2026-09-26*
+**因此 BF-050 登记的「同名覆盖非互补合并」机制对 BF-049 不适用**——它是**另一条机制**（启发式门控 vs 覆盖语义）。两条机制都真实存在，但解释的是不同现象；混用会导致误修。
+
+### 三、人工决策（2026-09-26 拍板，原「待决策事项」已闭环）
+
+| # | 议题 | 决策 |
+|:--|:--|:--|
+| 1 | 扩展点形式 | **不加 `export_query_parameters` 类属性**。加类属性后 Mixin 仍需在运行时拼装 `parameters`，而 `@extend_schema` 是静态装饰器参数——反而引入"两条声明路径"。改用 drf-spectacular 官方扩展点 `AutoSchema` 子类 + ViewSet 显式 opt-in 名单 |
+| 2 | 是否改全局启发式 | **不改**。`ForceFilterDiscoverySchema` 仅在 ViewSet 显式列入 `frozenset` 的 action 上放宽，避免影响全仓 100+ 端点 |
+| 3 | 是否把 `keyword` 加进 Mixin 共享片段 | **不加**。`keyword` 是员工域特有语义（`get_export_queryset()` 读 `?keyword=`），加进去会污染另外 10 个不消费该参数的端点 |
+| 4 | 其余 10 个导出端点 | **不动**（见第六节，属如实的"少声明"而非失真） |
+
+### 四、修复内容
+
+1. **新增 `core/schema.py::ForceFilterDiscoverySchema`**（通用件，非员工域专用）：仅当 `view.action` 命中 ViewSet 类属性 `force_filter_discovery_actions` 时绕过 `_is_list_view()` 门控。名单是**显式 opt-in**，未列入的端点行为完全不变。
+2. **`EmployeeViewSet` 配置**：`schema = ForceFilterDiscoverySchema()` + `force_filter_discovery_actions = frozenset({"export_excel", "statistics"})`。
+   - **坑点记录**：名单里是 **action 方法名**（`export_excel`），**不是 `url_path`**（`export`）。DRF 的 `action_map` 值即方法名，`view.action == "export_excel"`。首版误写 `{"export", ...}` 时表现为**静默不生效**（无报错、无警告），是本次最容易复发的坑，已在代码注释中标注。
+3. **员工导出局部重声明 action**：`keyword` 无法由 FilterSet 表达，故在 `EmployeeViewSet` 重声明 `export_excel` 并 `super().export_excel(request)` 委托 Mixin 实现（**不复制实现体**，DR-1），只补 `keyword` 声明。
+4. **`EXPORT_ACTION_SCHEMA` 抽为 Mixin `@extend_schema` 的单一来源**：子类重声明同一 action 时必须复用同一份 `summary` / `responses` / 分页参数，否则 Mixin 与子类漂移。
+
+### 五、验证
+
+- **重导出后实测** `/api/v1/users/employees/export/` 参数 = `keyword` + `limit` / `offset` + 自动找回的 `department_code`（含 `employee_department__department_code` 别名）/ `employee_status` / `ordering` / `search`，**与运行时实际消费项一一对应**。
+- **反向验证**：`/list` 与 `/search` 的 4 个筛选参数**零变化**；其余 11 个导出端点**零变化**（基线 diff 仅 2 个目标端点）。
+- **enum 未被削平**：`employee_status` 仍为 `enum: [active, left, retirement]`——证明"追加 `keyword`"是叠加而非覆盖（BF-047 回归防线）。
+- 门禁：全量 **1601 passed**（新增 6 护栏）；ruff check/format、C90、BR-4 全过；改动文件 mypy --strict 零错误。
+
+### 六、边界与未修部分（故标注"部分修复"）
+
+其余 10 个资产导出端点走 Mixin 默认 `get_export_queryset()`，**运行时不执行 `filter_queryset`，确实不消费筛选参数**——只声明 `limit` / `offset` 是如实的，非文档失真。
+
+**真正的可选改进**（不在本条范围）：若将来这些端点也接入筛选，应先改运行时（覆写 `get_export_queryset()` 跑 `filter_queryset`），再让文档追上；**禁止**反向操作（只给文档加参数）。新增护栏 `test_bare_asset_exports_not_overstated` 负责在"文档超前于运行时"时报警。
+
+### 七、遗留
+
+- 本地无 `oasdiff`，breaking 判定依赖 CI `api-schema-check` job。
+- `securitySchemes` 为空（全局 `SECURITY` 却引用 `BearerAuth`）属**存量**缺陷（HEAD 即如此），另立条目跟进。
+
+*登记人：opencode ｜ 状态：已修复（部分），2026-09-26*
 
 ---
 
-## BF-050 【待修复】员工统计端点 OpenAPI 契约三重错误（响应结构 + 多余 path 参数 + 虚假分页参数）2026-09-26
+## BF-050 【已修复】员工统计端点 OpenAPI 契约三重错误（响应结构 + 多余 path 参数 + 虚假分页参数）2026-09-26
 
 ### 〇、元信息
 
 - **登记日期**：2026-09-26（来源：BF-047 收尾时全量扫描 `api-schema-baseline.json` 发现）
+- **修复日期**：2026-09-26
 - **严重级别**：P3（文档层失真，运行时行为正确；当前无消费方受害）
-- **状态**：🔴 待修复
-- **影响范围**：`apps/usermanagement/views/employee_view.py`（后端）
+- **状态**：✅ 已修复（回归屏障：`apps/usermanagement/tests/test_employee_openapi_contract.py`）
+- **影响范围**：`apps/usermanagement/views/employee_view.py`（拆出 `employee_query_actions.py`）、`api-schema-baseline.json`（后端）
+- **提交**：`18c22c7`
 
 ### 一、问题现象
 
@@ -2886,7 +2930,7 @@ BF-047 后 `GET /api/v1/users/employees/export/` **实际接受并生效** `keyw
 | 2 | 必填 **path** 参数 `name`（"员工名称"） | 该 action 是 `detail=False`，路径中**无任何占位符**，此参数无处可填 |
 | 3 | `page` / `page_size` 查询参数 | 端点不分页，返回裸字典，二者无效 |
 
-### 二、根因（与 BF-049 同源的机制缺陷）
+### 二、根因
 
 `statistics` action 上的 `@extend_schema` 残留了一份「详情/列表页」模板：
 
@@ -2898,29 +2942,48 @@ BF-047 后 `GET /api/v1/users/employees/export/` **实际接受并生效** `keyw
 )
 ```
 
-**机制**：drf-spectacular 中 `@extend_schema(parameters=…)` / `responses=…` 的手工声明与自动注入是**「同名覆盖」而非「互补合并」**——手工声明只负责替换/追加，不负责补全或校正。一旦手工写错（张冠李戴的模板、错误的 serializer），spectacular 不会纠正，错误直接进基线。
+**机制一：手工声明只替换、不校正。** drf-spectacular 中 `@extend_schema(parameters=…)` / `responses=…` 与自动注入是「同名覆盖」而非「互补合并」，且**不负责补全或校正**。一旦手工写错（张冠李戴的模板、错误的 serializer），spectacular 不会纠正，错误直接进基线。
 
-同一机制已造成三处问题，本条是第三处（前两处见下）：
+**机制二：响应形态决定筛选参数发现（BF-049 修复时才发现的第二条机制）。** 把手工 `responses` 改成聚合字典后，`_is_list_view()` 由 `True` 翻为 `False`，**4 个运行期生效的筛选参数会随之全部消失**——修对一处会引出新一处。BF-049 登记的「同名覆盖」对导出端点并不成立（已订正，见 BF-049 第二节），此处的连锁效应才是本条的真实陷阱。
 
-1. **BF-047 回归（已修）**：`global_search` 手工声明 `employee_status`，覆盖掉 FilterSet 自动注入的 `title` / `enum[3]` / 逐项中文说明，基线中被削平成裸 `string`。修法：删除手工声明，交回自动注入。
-2. **BF-049（待修）**：`ExportExcelMixin` 共享的 `EXPORT_PAGINATION_PARAMETERS` 覆盖掉各端点自动注入的筛选参数，使导出端点文档缺失 `keyword` / `employee_status` / `department_code`。
-3. **本条**：`statistics` 手工 `responses` + path 参数未被校正。
+**教训（可推广）**：
+1. 凡 FilterSet / 分页器 / 认证类已能自动产出的声明，不要手工再写一遍；手工声明只在自动注入**确实无法表达**时使用（如 `keyword` 这类自定义语义）。
+2. 改 `@extend_schema(responses=…)` 时必须重跑基线 diff：响应形态变化会静默翻转筛选参数的自动发现，两类缺陷互为因果。
 
-**教训（可推广）**：凡 FilterSet / 分页器 / 认证类已能自动产出的声明，不要手工再写一遍；手工声明只在自动注入**确实无法表达**时使用（如 `keyword` 这类自定义语义），且必须逐字校对基线 diff。
+### 三、人工决策（2026-09-26 拍板，原「待决策事项」已闭环）
 
-### 三、待决策事项
+| # | 议题 | 决策 |
+|:--|:--|:--|
+| 1 | 聚合结构如何描述 | **采用 `inline_serializer`** 显式声明 4 字段（§3 约定：响应体即 payload，`code`/`message` 属响应包装不入 schema）。不新增 `EmployeeStatisticsSerializer`——该响应无写入/校验需求，新增序列化器只会让人误以为存在写入路径 |
+| 2 | 删掉 3 条幽灵参数后的参数集 | 确认为 `employee_status` / `department_code` / `ordering` / `search`，**与运行时实际生效行为一致** |
+| 3 | 是否把「手工声明须经基线 diff 校对」写入后端规则 | **写入** `Rules_Fiels/backend-business-rules.md` §4.8（决策 3 采纳） |
 
-1. `responses` 如何正确描述聚合结构？候选：`inline_serializer` 显式声明 4 个字段 / 抽 `EmployeeStatisticsSerializer` 供 OpenAPI 引用（后者更易被前端复用，但新增一个序列化器需评估 DRY 与 §1.2 分层）。
-2. 删掉 `name` / `page` / `page_size` 三条手工参数后，`statistics` 将只剩 FilterSet 自动注入的 `employee_status` / `department_code` / `ordering` / `search`——与实际生效行为一致，确认即可。
-3. 是否借机把「`extend_schema` 手工声明必须经基线 diff 校对」写成后端业务规则的检查项（`Rules_Fiels/backend-business-rules.md`），以便后续 PR 自查。
+### 四、修复内容
 
-### 四、证据与不确定性标注
+1. **新增 `EmployeeStatisticsDataSchema`**（`apps/usermanagement/views/employee_query_actions.py`），生成 `EmployeeStatistics` 组件；200 响应指向该组件。
+2. **删除** `name`(path) / `page` / `page_size` 三条幽灵参数。
+3. **删除 `PaginatedEmployeeDetailList` 组件**：全局检索确认 `statistics` 是它**唯一**引用点（`/list` 用 `PaginatedEmployeeList*`），无悬挂引用。
+4. **连带修复**（机制二连锁）：统计端点的 4 个筛选参数经 `ForceFilterDiscoverySchema` 找回，与 BF-049 同一机制、同一 opt-in 名单，不新增第二套方案。
+5. **DR-5/BR-6 强制拆分**：`employee_view.py` 505 行（拆出后仍需新增内容，必然突破 500 行红线）→ 只读查询 action 迁至 `EmployeeQueryActionsMixin`（260 行），主类降至 **376 行**。拆分是修复的前置条件，非顺手重构。
 
-- **可验证**（重导出后实测基线）：200 响应 `$ref = #/components/schemas/PaginatedEmployeeDetailList`；参数含 `name`（`in: path`）、`page`、`page_size`；`statistics` 方法体（`employee_view.py:299-301`）返回 `success_response(data=stats)`，`stats` 为 `get_employee_statistics()` 的聚合字典。
-- **可验证**：`detail=False` 却带 path 参数的缺陷**全仓仅此 1 处**——脚本遍历基线全部 `in: path` 参数与路径占位符比对，命中数 1。
-- **可验证**：全仓无该端点的消费方——`vue-assetmanagement/src` 全量检索 `employees/statistics` / `total_employees` / `active_employees` 均 0 命中，故运行时无受害方，契约错误目前只坑未来接入方与生成客户端。
-- **[推测]** 该声明是否为「早期从某个详情页复制而来」——无 git blame 佐证前不作结论，故本条只记事实与修法方向，不追溯历史责任。
+### 五、验证
 
-*登记人：opencode ｜ 状态：待修复，2026-09-26*
+- 基线 diff **仅限 statistics 一个端点** + 组件 `+EmployeeStatistics` / `-PaginatedEmployeeDetailList`，**零其他端点变化**。
+- 导出/列表/search 等既有端点参数零变化。
+- 护栏 6 用例（`test_employee_openapi_contract.py`）全绿：响应结构、幽灵参数消失、运行期筛选参数在位、enum 未被削平、11 个裸资产导出端点未被过度声明。
+- 门禁：全量 **1601 passed**；ruff check/format、C90、BR-4 全过；改动文件 mypy --strict 零错误。
+
+### 六、为什么这类缺陷能长期潜伏（已转护栏）
+
+BF-050 的三处错误在 **1595 个用例全绿**的情况下长期存在——因为既有测试全部断言 **HTTP 行为**，**没有任何一处断言文档**。`test_employee_rbac_scope.py` 能证明 `statistics` 的聚合值等于列表可见行数，却无法发现"文档把它说成分页数组"。
+
+新增的 `test_employee_openapi_contract.py` 填补这一空白。**分工已明确写入文件头**（避免 DR-1 重复造测试）：本文件只守护「文档声明」侧；「参数真的生效」侧由既有 DB 级用例守护（`test_employee_export.py:196/226/231/258`）。
+
+### 七、遗留
+
+- `?search=` 门禁内的匹配行为与 `?keyword=` 不一致（`search` 命中 `search` 字段名、`keyword` 命中半角昵称），属语义设计问题，**未在本条处理**。
+- 本地无 `oasdiff`，breaking 判定依赖 CI `api-schema-check` job。
+
+*登记人：opencode ｜ 状态：已修复，2026-09-26*
 
 
