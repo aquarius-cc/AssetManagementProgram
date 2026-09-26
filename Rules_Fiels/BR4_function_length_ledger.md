@@ -8,6 +8,7 @@
 > **新增 3 列语义**（2026-09-21 升格）：`拆分目标（helper）` = 拟抽取/提升的私有方法设计；`回归测试锚` = 该函数拆分前后的既有测试文件；`风险标注` = 拆分时须人工核对的行为要点。
 > **嵌套计数口径**：外层函数逻辑行含嵌套函数 body。实测 `batch_delete_outasset` 总逻辑行 76 = 外层 5 + 嵌套 `_delete_one` 71，故该行拆分目标为 **hoist（提升）** 而非线性抽取。
 > **hoist 约定**：`_delete_one` 提升至类级 staticmethod 后行号迁移，台账须同提交更新行号/关闭条目，guard「已拆分未移除即红」兜底。
+> **规模化回归事故 + 护栏补强（2026-09-26）**：`210cfa7`（107 文件「纯格式化零语义 diff」）重排行数，使 B1 刚拆完的两个函数由 49 / 38 逻辑行**反弹**至 53 / 52，越过 50 红线，而 header「生产超长函数 0 处」的结论一度失真且无人察觉。教训两条：①「零语义 diff」不等于「零结构影响」——格式化会改变长度类指标；② 批量格式化后必须复跑长度护栏。故 `ci.yml` `backend-lint` job 已内嵌 `python ../scripts/check_function_length_guard.py`（与 ruff 同 job，仅依赖标准库），此类回归今后由 CI 直接拦截。已修复：`recycle_asset_service.py` 抽 `_create_broken_or_lost_record` + 塌缩损坏/遗失双分支为单次调用（`4cc80b8`），guard 复测 `[PASS] 0 超长 / 0 未登记台账`。
 > **B1 已完成**（2026-09-21）：六处全部拆分并移除台账（recycle/out/damaged/department），`pytest apps/assetmanagement -q` 724 passed + `apps/usermanagement -q` 99 passed；`_finalize_broken_or_lost` 合并 broken/lost 双分支（DR-1）。
 > **B2 已完成**（2026-09-21）：9 处全部拆分并移除台账（usermanagement assign_role/bind/replace/unbind + unregisteredasset handlers S1/S2/S3 + services create/update/approve + views batch_delete），guard 4/4；unregisteredasset 194 passed + usermanagement 99 passed + assetmanagement 726 passed；mypy 26 存量零新增。
 > **B2/B3 拆分设计**（2026-09-21 完成）已固化于各行；helper 名以 guard 实测调整。docstring 计入计数，部分函数设计含「docstring 压缩」（行为无关纯文本，语义保留）。

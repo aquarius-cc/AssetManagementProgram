@@ -31,6 +31,12 @@ jobs:
         run: ruff check .
       - name: Ruff 格式检查
         run: ruff format --check .
+      # BR-4 函数长度护栏与 ruff 同 job：ruff format 会重排行数(210cfa7 曾使 B1 已拆分的
+      # 两个函数由 38/49 反弹到 52/53 逻辑行越过 50 红线)，故批量格式化后必然复跑本护栏。
+      # 脚本仅依赖标准库(ast/re/pathlib)，无需安装 Django；路径基于 __file__ 解析，与
+      # working-directory 无关。台账：Rules_Fiels/BR4_function_length_ledger.md
+      - name: BR-4 函数长度护栏
+        run: python ../scripts/check_function_length_guard.py
 
   backend-type-check:
     name: "后端 - 类型检查 (mypy)"
