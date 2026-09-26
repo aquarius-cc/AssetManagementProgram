@@ -2633,18 +2633,30 @@ F-P2-8~13 六票批量执行（用户拍板 D1 补实现 / D2 取消不回退 / 
 
 ---
 
-## BF-047 【待修复】员工导出未接列表筛选条件（BF-046 衍生）2026-09-26
+## BF-047 【已关闭】员工导出未接列表筛选条件（BF-046 衍生）2026-09-26
 
 ### 〇、元信息
 
 - **登记日期**：2026-09-26（来源：BF-046 落地核查中发现的衍生缺口）
 - **严重级别**：P2（导出内容 ≠ 列表所见；不静默、不丢数据，但预期不符）
-- **状态**：🔴 待修复
-- **影响范围**：`apps/usermanagement/views/employee_view.py`（后端）、`src/composables/useUserExcelExport.ts`（前端）
+- **状态**：✅ 已关闭（2026-09-26，取行口径单一入口落地；原「待决策事项」已由用户拍板，见第三节）
+- **影响范围**：`core/excel_export/mixin.py`、`apps/usermanagement/employee_filters.py`（新建）、`apps/usermanagement/selectors.py`、`apps/usermanagement/views/employee_view.py`、`api-schema-baseline.json`（后端）；`src/composables/useUserExcelExport.ts`、`src/composables/usePaginationSearchState.ts`、`src/stores/userStore.ts`、`src/components/componentsdetails/UserDetails.vue`（前端）
+- **衍生缺口**：BF-048（导出行级 RBAC 缺失，本次登记未修）、BF-049（导出端点 OpenAPI 未声明其实际支持的筛选参数，本次登记未修）
 
 ### 一、问题现象
 
 员工列表支持 `search`（`global_search`）、状态、部门等筛选，但**导出端点不接受任何筛选参数**——用户在列表页筛选出 20 条后点击导出，得到的仍是全量员工（受 `EXPORT_MAX_ROWS` 兜底）。
+
+核对范围后确认该现象是**三个口径分叉的共同结果**，而非单点缺陷：
+
+| 路径 | `keyword` | `employee_status` | `department_code` |
+|---|:---:|:---:|:---:|
+| 列表 `list` | ❌ 不消费（只认 DRF `search=`） | ✅ | ⚠️ 只认别名 `employee_department__department_code` |
+| 搜索 `search` | ✅ | ❌ | ❌ 静默失效 |
+| 统计 `statistics` | ❌ | ❌ 忽略 | ❌ 忽略 |
+| 导出 `export` | ❌ | ❌ | ❌ 忽略 |
+
+其中 `department_code` 两分支静默失效的成因：`filterset_fields` 的值必须是**模型字段路径**，而 `department_code` 挂在关联对象上（`Employee` 上无此字段），写 `filterset_fields = ["department_code"]` 会在构造 filterset 时抛 `FieldDoesNotExist`，于是前端只能按 ORM 路径传别名；搜索端点则压根不跑 `filter_queryset`。
 
 对照：操作日志侧已由 `parse_operation_log_filters` 让列表与导出共用同一参数入口，**无此缺口**。
 
@@ -2652,14 +2664,263 @@ F-P2-8~13 六票批量执行（用户拍板 D1 补实现 / D2 取消不回退 / 
 
 `EmployeeViewSet.get_queryset()` 不读取 `request` 的筛选参数（列表的筛选在 `get_serializer_class` / 分页链中另行处理），而 `ExportExcelMixin` 直接复用 `self.get_queryset()`——可见性一致（BF-046 的设计目标），但**筛选一致性**未随之实现。
 
+更深一层：员工域的筛选解析散落在 4 条路径里各自实现，`ExportExcelMixin` 又是**全 app 共享**的单点，二者叠加即必然分叉。故本次不补第 N 处解析，而是**建立唯一入口**（DR-1/DR-3）。
+
+### 三、决策（用户 2026-09-26 拍板）
+
+原「待决策事项」两问的结论：
+
+1. **导出是否需要支持筛选 → 需要**，且筛选参数契约与列表端点**逐字对齐**（B2 方案：前端保持只传 `department_code`，后端同时接受业务名与 ORM 别名，不改前端调用方）。
+2. **是否在 UI 上标注"导出为全量" → 不需要**，改为让导出真正跟随当前可见范围，从根上消除误解可能。
+
+关键取舍（均经用户确认）：
+
+- **不采用**「把 `mixin.py` 改成 `self.filter_queryset(self.get_queryset())`」这一看似一行的修法：全局 `DEFAULT_FILTER_BACKENDS` 生效，`filter_queryset` 对资产端点**并非 no-op**，该改法会让 10 个资产导出端点的行序/搜索行为同步改变（越界）。改为新增 `get_export_queryset()` 钩子、**只由 `EmployeeViewSet` 覆写**，其余 11 个端点默认行为字节级不变。
+- **统计端点按「列表当前可见范围的聚合」修复**（而非保持全量），使其 OpenAPI 已声明的筛选参数不再形同虚设。
+- **BF-048 单独登记**：行级数据权限（RBAC）与筛选口径是两件事，不在本次夹带修复。
+
+### 四、修复内容
+
+| # | 端 | 内容 |
+|---|-----|------|
+| 1 | 后端 | `core/excel_export/mixin.py` 新增 `get_export_queryset()` 钩子（默认 `return self.get_queryset()`），`export_excel` 改走该钩子；11 个未覆写端点行为不变（`test_export_excel.py` 3 条契约测试锁定） |
+| 2 | 后端 | 新建 `apps/usermanagement/employee_filters.py`，定义**本项目首个 FilterSet 类** `EmployeeFilterSet`——`department_code` 显式 `field_name` 映射到关联字段路径，兼收 ORM 别名；`employee_status` 用 `ChoiceFilter` 保住既有的取值校验与 OpenAPI enum 文档（改 `CharFilter` 会静默降级，见第六节） |
+| 3 | 后端 | `EmployeeSelector.search_employees(keyword, base=None)`：传 `base` 时在调用方 queryset 上叠搜索条件，保留调用方的 `select_related`/行基准 |
+| 4 | 后端 | `EmployeeSelector.get_employee_statistics(queryset=None)`：三处独立 `Employee.objects` 收为单一 `base`，`None` 时行为与历史等价 |
+| 5 | 后端 | `EmployeeViewSet._filtered_employee_queryset(keyword)` 成为员工域取行口径唯一实现，供 `list` / `global_search` / `get_export_queryset` / `statistics` 四条路径共用；`filterset_fields` 换为 `filterset_class` |
+| 6 | 后端 | 顺带订正 `get_queryset_with_bind_status()` docstring（原称"供列表接口展示绑定状态"，实际该字段由 `EmployeeDetailSerializer` 的详情路径消费） |
+| 7 | 前端 | `usePaginationSearchState` 新增**可选** `onSearchStateChange` 回调，在 `search.value` 的每次真实变更后派发（含 `clearSearch`）——`performSearch` 收不到空串（内部提前走 `loadList`），无此出口则清空后搜索词残留 |
+| 8 | 前端 | `userStore.ts` 新增模块级 `currentKeyword` + `useUserCurrentKeyword()` / `setUserCurrentKeyword()`（trim 归一化），为「当前搜索词」建立单一事实来源 |
+| 9 | 前端 | `UserDetails.vue` 的 `search` 配置挂 `onSearchStateChange`；`useUserExcelExport.ts` 按搜索词转发 `params: { keyword }`，并改写原「已知限制 BF-047」注释为已闭环 + BF-048 仍存限制 |
+
+### 五、验证
+
+```text
+① 先红后绿取证：git stash 仅回退 3 个后端源文件（保留测试）后
+   pytest test_employee_filters + test_employee_export + test_export_excel
+   → 15 failed / 22 passed（三类缺陷逐条命中；department_code 静默失效、
+     statistics 忽略全部筛选、导出忽略 keyword/状态/部门、钩子不存在）
+   恢复源文件后同三套件 → 37 passed
+② 前端先红后绿：git stash 仅回退 useUserExcelExport.ts 后同 spec
+   → 3 failed（keyword 透传三例）；恢复后 → 14 passed
+③ pytest --cov=. → 1581 passed / 0 failed，整体 85.86%（CT-2 门槛 80%）✅
+④ ruff check . → All checks passed；ruff check . --select C90
+   --config lint.mccabe.max-complexity=10 → All checks passed
+⑤ mypy . --strict → Success: no issues found in 216 source files
+⑥ manage.py spectacular --validate → components 零漂移、paths 零增删；
+   参数差异仅 +department_code ×3（list / search / statistics），无删除项
+   —— 收尾复查修正：首版曾在 `global_search` 的 `@extend_schema` 里手工声明
+   `employee_status` / `department_code`，其中 `employee_status` **覆盖**掉
+   FilterSet 自动注入的 title/enum/逐项说明（基线中被削平成裸 string）。
+   已删除这两条手工声明（保留 keyword/page/page_size），重导出后
+   `employee_status` 与 HEAD 逐字一致（enum×3 + title 回归），`department_code`
+   由自动注入补回（形态 `{"type":"string"}`，与 /list 一致）；基线 diff 的
+   13 处删除**全部**是 description 字符串，零 schema/参数/响应删除。
+   该机制与 BF-049、BF-050 同源，教训已记入 BF-050 第二节。
+⑦ 告警归因（收尾核实）：`spectacular --validate` 报 287 warnings / 24 errors，
+   **与本次改动零交集**——6 个 unique error 全为非 GenericAPIView 的
+   "unable to guess serializer"，分布在 public_scan_view / authusermanagement /
+   notification 三个模块；唯一触及本次文件的告警是 `employee_view.py:45`
+   "could not resolve authenticator JWTCookieAuthentication"（项目未注册
+   OpenApiAuthenticationExtension 的全局存量，permission_view 等同样命中）。
+   dev 与 production 两套 settings 下计数完全一致（287/61、24/6），
+   **证伪**了"环境差异"假设；`--validate` exit code = 0，故 CI 的
+   "Generate schema" 步骤可通过，CI 真门禁是 `oasdiff breaking`
+   （ci.yml:115；本地未安装 oasdiff，breaking 判定交由 CI 复核）。
+   注：JWTCookieAuthentication 缺 OpenApiAuthenticationExtension 属新发现，
+   尚未登记（OpenAPI 不声明认证方案，影响生成客户端），待评估。
+⑦ check_duplicate_invariants.py → PASS（G-1~G-5）
+⑧ check_frontend_invariants.py → PASS（FR-6 composables 47 文件 0 超限；
+   FR-8 stores 30 文件 0 超限）
+⑨ check_function_length_guard.py → FAIL，但为**存量且与本次无交集**：
+   assetmanagement/services/recycle_asset_service.py _finalize_broken_or_lost()
+   53 行、create_recycle_asset() 52 行未登记台账（该文件本次未改动，
+   工作树 == HEAD，故为 HEAD 既有问题，留待 BR-4 批次拆分处理）
+⑩ 前端 npx vitest run --coverage → 138 files / 1893 tests passed；
+   statements 92.72% / branches 87.34% / functions 87.17% / lines 93.51%；
+   userStore.ts 98.46%（Store 层门槛 90%）✅
+⑪ 前端三项检查 → type-check / lint / format:check 均 0 错误
+```
+
+新增测试（CT-1/CT-4 回归屏障）：
+
+- `apps/usermanagement/tests/test_employee_filters.py`（新建，14 例）：列表双名等价、搜索 `department_code`/`employee_status` 生效且与 keyword 取交集、统计四维度（`total` / `active` / `by_status` / `by_department`）随筛选收窄、组合筛选下统计条数 == 列表可见条数、统计在默认 ordering 下不碎组。
+- `apps/usermanagement/tests/test_employee_export.py`（+6 例）：搜索态导出与 `/search/` 端点逐行同集合、keyword 与部门叠加收窄、状态/部门筛选、别名等价、空 keyword 不得清空结果。
+- `apps/assetmanagement/tests/test_export_excel.py`（+3 例）：默认实现原样委托 `get_queryset()`、覆写钩子后导出走覆写口径、超限判定基于钩子口径行数。
+
+### 六、契约变更
+
+**纯增量，未触发 §1.3 红线**：
+
+- 新增请求参数 `department_code`（`list` / `search` / `statistics` 三处），`components` 与响应体结构零变化。
+- **不删除** `employee_department__department_code` 别名：删参数属请求参数删除，须 §1.3 人工审批，故保留为兼容别名（历史调用方与文档仍可用）。已在此登记该技术债并说明退场条件。
+- `employee_status` 保持 `ChoiceFilter`，`schema` 中该参数的 `enum` / `title` / 描述**未丢失**——实现过程中曾一度改用 `CharFilter`，重导出基线时发现 enum 消失即回退，故 `employee_filters.py` 内写明"不得降级"的注释。
+
+### 七、遗留
+
+1. **BF-048**：员工导出为全公司口径，无行级数据权限（本次未修，见下条）。
+2. **BF-049**：导出端点的 OpenAPI 未声明其实际支持的 `keyword` / `employee_status` / `department_code`（本次未修，见下条）。
+3. `employee_department__department_code` 兼容别名暂无退场计划；若将来下线，须按 §1.3 走人工审批并同步前端与文档。
+4. `?search=`（DRF `SearchFilter` 的窄口径，不含部门名匹配与状态别名映射）与 `?keyword=`（列表口径）两套搜索语义并存，前端只用后者；后端未拒绝 `search`，属文档层遗留。
+
+*登记人：opencode ｜ 状态：已关闭（2026-09-26）*
+
+---
+
+## BF-048 【已修复】员工域无行级数据权限（部门经理可导出全公司员工档案）2026-09-26
+
+### 〇、元信息
+
+- **登记日期**：2026-09-26（来源：BF-047 核查中发现的**独立**安全缺口）
+- **修复日期**：2026-09-26
+- **严重级别**：**P1**（越权读取个人信息，批量落盘放大泄露面）
+- **状态**：✅ 已修复（回归屏障：`apps/usermanagement/tests/test_employee_rbac_scope.py` 14 用例）
+- **影响范围**：`core/department_scope.py`、`apps/usermanagement/selectors.py`、`apps/usermanagement/views/employee_view.py`（后端）
+
+### 一、问题现象
+
+`EmployeeViewSet.get_queryset_with_bind_status()` 返回**全量员工**（仅 `select_related`），不做行级收窄。BF-047 修复后导出行集合 = 列表可见行集合，但**列表本身亦为全量**——因此：
+
+- 持有 `CanExportExcel` 的 `dept_manager` 可导出**全公司**员工档案（含工号、姓名、状态、部门、位置等列；手机号已被导出列刻意排除）。
+- BF-046 的「最小化 PII」只收敛了**列**，未收敛**行**，批量导出使泄露面从「逐条查询可见」放大为「一次拖走全量」。
+
+### 二、根因
+
+员工域从未实现行级数据权限。对照：操作日志侧有 `OperationLogSelector._scope_by_user`（部门列表含子部门、空列表 `.none()`、`None` 不限），**员工域无对应实现**——即「列表口径」与「权限口径」从未分离设计，默认全量。
+
+### 三、人工决策（2026-09-26 拍板，原「待决策事项」已闭环）
+
+| # | 议题 | 决策 |
+|:--|:--|:--|
+| 1 | 部门经理可见范围 | **仅本部门 + 全部下级部门**，与 `OperationLogSelector._scope_by_user` 完全对齐（不新造范围规则） |
+| 2 | `statistics` 聚合语义随之收窄 | **接受**为对外行为变更。逐条核对根级 §1.3 四项红线（无迁移 / 响应结构不变 / 不碰 FSM / 不改枚举）后判定**不构成 [HALT]**，但按 P1 走轻量审批包后实施 |
+| 3 | `active_employees` 是否一并收窄 | **收窄**。前端实测 0 消费方，收窄零破坏面；不收窄等于留一个「批量 PII 导出」口子，与本条修复自相矛盾 |
+
+### 四、修复内容
+
+1. **`core/department_scope.py` 新增 `get_employee_scoped_queryset_for_user(user, qs)`**：完全委托既有 `get_department_codes_for_user` + `filter_queryset_by_department(qs, codes, "employee_department")`，**零新业务规则**（DR-1），命名镜像既有 `get_asset_linked_queryset_for_user`。
+2. **`EmployeeSelector.get_queryset_for_user(user)`**：与 `UnregisteredAssetSelector.get_queryset_for_user` 同型，查询留在 Selector 层（分层铁律）。
+3. **`EmployeeViewSet.get_queryset()` 覆写**为唯一收窄入口。因 DRF `get_object()` 内部即 `filter_queryset(get_queryset())`，一处覆写即覆盖 **list / retrieve / search / statistics / export 五条路径**——其中 **`retrieve`（`lookup_field=employee_jobcode`）是本条新发现的第 4 个旁路**：它原先只经声明式筛选，任何登录用户可按工号枚举读取任意员工档案，收窄后自动受保护。
+4. **三个绕开取行口径的旁路显式收窄**：
+   | 旁路 | 原实现 | 收窄方式 |
+   |:--|:--|:--|
+   | `active_employees` | 裸 `EmployeeSelector.get_active_employees()`（全公司批量 PII） | 经 `get_employee_scoped_queryset_for_user` |
+   | `by_auth_user` | 裸 `Employee.objects.select_related(...).get(...)`（ID 可枚举） | 改走 `self.get_queryset()` |
+   | `get_employee_by_jobcode` | 用 `self.queryset`（未 `filter_queryset`，工号可枚举） | 改走 `self.get_queryset()` |
+
+### 五、修复中发现的两个附带缺陷（已一并处理）
+
+1. **`by_auth_user` 畸形 ID 返回 500**：`auth_id` 是 URL 捕获组（str），原实现直接交给 ORM 做 FK lookup，非法值触发 `ValueError` → 500。现改为先 `isdigit()` 校验再 `int()`，非法值收敛为 **404**。
+2. **实现过程中被自己的测试抓到的真 bug**：首版把转换失败的 `auth_id` 回落为 `None`，而 `filter(auth_user_id=None)` 会去匹配「**未绑定账号的员工**」并误返 **200**（等于开了一个新的越权读）。已改为非法值直接 404，并由 `test_by_auth_user_with_malformed_id_returns_404` 锚定。
+   —— 教训：**「显式收窄」的代码本身也要被负例测试覆盖**，否则收窄实现可能自己成为泄露面。
+
+### 六、验证
+
+- 新增 `apps/usermanagement/tests/test_employee_rbac_scope.py` **14 用例全通过**：三态语义（dept_manager 本部门+子部门 / regular_user 仅本部门 / system_admin+auditor 不限 / 部门级无部门→零行且导出 403）、statistics 聚合 == 列表可见行数、**导出行集合 == 列表行集合**、search 关键词不可越权、三个旁路收窄、retrieve 越权 404、by_auth_user 正反两面 + 畸形 ID。
+- 回归：`pytest apps/usermanagement` 153 passed；`pytest`（全量）**1594 passed**；`ruff check .` / `ruff format --check .`(328 files) / C90 三门禁 exit 0；BR-4 guard `[PASS] 0 超长`；`mypy --strict` 改动文件零错误。
+- **1 处既有测试因语义变更而订正**：`test_employee_export.py::test_export_respects_keyword` 的对照组 `EXP-OTHER` 在另一部门，收窄后正确不可见，期望集已更新并注明「收窄语义的三态断言在 rbac_scope 文件，本用例只守『导出 == 搜索可见集』」。
+- **契约**：`api-schema-baseline.json` 重导出后仅 description 文本变化 + 增量参数，**零 schema/响应/参数删除**（statistics 响应结构不变，仅数值范围随调用者权限变化）。
+
+### 七、对外行为变更声明（供外部消费方自查）
+
+`GET /api/v1/users/employees/{list,search,statistics,export,active-employees,by-auth-user,employees-by-jobcode,detail}` 的**返回行集合**现随调用者部门范围收窄。`statistics` 的 `total_employees` / `by_department` 等聚合数值同步收窄。**响应结构与字段名均未变化。** 若有外部脚本消费这些端点，需按「以调用者身份为准」重新核对预期数值。
+
+### 八、遗留（不在本条范围）
+
+- `get_department_by_jobcode` 返回部门而非员工档案，跨部门部门可见性未评估，另立。
+- `mypy . --strict` 全量仍有 **27 errors / 12 文件**存量（`dateutil` stubs 等，含提交自述的「27 存量不变」），与本条无关，未处理。
+
+*登记人：opencode ｜ 状态：已修复，2026-09-26*
+
+---
+
+## BF-049 【待修复】导出端点 OpenAPI 未声明其实际支持的筛选参数 2026-09-26
+
+### 〇、元信息
+
+- **登记日期**：2026-09-26（来源：BF-047 收尾时新发现）
+- **严重级别**：P3（文档失真，不影响运行时行为）
+- **状态**：🔴 待修复
+- **影响范围**：`core/excel_export/mixin.py` / `schema.py`（后端）
+
+### 一、问题现象
+
+BF-047 后 `GET /api/v1/users/employees/export/` **实际接受并生效** `keyword` / `employee_status` / `department_code`，但其 OpenAPI 声明中**不含**这三个参数——因为 Mixin 的 `@extend_schema(parameters=EXPORT_PAGINATION_PARAMETERS)` 会**覆盖** drf-spectacular 对该 action 自动注入的 filterset 参数。
+
+即"接口支持但文档未声明"，与本次修复的 `statistics` 端点问题（已声明却忽略，属反向失真）同源、成因不同。
+
+### 二、根因
+
+共享的 `EXPORT_PAGINATION_PARAMETERS` 是 11 个端点共用片段（DR-1），而 `keyword` 是员工域特有语义，直接加进去会污染另外 10 个端点的文档；Mixin 的 `extend_schema` 为静态装饰器参数，无法在类定义期读取 `self` 的实例/类属性，故缺少"按 ViewSet 追加参数"的扩展点。
+
 ### 三、待决策事项
 
-1. 员工导出是否需要支持筛选？若需要，筛选参数契约须与列表端点逐字对齐（跨端契约，须根级统筹）。
-2. 若暂不支持，是否在 UI 上标注"导出为全量数据"以免用户误解？
+1. 在 `ExportExcelMixin` 增加类属性式扩展点（如 `export_query_parameters: list[OpenApiParameter] = []`），由 `EmployeeViewSet` 声明员工域参数——需解决 `@extend_schema` 静态求值问题（改用子类重声明 action，或运行时拼装）。
+2. 或者接受"导出端点筛选参数不入文档"，改在前端 `useUserExcelExport.ts` 注释与 `X-Export-Total-Count` 响应头中说明——成本低但文档失真仍在。
 
 ### 四、证据与不确定性标注
 
-- **可验证**：`useUserExcelExport.ts` 的 `exportExcel()` 不传任何筛选参数；`EmployeeViewSet` 无筛选解析入口（源码直读）。
-- **[推测]** 用户是否会因此产生误解属产品判断，未做用户验证。
+- **可验证**：`api-schema-baseline.json` 中 `/api/v1/users/employees/export/` 的 `parameters` 仅 `limit` / `offset`（重导出后实测）；同文件 `/list` 与 `/search` 均含 `department_code`。
+- **[推测]** 是否有外部集成方依赖该导出端点的 OpenAPI 生成客户端，**未核实**；若有，缺参数声明会导致生成代码无法传入筛选条件。
 
 *登记人：opencode ｜ 状态：待修复，2026-09-26*
+
+---
+
+## BF-050 【待修复】员工统计端点 OpenAPI 契约三重错误（响应结构 + 多余 path 参数 + 虚假分页参数）2026-09-26
+
+### 〇、元信息
+
+- **登记日期**：2026-09-26（来源：BF-047 收尾时全量扫描 `api-schema-baseline.json` 发现）
+- **严重级别**：P3（文档层失真，运行时行为正确；当前无消费方受害）
+- **状态**：🔴 待修复
+- **影响范围**：`apps/usermanagement/views/employee_view.py`（后端）
+
+### 一、问题现象
+
+`GET /api/v1/users/employees/statistics/` 的 OpenAPI 声明与实际返回**三处不符**：
+
+| # | 声明 | 实际 |
+|---|:--|:--|
+| 1 | 200 响应 = `PaginatedEmployeeDetailList`（员工对象**分页数组**） | `{code, data:{total_employees, active_employees, by_status, by_department}, message}` 聚合字典 |
+| 2 | 必填 **path** 参数 `name`（"员工名称"） | 该 action 是 `detail=False`，路径中**无任何占位符**，此参数无处可填 |
+| 3 | `page` / `page_size` 查询参数 | 端点不分页，返回裸字典，二者无效 |
+
+### 二、根因（与 BF-049 同源的机制缺陷）
+
+`statistics` action 上的 `@extend_schema` 残留了一份「详情/列表页」模板：
+
+```python
+@extend_schema(
+    parameters=[OpenApiParameter(name="name", location=PATH, required=True),   # ← ②
+                OpenApiParameter(name="page", ...), OpenApiParameter(name="page_size", ...)],  # ← ③
+    responses={200: EmployeeDetailSerializer(many=True)},                        # ← ①
+)
+```
+
+**机制**：drf-spectacular 中 `@extend_schema(parameters=…)` / `responses=…` 的手工声明与自动注入是**「同名覆盖」而非「互补合并」**——手工声明只负责替换/追加，不负责补全或校正。一旦手工写错（张冠李戴的模板、错误的 serializer），spectacular 不会纠正，错误直接进基线。
+
+同一机制已造成三处问题，本条是第三处（前两处见下）：
+
+1. **BF-047 回归（已修）**：`global_search` 手工声明 `employee_status`，覆盖掉 FilterSet 自动注入的 `title` / `enum[3]` / 逐项中文说明，基线中被削平成裸 `string`。修法：删除手工声明，交回自动注入。
+2. **BF-049（待修）**：`ExportExcelMixin` 共享的 `EXPORT_PAGINATION_PARAMETERS` 覆盖掉各端点自动注入的筛选参数，使导出端点文档缺失 `keyword` / `employee_status` / `department_code`。
+3. **本条**：`statistics` 手工 `responses` + path 参数未被校正。
+
+**教训（可推广）**：凡 FilterSet / 分页器 / 认证类已能自动产出的声明，不要手工再写一遍；手工声明只在自动注入**确实无法表达**时使用（如 `keyword` 这类自定义语义），且必须逐字校对基线 diff。
+
+### 三、待决策事项
+
+1. `responses` 如何正确描述聚合结构？候选：`inline_serializer` 显式声明 4 个字段 / 抽 `EmployeeStatisticsSerializer` 供 OpenAPI 引用（后者更易被前端复用，但新增一个序列化器需评估 DRY 与 §1.2 分层）。
+2. 删掉 `name` / `page` / `page_size` 三条手工参数后，`statistics` 将只剩 FilterSet 自动注入的 `employee_status` / `department_code` / `ordering` / `search`——与实际生效行为一致，确认即可。
+3. 是否借机把「`extend_schema` 手工声明必须经基线 diff 校对」写成后端业务规则的检查项（`Rules_Fiels/backend-business-rules.md`），以便后续 PR 自查。
+
+### 四、证据与不确定性标注
+
+- **可验证**（重导出后实测基线）：200 响应 `$ref = #/components/schemas/PaginatedEmployeeDetailList`；参数含 `name`（`in: path`）、`page`、`page_size`；`statistics` 方法体（`employee_view.py:299-301`）返回 `success_response(data=stats)`，`stats` 为 `get_employee_statistics()` 的聚合字典。
+- **可验证**：`detail=False` 却带 path 参数的缺陷**全仓仅此 1 处**——脚本遍历基线全部 `in: path` 参数与路径占位符比对，命中数 1。
+- **可验证**：全仓无该端点的消费方——`vue-assetmanagement/src` 全量检索 `employees/statistics` / `total_employees` / `active_employees` 均 0 命中，故运行时无受害方，契约错误目前只坑未来接入方与生成客户端。
+- **[推测]** 该声明是否为「早期从某个详情页复制而来」——无 git blame 佐证前不作结论，故本条只记事实与修法方向，不追溯历史责任。
+
+*登记人：opencode ｜ 状态：待修复，2026-09-26*
+
+

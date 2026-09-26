@@ -222,6 +222,38 @@ repairing ──repair_done──┘    │               │                  �
 
 **【登录态分流】** 已登录用户扫码由前端直接走认证详情接口获取全量信息；公开接口仅服务未登录场景。
 
+### 4.7 员工域细则（增补，4.2 矩阵原文不改）
+
+> 本节为员工（Employee）域权限语义的细则澄清，**不修改** 4.2 功能权限矩阵原文。落地背景：BF-048 修复——B12「Selector 层必须实现 `get_queryset_for_user(user)`」此前在员工域**从未落地**（`EmployeeViewSet` 直接用 `queryset` 属性，全量返回），导致 `dept_manager` 持 `CanExportExcel` 即可导出全公司员工档案。
+
+**【三态数据范围】** 委托 `core.department_scope.get_department_codes_for_user(user)`，与操作日志侧（`OperationLogSelector._scope_by_user`）**完全同语义**，禁止另立规则：
+
+| 返回值 | 适用角色 | 员工域效果 |
+|:--|:--|:--|
+| `None` | system_admin / auditor / is_superuser / 无 Employee 记录 | 不限部门 |
+| 空列表 | 部门级角色但未挂部门（最严兜底） | 零行，且写类/导出类权限一并降级（`get_user_role` 降为 `None`） |
+| 部门列表 | dept_manager | 本部门 + 全部下级部门 |
+| 部门列表 | asset_admin / regular_user | 仅本部门 |
+
+**【收窄入口唯一】** 必须覆写 `EmployeeViewSet.get_queryset()`（委托 `EmployeeSelector.get_queryset_for_user`），**禁止**以下三种写法：① 只在某个 action 里 `filter`；② 改 `self.queryset` 类属性；③ 用 `self.queryset` 绕过 `get_queryset()`。因 DRF `get_object()` 内部即 `filter_queryset(get_queryset())`，覆写 `get_queryset()` 可一次覆盖 list / retrieve / search / statistics / export 五条路径。
+
+**【已收窄端点（8 个）】**
+
+| 端点 | 收窄方式 |
+|:--|:--|
+| `GET /employees/`（list）· `/search/` · `/export/` · `/statistics/` · `GET /employees/{jobcode}/`（retrieve） | 经 `get_queryset()` 自动覆盖 |
+| `GET /employees/active_employees/` | 原裸 `get_active_employees()`，显式经 `get_employee_scoped_queryset_for_user` |
+| `GET /employees/by-auth-user/{auth_id}/` | 原裸 `Employee.objects.get`，改走 `get_queryset()`；且 `auth_id` 非法值返回 404（原为 500） |
+| `GET /employees/employees/{jobcode}/` | 原用未收窄的 `self.queryset`，改走 `get_queryset()` |
+
+**【聚合端点】** `statistics` 的口径 **恒等于** 当前可见行范围（此前固定全量聚合，导致已声明的 `employee_status` / `department_code` 形同虚设）。改动的只是数值范围，**响应结构不变**。
+
+**【越权响应】** 越权访问一律 **404**（不泄露存在性），与 §4.5 接口语义第 4 条一致。
+
+**【回归屏障】** `apps/usermanagement/tests/test_employee_rbac_scope.py` 锁定上述全部语义（14 用例）；新增员工域端点或旁路时**必须**同步扩展该文件。
+
+**【不在本细则范围】** `get_department_by_jobcode` 返回部门而非员工档案，跨部门部门可见性未评估。
+
 ## 五、后端代码复用与量化规范（DRY 落地）
 本细则对应宪法级规则 DR-1、DR-3、DR-5、DR-6，所有后端代码必须遵守。
 
@@ -236,6 +268,7 @@ repairing ──repair_done──┘    │               │                  �
 | BR-7	| **调用链验证** |	视图（View）→ 服务（Service）→ 选择器（Selector）的纵深不得超过 3 层（View→Service→Selector 为标准深度）。若出现 View→Service→Service→Selector 等 4 层+，必须扁平化或使用事件驱动解耦。|	合并中间层或引入事件 |
 
 ## 六、变更日志
+- v1.16 (2026-09-26): 新增 §4.7 员工域细则（增补，4.2 矩阵原文不改）——B12 行级隔离在员工域首次落地（BF-048）：`EmployeeViewSet` 此前直接用 `queryset` 类属性全量返回，`dept_manager` 持 `CanExportExcel` 可导出全公司员工档案。① 收窄口径完全委托既有 `get_department_codes_for_user`（三态语义与操作日志侧同源，零新业务规则）；② 收窄入口唯一化为覆写 `get_queryset()`，一次覆盖 list/retrieve/search/statistics/export，并显式收窄 `active_employees` / `by-auth-user` / `employees/{jobcode}` 三个旁路；③ 附带修正 `by-auth-user` 畸形 ID 返回 500（`ValueError`）为 404；④ `statistics` 聚合口径改随权限收窄（数值范围变化，响应结构不变）；⑤ 越权一律 404；⑥ 回归屏障 `test_employee_rbac_scope.py` 14 用例。本节属细则增补与既有规则的落地记录，不修改 4.2 矩阵原文。
 - v1.15 (2026-09-23): `[PATCH-BE]` 权限矩阵 :142「报废审批」行修订——操作列从「审批通过/拒绝」扩展为「申请（单条 create）/审批通过/拒绝/批量删除」，与实现对齐（`DamagedAssetViewSet.admin_actions` 纳入 `create`，走 `IsDeptManagerOrAbove`；方案 A：asset_admin 对单条 create ❌）。同步 `test_damaged_asset_view_api.py::TestDamagedCreateRBAC` 三角色测试同批落地（BF-037）。
 - v1.14 (2026-09-21): BR-4 函数长度红线实施方式固化（门禁先行，对应审查报告 #21）——① 新增 `scripts/check_function_length_guard.py`：以 AST 语义节点扫描 `apps/`（不含迁移/tests），BR-4 逻辑行口径 = 物理跨度行 − 空行 − `#` 注释行（docstring 计入代码行），>50 行即超限；台账 `Rules_Fiels/BR4_function_length_ledger.md` 为唯一豁免源，guard 断言"超限未登记即红、已拆分未移除即红"；② `pyproject.toml` `lint.ignore` 显式加入 `PLR0915`（ruff 无函数行数规则，此防御性关闭防未来启用 PLR 被存量淹没）；③ 计数口径说明：BR-4 语义口径下生产超长函数 19 处（物理行口径参考 38 处，差异源于空行/注释行占比较高）；④ 本变更属实施方式固化，非规则文本修改，`[PATCH-BE]` 留痕；⑤ CI 接入 `function-length-guard` job。
 - v1.13 (2026-09-17): 新增业务约束第 7 条——资产创建初始状态必须为 `in_store` 且由 `AssetService.create_asset` 统一注入（枚举引用），创建类 Serializer 禁止暴露 `asset_current_status` 写字段（P0-1 FSM 绕过修复的文档同步，含回归确认：`serializers/asset_crud_serializers.py` 移除写字段、`service` 注入枚举、schema baseline 重导出、测试 655 passed）。

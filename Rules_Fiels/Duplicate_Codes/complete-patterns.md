@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.47 | **最后更新**：2026-09-26 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.48 | **最后更新**：2026-09-26 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -378,8 +378,57 @@
 - **证据**：`pytest apps/assetmanagement apps/usermanagement core` = **1229 passed**；`--cov=core.excel_export` 各模块 89%–100%、`operation_log_service.py` 99%、整体 **97.37%**（CT-2 门槛 80%）；`ruff check ... --config lint.mccabe.max-complexity=10` = All checks passed（含 C90）；`mypy . --strict` = 27 errors in 12 files，与本条改动文件**零交集**（零新增）；`npx vitest run` = 138 files / 1878 tests passed，覆盖率 statements 92.7%；`scripts/check_duplicate_invariants.py` PASS。
 - **验证命令**：`python -m pytest apps/assetmanagement apps/usermanagement core -q`；`python -m mypy . --strict`；`python -m ruff check . --config lint.mccabe.max-complexity=10`；`npx vitest run`；`python scripts/check_duplicate_invariants.py`。
 - **契约影响**：`ExportExcelMixin` 首次挂 `@extend_schema`，致 10 个既有资产导出端点的 200 响应声明由错误的 `application/json` 更正为 xlsx 二进制（运行时行为零变化——端点本就 `as_attachment=True` 返回 xlsx）。`oasdiff breaking` 报 10 × `response-media-type-removed`，经用户 2026-09-26 人工拍板批准（§1.3 红线确认）；实测 CI 该步不拦截（本地 v1.29.1 对合成真破坏用例亦退出 0）。无运行时消费方依赖旧声明——全仓仅 CI + 文档引用基线，前端资产导出仍走客户端路径。
-- **遗留**：员工导出不接受列表搜索/状态/部门筛选（后端 `EmployeeViewSet.get_queryset()` 无筛选入参），已登记 **BF-047**，非本条射程。
+- **遗留（已由 A-42 关闭，2026-09-26）**：员工导出不接受列表搜索/状态/部门筛选（后端 `EmployeeViewSet.get_queryset()` 无筛选入参），原登记 **BF-047**。BF-047 已落地 `get_export_queryset()` 钩子 + `_filtered_employee_queryset()` 单一入口，员工导出与列表/搜索/统计同口径，详见 A-42。
 - **回滚风险**：中——schema 侧回滚需同步还原基线；内核迁移为纯重构，`test_export_excel` / `test_export_excel_rbac` / `test_employee_export` / `test_operation_log_export_scope` 四套共 50 例锁定行为。
+
+### A-42. 【关闭 2026-09-26】员工域取行口径四处分叉 + 声明/消费不一致（DR-1 / DR-3；BF-047）
+- **编号**：顺延登记（A-42 前序为空）。**状态**：✅ 已关闭 | 关闭日期：2026-09-26 | 登记来源：BF-047 修复（承接 A-41 遗留）
+- **判定（DR-1 业务逻辑唯一实现 + DR-3 查询统一入口）**：同一语义「当前可见的员工集合」在**四条路径**上各自独立实现，且互不一致——
+
+  | 路径 | `keyword` | `employee_status` | `department_code` |
+  |---|:---:|:---:|:---:|
+  | 列表 `list` | ❌ 不消费（只认 DRF `search=`） | ✅ | ⚠️ 只认 ORM 别名 |
+  | 搜索 `search` | ✅ | ❌ | ❌ 静默失效 |
+  | 统计 `statistics` | ❌ | ❌ 忽略 | ❌ 忽略 |
+  | 导出 `export` | ❌ | ❌ | ❌ 忽略 |
+
+  ① **取行口径分叉**：`global_search` 直调 `EmployeeSelector.search_employees(keyword)`（`base=None` 自建基准），`statistics` 直调 `get_employee_statistics()`（内部三处独立 `Employee.objects`，与列表 queryset 无关），`export` 走 `ExportExcelMixin` 的 `self.get_queryset()`（不跑 `filter_queryset`）——三处各写一套「哪些行可见」的判定。
+  ② **声明/消费不一致（`department_code` 静默失效）**：`filterset_fields` 的值必须是**模型字段路径**，而 `department_code` 挂在关联对象上（`Employee` 上无此字段），写业务名会在构造 filterset 时抛 `FieldDoesNotExist`——于是前端 `ContactsView.vue` 两个分支（`getFuzzySearch` / `getList`）都传业务名，**列表**只认别名故无效、**搜索**不跑 `filter_queryset` 故无效，两个控件均**静默失效无提示**。同型面：DRF `SearchFilter` 的 `?search=`（`search_fields` 不含部门名、无状态别名映射）与 `selector.search_employees` 的 `?keyword=` 两套搜索语义并存，前端只用后者。
+- **修复内容（DR-1 收敛）**：
+  ① `core/excel_export/mixin.py` 新增 `get_export_queryset()` 钩子（默认 `return self.get_queryset()`），`export_excel` 改走该钩子。**未采用**「直接把 `mixin.py` 改成 `self.filter_queryset(self.get_queryset())`」——全局 `DEFAULT_FILTER_BACKENDS` 生效，该改法会连带改变 10 个资产导出端点的行序/搜索行为（越界）；改钩子后 11 个未覆写端点行为字节级不变。
+  ② 新建 `apps/usermanagement/employee_filters.py`（**本项目首个 FilterSet 类**）：`department_code` 显式 `field_name` 映射到关联字段路径并兼收 ORM 别名，**前端零改动**即修复两分支静默失效（用户拍板 B2 方案：不改前端声明、不删别名，避免 §1.3 参数删除审批）；`employee_status` 用 `ChoiceFilter` 保住既有取值校验与 OpenAPI enum（初版误用 `CharFilter`，重导出基线时发现 enum 消失即回退，注释留痕"不得降级"）。
+  ③ `EmployeeSelector.search_employees(keyword, base=None)` 支持在调用方 queryset 上叠搜索；`get_employee_statistics(queryset=None)` 三处独立 `Employee.objects` 收为单一 `base`。
+  ④ `EmployeeViewSet._filtered_employee_queryset(keyword)` 成为员工域取行口径唯一实现，`list` / `global_search` / `get_export_queryset` / `statistics` 四条路径共用。
+  ⑤ 前端：`usePaginationSearchState` 新增**可选** `onSearchStateChange` 回调（含 `clearSearch` 出口——`performSearch` 收不到空串，缺此出口则清空后搜索词残留），`userStore` 新增模块级 `currentKeyword` + trim 归一化 setter，`useUserExcelExport` 按搜索词转发 `params`。
+- **证据**：先红后绿——`git stash` 仅回退 3 个后端源文件（保留测试）后 `pytest test_employee_filters + test_employee_export + test_export_excel` = **15 failed / 22 passed**（三类缺陷逐条命中）；恢复后同三套件 **37 passed**。全量 `pytest --cov=.` = **1581 passed**、整体 **85.86%**（CT-2 门槛 80%）；`ruff check .` = All checks passed（含 `--select C90 --config lint.mccabe.max-complexity=10`）；`mypy . --strict` = Success, 216 files；`manage.py spectacular --validate` = components 零漂移 + paths 零增删 + 参数差异仅 `+department_code` ×3（无删除项）；`check_duplicate_invariants.py` PASS（G-1~G-5）；`check_frontend_invariants.py` PASS。前端先红后绿 3 failed → 14 passed；`npx vitest run --coverage` = **138 files / 1893 tests passed**，statements 92.72% / branches 87.34% / functions 87.17% / lines 93.51%，`userStore.ts` 98.46%（Store ≥90%）；type-check / lint / format:check 全 0。
+- **验证命令**：`python -m pytest apps/usermanagement/tests/test_employee_filters.py apps/usermanagement/tests/test_employee_export.py apps/assetmanagement/tests/test_export_excel.py -q`；`python -m pytest --cov=. --cov-fail-under=80 -q`；`python -m mypy . --strict`；`python -m ruff check . --config lint.mccabe.max-complexity=10`；`python manage.py spectacular --format openapi-json --file api-schema-baseline.json --validate`；`npx vitest run --coverage`；`python scripts/check_duplicate_invariants.py`；`python scripts/check_frontend_invariants.py`。
+- **契约影响**：纯增量（新增请求参数 `department_code` ×3 端点，components 与响应体零变化），未触发 §1.3。**不删除** `employee_department__department_code` 别名（删参数须人工审批），已登记技术债与退场条件。
+- **OpenAPI 手工声明覆盖机制（收尾复查新增教训）**：`@extend_schema(parameters=…)` / `responses=…` 与 drf-spectacular 自动注入是**同名覆盖、非互补合并**——手工声明不补全也不校正。本次三处同源：①`global_search` 手工写 `employee_status` 削平了 FilterSet 自动注入的 enum/title（**已修**：删手工声明，声明权交回 `employee_filters.py`，即 DR-1 在文档层的延伸）；②`ExportExcelMixin` 共享参数覆盖掉导出端点的筛选参数（**BF-049** 待修）；③`statistics` 手工 `responses=EmployeeDetailSerializer(many=True)` + `name` path 参数未被校正（**BF-050** 待修）。**可推广结论：凡 FilterSet / 分页器 / 认证类已能自动产出的声明，不要手工再写一遍。**
+- **遗留**：`scripts/check_function_length_guard.py` FAIL，但为**存量且与本次改动零交集**（`apps/assetmanagement/services/recycle_asset_service.py` `_finalize_broken_or_lost()` 53 行 / `create_recycle_asset()` 52 行未登记台账；该文件本次未改动，工作树 == HEAD）——留待 BR-4 批次拆分，非本条射程。导出行级 RBAC 缺失见 B-24。
+- **回滚风险**：低—中——筛选语义为纯增量，回滚只需还原 4 个源文件；但 `ChoiceFilter` 的 enum 契约须随 `api-schema-baseline.json` 一并还原。
+
+### A-43. 【关闭 2026-09-26】员工域「行集合授权口径」缺失 + 三个旁路绕开取行口径（B12 未落地 / DR-3；BF-048，闭合 B-24）
+- **编号**：顺延登记（A-43 前序为空）。**状态**：✅ 已关闭 | 关闭日期：2026-09-26 | 登记来源：BF-048 修复（承接 A-42 / B-24）
+- **判定（B12 未落地 + DR-3 三处旁路）**：A-42 收敛了「筛选口径」，但「授权口径」从未定义——根级 B12 要求「Selector 层**必须**实现 `get_queryset_for_user(user)`」，员工域是**唯一**未落地的域。修复中另发现**三个旁路绕开取行口径**，即同一语义「当前可见的员工行集合」共 4 处独立实现（列表族 1 处 + 旁路 3 处）：
+
+  | 旁路 | 原实现 | 越权面 |
+  |:---|:---|:---|
+  | `active_employees` | 裸 `EmployeeSelector.get_active_employees()` | 全公司批量 PII |
+  | `by_auth-user/{auth_id}` | 裸 `Employee.objects.select_related(...).get(...)` | ID 可枚举任意员工 |
+  | `employees/{jobcode}` | 用未 `filter_queryset` 的 `self.queryset` | 工号可枚举任意员工 |
+  | `retrieve` | 经声明式筛选但**无行级** | **本条新发现的第 4 个旁路**：任意登录用户按工号读任意员工档案 |
+
+- **修复内容（DR-3 查询统一入口，零新业务规则）**：① `core/department_scope.py` 新增 `get_employee_scoped_queryset_for_user(user, qs)`——完全委托既有 `get_department_codes_for_user` + `filter_queryset_by_department(qs, codes, "employee_department")`，与 `get_asset_linked_queryset_for_user` 命名同型，**不新立任何范围规则**（DR-1）；② `EmployeeSelector.get_queryset_for_user(user)`，与 `UnregisteredAssetSelector` 同型；③ 收窄入口**唯一化**为覆写 `EmployeeViewSet.get_queryset()`——因 DRF `get_object()` 内部即 `filter_queryset(get_queryset())`，一次覆写即覆盖 list/retrieve/search/statistics/export **5 条路径**（**`retrieve` 的修复是覆写的副产品**）；④ 三个旁路显式改走 `get_queryset()`。
+- **人工决策（2026-09-26 拍板）**：dept_manager = 本部门+全部下级部门（与 `OperationLogSelector._scope_by_user` 同源）；`statistics` 聚合随之收窄判定为**非 §1.3 红线**（无迁移/响应结构不变/不碰 FSM/不改枚举）但按 P1 走轻量审批；`active_employees` 一并收窄（前端实测 0 消费方，不收窄即等于留一个批量 PII 口子）。
+- **修复中发现的两个附带缺陷**：`by-auth-user` 畸形 `auth_id` → `ValueError` **500**（已收敛 404）；**更关键的是自测抓到的实现级 bug**——首版把转换失败的 `auth_id` 回落 `None`，而 `filter(auth_user_id=None)` 会去匹配「未绑定账号的员工」并**误返 200**（收窄实现自身变成新的泄露面）。**教训：行级收窄代码必须被负例测试覆盖，正例锚定「谁能看见」不够。**
+- **证据**：`test_employee_rbac_scope.py` **14 用例全通过**（三态语义 + statistics 聚合==可见行数 + **导出行集合==列表行集合** + search 不可越权 + 3 旁路 + retrieve 越权 404 + by-auth-user 正反两面 + 畸形 ID）；`pytest apps/usermanagement` **153 passed**；`pytest` 全量 **1594 passed**；`ruff check .` / `ruff format --check .`（328 files）/ C90 三门禁 exit 0；`check_function_length_guard.py` `[PASS] 0 超长`；`mypy --strict` **改动文件零错误**（全量 27 errors / 12 文件**均为存量**，见下方「事实订正」）；`spectacular --validate` 退出 0，重导出后**仅 description 文本 + 增量参数，零 schema/响应/参数删除**。
+- **验证命令**：`python -m pytest apps/usermanagement/tests/test_employee_rbac_scope.py -q`；`python -m pytest apps/usermanagement -q`；`python -m pytest -q`；`python -m ruff check .`；`python -m ruff format --check .`；`python -m ruff check . --select C90 --config lint.mccabe.max-complexity=10`；`python scripts/check_function_length_guard.py`；`python -m mypy . --strict`；`python manage.py spectacular --format openapi-json --file api-schema-baseline.json --validate`。
+- **契约影响**：`statistics` 聚合**数值范围**随调用者权限变化（结构/字段名不变），8 个端点的**返回行集合**收窄。逐条比对 §1.3 四项红线均不命中，判定**不触发 [HALT]**，但按 P1 走轻量审批包；已写「对外行为变更声明」章节供外部消费方自查。
+- **规则留痕**：`Rules_Fiels/backend-business-rules.md` 新增 §4.7「员工域细则（增补，4.2 矩阵原文不改）」，v1.16 变更日志；Bug 活账本 BF-048 状态 → ✅ 已修复。
+- **事实订正（2026-09-26）**：A-42 证据行原写「`mypy . --strict` = Success, 216 files」，**与实测不符**——同命令实测为 `Found 27 errors in 12 files`（`dateutil` stubs、untyped 第三方库等）。该 27 项与 A-42/A-43 改动文件**零交集**（mypy 错误按文件自洽，改动文件实测零错误），属**存量**，但 A-42 的「Success」结论据此订正为「改动文件零错误 / 全量 27 存量」。此前多条提交自述的「27 存量不变」与本次实测一致。
+- **遗留**：`get_department_by_jobcode` 返回部门而非员工档案，跨部门部门可见性未评估；`mypy . --strict` 27 项存量（12 文件）未处理。
+- **回滚风险**：低——收窄为纯读取侧约束，无迁移/无枚举/无 FSM 影响；但**回滚即恢复 P1 越权**，须同步回滚 `test_employee_rbac_scope.py` 与 §4.7 文档，否则回归屏障与规则会与代码矛盾。
+
 
 ---
 
@@ -532,6 +581,17 @@
 - **修复内容（v2.9.38，DR-1 收敛）**：`core/exceptions.py` 新增 `re_raise_or_map_integrity_error(exc, column_token, error_code, detail) -> NoReturn`（命中 token → `raise AppValidationError(...) from exc`；未命中 → 裸 `raise` 原样重抛）；4 调用点各删 6-8 行内联改 1-4 行委托。落点选 `core/exceptions.py`（AppValidationError 所在地，两 service 已 import，零新增依赖）；不复用 `exception_handler._parse_integrity_error`（handler 私有、按 unique/foreign_key 泛化关键字分类、返回文案而非抛异常——HTTP 层与业务层职责不同层）。设计前置核对：helper 内裸 `raise` 经 `python -c` 实证可从 except 块嵌套调用中正确重抛活动异常。detail/错误码逐字保留（create 用外层 `sn_code`、update 用 `new_sn or harddisk.harddisk_sn_code`、batch_save 静态文案、damaged 用 `asset.asset_code`）。
 - **验证命令（门禁口径修正）**：`pytest apps/assetmanagement/tests/test_damaged_asset_service.py apps/assetmanagement/tests/test_hard_disk_sn_service_integrity.py apps/assetmanagement/tests/test_hard_disk_sn_service.py -q` 69 passed（语义锁）；`rg -n 'in str\(exc\)' apps core -g "*.py"` 仅 `core/exceptions.py:141` 一处；`rg -n '"harddisk_sn_code" in str\(exc\)|"asset_recordcode" in str\(exc\)' apps/assetmanagement/services` 0；`rg -c "except IntegrityError" apps/assetmanagement/services -g "*.py"` = 4（except 子句按设计保留调用点，映射逻辑已收敛，grep「except 归零」不成立故弃用）；`python -m ruff check` 3 改动文件 0 错；`mypy` scoped 3 文件 0 错（5 存量错误均在未改动文件：models/selectors dateutil stubs 与 var-annotated）；`python manage.py check` no issues。
 - **状态**：✅ 已关闭 | 关闭日期：2026-09-22 | v2.9.38
+
+### B-24. 【已关闭 2026-09-26 → 归档为 A-43】员工域无行级数据权限（RBAC），批量导出放大越权读取面（B12 模式；BF-048）
+- **状态**：✅ 已关闭（2026-09-26）——修复内容、决策、证据与回归屏障见 **A 区 A-43**。以下为原始登记内容，保留备查。
+- **编号说明**：**跳过已退役的 B-22 / B-23**（二者已分别归档为 A-25 / A-24，见 v2.9.29、v2.9.30 变更记录），复用会让同一编号在本文档内指向两处不同条目，故顺延登记。
+- **判定**：DR-3 风险面 + 安全缺口。「当前可见的行集合」只定义了**筛选口径**（A-42 已收敛），从未定义**权限口径**——`EmployeeViewSet.get_queryset_with_bind_status()` 返回全量员工（仅 `select_related`），故 `dept_manager`（持 `CanExportExcel`）可导出**全公司**员工档案（工号/姓名/状态/部门/位置；手机号已被 BF-046 刻意排除）。对照：操作日志侧有 `OperationLogSelector.build_operation_logs_queryset()` 承载 `_scope_by_user`（部门 + 子部门、空列表 `.none()`、`None` 不限），**员工域无对应实现**。
+- **与 A-42 的边界**：A-42 修的是「筛选口径分叉」（列与行的**筛选**一致性），本条是「权限口径缺失」（行集合的**授权**边界），二者正交；A-42 修完后「导出 = 列表可见」成立，但「列表可见」本身仍是全量，故本条**不因 A-42 关闭而消解**。
+- **与 BF-046 的边界**：BF-046 收敛了导出**列**（最小化 PII），未收敛**行**；批量导出把泄露面从"逐条查询可见"放大为"一次拖走全量"。
+- **影响面**：scope 一旦引入，`list` / `search` / `statistics` / `export` 四条路径须同时收窄——**`statistics` 当前为全量聚合，语义会随之变化**（属对外行为变更，须走 §1.3）。
+- **状态**：🔴 待修复 | 登记日期：2026-09-26 | 登记来源：BF-047 核查（§1.8 新发现义务）
+- **证据**：`get_queryset_with_bind_status()` 全文仅 `select_related`、无任何 `filter`（源码直读）；`dept_manager` 在导出权限矩阵内（`test_employee_export.py::test_export_denied_for_non_export_roles` 注释明确记载"dept_manager **可以**导出"）。[推测] 组织上是否本就期望部门经理可见全公司通讯录，属业务口径未知，**未做用户验证**——故只登记不擅自收窄，避免误伤合法可见性。
+- **验证命令**：`rg -n "def get_queryset_with_bind_status" -A 8 apps/usermanagement/selectors.py`（预期无 `filter`）；待修复后补 scope 单测（部门 A/B 夹具镜像 A-29）。
 
 ---
 
@@ -763,6 +823,7 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.48 (2026-09-26)**：关闭 **A-42**（DR-1 / DR-3，BF-047）——员工域「当前可见员工集合」四处分叉收敛为 `EmployeeViewSet._filtered_employee_queryset()` 单一入口，`list` / `global_search` / `statistics` / `export` 四条路径共用；新增 `apps/usermanagement/employee_filters.py`（本项目首个 FilterSet 类）以显式 `field_name` 修复 `department_code` 业务名在列表/搜索两分支的**静默失效**（前端零改动，别名保留不删以免触发 §1.3 参数删除审批）；`ExportExcelMixin` 新增 `get_export_queryset()` 钩子而非直接 `filter_queryset`（后者会连带改变 10 个资产导出端点行序/搜索，越界），11 个未覆写端点行为字节级不变；`employee_status` 保留 `ChoiceFilter`（初版误用 `CharFilter` 导致 OpenAPI enum 静默消失，重导出时发现即回退并注释留痕）；`search_employees(keyword, base=None)` / `get_employee_statistics(queryset=None)` 支持在调用方 queryset 上叠加。前端配套：`usePaginationSearchState` 新增可选 `onSearchStateChange`（含 `clearSearch` 出口，否则清空后关键词残留）、`userStore` 模块级 `currentKeyword`（trim 归一化）、`useUserExcelExport` 转发 `params`。验证：后端先红后绿 15 failed → 37 passed、全量 1581 passed / 85.86%、ruff + C90 0、mypy strict 216 files 0、schema components 零漂移且参数仅 `+department_code` ×3、护栏 G-1~G-5 PASS；前端先红后绿 3 failed → 14 passed、全量 138 files / 1893 tests passed、statements 92.72% / `userStore.ts` 98.46%、三项检查全 0。**新登记 B-24**（员工域无行级 RBAC，B12 模式，BF-048）——编号跳过已退役的 B-22 / B-23（已归档为 A-25 / A-24），避免同号二义。契约纯增量未触发 §1.3，`api-schema-baseline.json` 已重导出。**收尾复查修正**：`global_search` 原手工声明的 `employee_status` / `department_code` 已删除——前者曾覆盖 FilterSet 自动注入的 enum/title（基线削平为裸 string），属 `@extend_schema` 同名覆盖机制，与 BF-049、BF-050 同源；重导出后 `employee_status` 与 HEAD 逐字一致，基线 13 处删除全为 description 字符串。**新登记 BF-050**（statistics 200 响应误声明为 `PaginatedEmployeeDetailList` + 多余 `name` path 参数 + 虚假分页参数，全仓唯一 path 参数不匹配处）。告警归因：287 warnings / 24 errors 全为存量且与本次零交集（6 unique error 均为非 GenericAPIView 的 serializer 猜测失败，分布在 public_scan_view / authusermanagement / notification），dev 与 production settings 计数一致，exit code = 0。`check_function_length_guard.py` FAIL 为存量（`recycle_asset_service.py` 两函数 53 / 52 行未登记台账，该文件本次零改动）。
 - **v2.9.47 (2026-09-26)**：关闭 **A-41**（BF-046，DR-1/DR-4 三重同型，承接 A-40 遗留）——①后端 `ExportExcelMixin` 由 `apps/assetmanagement/views/_export_mixin.py` 迁至 `core/excel_export/`（员工导出因跨 app 依赖无法复用，原会形成第二份实现），11 个 ViewSet 统一引用，`build_excel_export_response(params=...)` 统一 `limit`/`offset` 语义；②前端 `excelExporter.ts` 与 `batchImport/templateExport.ts` 的两套 Blob 下载收敛至 `src/utils/fileDownload.ts::downloadBlobFile()`（含 `Content-Disposition` 文件名解析），`useExcelExport.ts` 通用流程不动；③`OperationLogDetails.vue::buildQueryParams()` 与后端 `operation_log_filters.py::parse_operation_log_filters` 各自成为列表/导出参数解析单一入口。验证：后端 `pytest apps/assetmanagement apps/usermanagement core` **1229 passed**、`core.excel_export` 各模块 89%–100% 覆盖 / 整体 **97.37%**、`ruff`(含 C90) 0、`mypy . --strict` 27 errors 全在 12 个未触碰文件（零新增）、`check_duplicate_invariants.py` PASS；前端 `npx vitest run` **138 files / 1878 tests passed**、type-check/lint/format:check 全 0。契约：Mixin 首挂 `@extend_schema` 使 10 个既有资产导出端点 200 响应声明由错误的 `application/json` 更正为 xlsx 二进制（运行时零变化），`oasdiff breaking` 10 × `response-media-type-removed` 经用户 2026-09-26 人工拍板批准。遗留：员工导出未接列表筛选 → **BF-047**。A-40「遗留」行同步更新为本条已关闭。`api-schema-baseline.json` 已重导（2 端点新增、0 删除、components 零漂移）。
 - **v2.9.46 (2026-09-25)**：关闭 **A-37**（审查报告 Q-02，DR-1/FR-3）——`GET /users/employees/search/` 端点在 API 层三处独立 `request.get`（`api/user.ts:66` `getFuzzySearch` + `api/user.ts:98` `getUserByName` + `api/authusers.ts:111` `searchEmployees`）收敛为前者单一实现；连带修正两处契约缺陷：①`searchEmployees` 把 DRF 分页对象当数组返回，改为取 `.results`（后端 `employee_view.py:301` 经 `paginate_queryset`/`get_paginated_response` 返回 `{count,next,previous,results}`）；②`auth_user_username` 为前端虚构字段（后端全仓含 schema 基线零命中），删除虚构类型 `EmployeeBrief`、新增对齐 `EmployeeDetailSerializer`（`fields="__all__"`）的 `BoundEmployee`，`BindAuthUserDialog.vue:34` 改用 `props.authUser?.username`。验证：端点 `request.get` 生产实现 grep = 1 处（另 3 处命中均在测试断言）；type-check/lint/format:check 全 0；整改面 5 files/67 tests、全量 136 files/1860 tests passed；`check_duplicate_invariants.py` PASS（G-1~G-5 未受扰）。契约零变化（未增删改端点与响应结构），`api-schema-baseline.json` 无需重导出。
 - **v2.9.46 (2026-09-25)**：关闭 **A-38**（Q-01 迁移触发复杂度门禁，§1.8 新发现义务）——`CommonList.getRowKey` 内"取值→判空→判标量→返回"四步判定完整复制两遍（`props.rowKey` 指定字段 + 14 个回落候选字段），致圈复杂度 11（超 `complexity: 10`）；提取模块级 `ROW_KEY_FALLBACK_FIELDS` 与纯函数 `asRowKey`，主函数降为单循环、复杂度 11→4，语义等价（`rowKey` 空串或值非标量仍回落候选链）。验证：`npx eslint <两组件> --rule "complexity: ['error', 10]"` = 0；`CommonList.spec.ts` 15 passed（3 个 `getRowKey` 用例守护等价性）；type-check = 0。
