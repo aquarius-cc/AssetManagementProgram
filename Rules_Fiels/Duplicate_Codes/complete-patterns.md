@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.46 | **最后更新**：2026-09-25 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.47 | **最后更新**：2026-09-26 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -362,8 +362,24 @@
 - **修复内容**：3 处统一为 100 并就近注释后端上限来源——`useAssetListConfig.ts:36`、`AssetTypeDetails.vue:223`、`UserForm.vue:284`（后者注释原误写 `defaultPageSize: 10`，实际为 20，一并订正）；`useAssetListConfig.ts` 与 `UserForm.vue` 各增 `count/total > list.length` 截断告警（复用既有 `logError`），使静默截断转为可观测。
 - **证据**：`res.count` 类型本就存在于 `src/types/common.ts:28` 与 `src/types/assettype.ts:98`，无需补声明；`npx vitest run` = 1867 passed（`useAssetListConfig.spec.ts` 新增截断/未截断 2 例守护）。
 - **验证命令**：`npx vitest run --maxWorkers=4`；`npm run type-check`；`npm run format:check`。
-- **遗留（另立 BF-046）**：导出族 `useOperationLogExcelExport.ts:59` / `useUserExcelExport.ts:75` 传 `pagination.total` 作为 `page_size`，同样受 100 钳位，属**未关闭**的同型缺陷。
+- **遗留（已由 A-41 关闭，2026-09-26）**：导出族 `useOperationLogExcelExport.ts:59` / `useUserExcelExport.ts:75` 曾传 `pagination.total` 作为 `page_size`，同样受 100 钳位，属未关闭的同型缺陷。BF-046 已将两个导出族整体切换为服务端流式导出（新增 `?limit=`/`?offset=` 分批语义 + `EXPORT_MAX_ROWS` 兜底），前端不再以 `page_size` 拉全量，该同型缺陷随之关闭，详见 A-41。
 - **回滚风险**：低——仅改请求参数并新增日志，无响应结构变更。
+
+### A-41. 【关闭 2026-09-26】Excel 导出能力三处重复：后端 Mixin 跨 app 不可达 + 前端 Blob 下载三实现 + 列表/导出两套筛选（DR-1 / DR-4；BF-046，承接 A-40 遗留）
+- **编号**：顺延登记。**状态**：✅ 已关闭 | 关闭日期：2026-09-26 | 登记来源：BF-046（审查报告 Q-05 收尾 + 导出族遗留）
+- **判定（DR-1 + DR-4 三重同型）**：
+  ① **后端 Mixin 跨 app 不可达**——`apps/assetmanagement/views/_export_mixin.py` 是 10 个资产类 ViewSet 的导出唯一实现，但 `EmployeeViewSet` 位于 `apps/usermanagement`，跨 app import 会制造反向依赖，致员工导出只能各自手写（若不落 Mixin 即第二份实现）。
+  ② **前端 Blob 下载三实现**——`useExcelExport.ts`（通用流程）、`excelExporter.ts`（xlsx→Blob→a.click）、`batchImport/templateExport.ts`（模板下载）各写一套 `URL.createObjectURL` + `revokeObjectURL` + `a.download`，文件名解析策略亦不一致。
+  ③ **列表/导出两套筛选**——操作日志列表与导出各自组装查询参数，导出遗漏筛选条件即产生"导出内容 ≠ 列表所见"缺陷（DR-1 业务逻辑唯一实现）。
+- **修复内容**：
+  ① 后端内核迁至 `core/excel_export/`（`widths.py` / `workbook.py` / `streaming.py` / `mixin.py` / `schema.py`），与 `core` 工具单一仓库定位一致；11 个 ViewSet 统一 `core.excel_export.ExportExcelMixin`（DR-4），`_export_mixin.py` 删除。`build_excel_export_response(..., params=...)` 统一解析 `limit`/`offset`，Mixin 与 APIView 共用同一分批语义。
+  ② 前端新增 `src/utils/fileDownload.ts`（`downloadBlobFile()`，唯一 Blob 下载实现 + `Content-Disposition` 文件名解析），`excelExporter.ts` 与 `templateExport.ts` 改调，`useExcelExport.ts` 通用流程不动。
+  ③ `OperationLogDetails.vue` 抽取 `buildQueryParams()` 供列表与导出共用；`operation_log_filters.py::parse_operation_log_filters` 成为列表/导出参数解析单一入口。
+- **证据**：`pytest apps/assetmanagement apps/usermanagement core` = **1229 passed**；`--cov=core.excel_export` 各模块 89%–100%、`operation_log_service.py` 99%、整体 **97.37%**（CT-2 门槛 80%）；`ruff check ... --config lint.mccabe.max-complexity=10` = All checks passed（含 C90）；`mypy . --strict` = 27 errors in 12 files，与本条改动文件**零交集**（零新增）；`npx vitest run` = 138 files / 1878 tests passed，覆盖率 statements 92.7%；`scripts/check_duplicate_invariants.py` PASS。
+- **验证命令**：`python -m pytest apps/assetmanagement apps/usermanagement core -q`；`python -m mypy . --strict`；`python -m ruff check . --config lint.mccabe.max-complexity=10`；`npx vitest run`；`python scripts/check_duplicate_invariants.py`。
+- **契约影响**：`ExportExcelMixin` 首次挂 `@extend_schema`，致 10 个既有资产导出端点的 200 响应声明由错误的 `application/json` 更正为 xlsx 二进制（运行时行为零变化——端点本就 `as_attachment=True` 返回 xlsx）。`oasdiff breaking` 报 10 × `response-media-type-removed`，经用户 2026-09-26 人工拍板批准（§1.3 红线确认）；实测 CI 该步不拦截（本地 v1.29.1 对合成真破坏用例亦退出 0）。无运行时消费方依赖旧声明——全仓仅 CI + 文档引用基线，前端资产导出仍走客户端路径。
+- **遗留**：员工导出不接受列表搜索/状态/部门筛选（后端 `EmployeeViewSet.get_queryset()` 无筛选入参），已登记 **BF-047**，非本条射程。
+- **回滚风险**：中——schema 侧回滚需同步还原基线；内核迁移为纯重构，`test_export_excel` / `test_export_excel_rbac` / `test_employee_export` / `test_operation_log_export_scope` 四套共 50 例锁定行为。
 
 ---
 
@@ -747,6 +763,7 @@
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 
 ## 变更记录
+- **v2.9.47 (2026-09-26)**：关闭 **A-41**（BF-046，DR-1/DR-4 三重同型，承接 A-40 遗留）——①后端 `ExportExcelMixin` 由 `apps/assetmanagement/views/_export_mixin.py` 迁至 `core/excel_export/`（员工导出因跨 app 依赖无法复用，原会形成第二份实现），11 个 ViewSet 统一引用，`build_excel_export_response(params=...)` 统一 `limit`/`offset` 语义；②前端 `excelExporter.ts` 与 `batchImport/templateExport.ts` 的两套 Blob 下载收敛至 `src/utils/fileDownload.ts::downloadBlobFile()`（含 `Content-Disposition` 文件名解析），`useExcelExport.ts` 通用流程不动；③`OperationLogDetails.vue::buildQueryParams()` 与后端 `operation_log_filters.py::parse_operation_log_filters` 各自成为列表/导出参数解析单一入口。验证：后端 `pytest apps/assetmanagement apps/usermanagement core` **1229 passed**、`core.excel_export` 各模块 89%–100% 覆盖 / 整体 **97.37%**、`ruff`(含 C90) 0、`mypy . --strict` 27 errors 全在 12 个未触碰文件（零新增）、`check_duplicate_invariants.py` PASS；前端 `npx vitest run` **138 files / 1878 tests passed**、type-check/lint/format:check 全 0。契约：Mixin 首挂 `@extend_schema` 使 10 个既有资产导出端点 200 响应声明由错误的 `application/json` 更正为 xlsx 二进制（运行时零变化），`oasdiff breaking` 10 × `response-media-type-removed` 经用户 2026-09-26 人工拍板批准。遗留：员工导出未接列表筛选 → **BF-047**。A-40「遗留」行同步更新为本条已关闭。`api-schema-baseline.json` 已重导（2 端点新增、0 删除、components 零漂移）。
 - **v2.9.46 (2026-09-25)**：关闭 **A-37**（审查报告 Q-02，DR-1/FR-3）——`GET /users/employees/search/` 端点在 API 层三处独立 `request.get`（`api/user.ts:66` `getFuzzySearch` + `api/user.ts:98` `getUserByName` + `api/authusers.ts:111` `searchEmployees`）收敛为前者单一实现；连带修正两处契约缺陷：①`searchEmployees` 把 DRF 分页对象当数组返回，改为取 `.results`（后端 `employee_view.py:301` 经 `paginate_queryset`/`get_paginated_response` 返回 `{count,next,previous,results}`）；②`auth_user_username` 为前端虚构字段（后端全仓含 schema 基线零命中），删除虚构类型 `EmployeeBrief`、新增对齐 `EmployeeDetailSerializer`（`fields="__all__"`）的 `BoundEmployee`，`BindAuthUserDialog.vue:34` 改用 `props.authUser?.username`。验证：端点 `request.get` 生产实现 grep = 1 处（另 3 处命中均在测试断言）；type-check/lint/format:check 全 0；整改面 5 files/67 tests、全量 136 files/1860 tests passed；`check_duplicate_invariants.py` PASS（G-1~G-5 未受扰）。契约零变化（未增删改端点与响应结构），`api-schema-baseline.json` 无需重导出。
 - **v2.9.46 (2026-09-25)**：关闭 **A-38**（Q-01 迁移触发复杂度门禁，§1.8 新发现义务）——`CommonList.getRowKey` 内"取值→判空→判标量→返回"四步判定完整复制两遍（`props.rowKey` 指定字段 + 14 个回落候选字段），致圈复杂度 11（超 `complexity: 10`）；提取模块级 `ROW_KEY_FALLBACK_FIELDS` 与纯函数 `asRowKey`，主函数降为单循环、复杂度 11→4，语义等价（`rowKey` 空串或值非标量仍回落候选链）。验证：`npx eslint <两组件> --rule "complexity: ['error', 10]"` = 0；`CommonList.spec.ts` 15 passed（3 个 `getRowKey` 用例守护等价性）；type-check = 0。
 - **v2.9.46 (2026-09-25)**：Q-01 落地联动——`CommonList.vue` / `SmartListContainer.vue` 由 Options API 迁至 `<script setup lang="ts" generic="T extends object">`（props→类型化 `defineProps`+`withDefaults`、emits→类型化 `defineEmits`、`expose`→`defineExpose`），行类型经泛型 `T` 贯通至 10 个 `*Details.vue` 消费方（`types/common.ts` 的 `SmartListContainerExpose<T = unknown>` 以默认参数保持消费方零改动）；迁移使 vue-tsc 暴露 11 处既有类型漏洞（`selectedRows: object[]` 传入各实体数组，原被 Options API 的 `any` 插槽推断掩盖），经泛型化合法消解。全仓 117 个 `.vue` 的 `export default defineComponent` / `methods:` / `<script lang="ts">` 三标记均归零。验证：type-check/lint/format:check 全 0；全量 136 files/1860 tests passed（较基线净增 3 files/29 tests）；触及文件 complexity 门禁 = 0；`npx vitest run --coverage` = 0（整体 93.15% stmts/87.54% branch/93.93% lines ≥80%，Store 97.89%/92.17%/94.55% ≥90%）；`check_frontend_invariants.py` PASS（FR-6 composables 46 文件 0 孤儿、FR-8 stores 30 文件 0 超限）。两组件迁移前**零测试覆盖**（284 处引用），已补 27 个测试锚（CT-1/CT-4）。

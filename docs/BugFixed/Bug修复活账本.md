@@ -2534,14 +2534,14 @@ F-P2-8~13 六票批量执行（用户拍板 D1 补实现 / D2 取消不回退 / 
 
 ---
 
-## BF-046 【待修复】导出族 Excel 导出分页被后端 MAX_PAGE_SIZE 静默截断（Q-04 同型遗留）2026-09-26
+## BF-046 【已关闭】导出族 Excel 导出分页被后端 MAX_PAGE_SIZE 静默截断（Q-04 同型遗留）2026-09-26
 
 ### 〇、元信息
 
 - **登记日期**：2026-09-26（来源：Q-04 整改核查中发现的同型缺陷；**非**报告原条目）
 - **严重级别**：P1（数据不完整导出，且**静默无提示**；影响财务/台账类交付物）
-- **状态**：🔴 待修复（未实施任何代码变更）
-- **影响范围**：`src/composables/useOperationLogExcelExport.ts:59`、`src/composables/useUserExcelExport.ts:75`
+- **状态**：✅ 已关闭（2026-09-26，服务端流式导出落地；原「待决策事项」已由用户拍板，见第三节）
+- **影响范围**：`src/composables/useOperationLogExcelExport.ts`、`src/composables/useUserExcelExport.ts`（前端）；`core/excel_export/`、`apps/assetmanagement/operation_log_*.py`、`apps/usermanagement/views/employee_view.py`、`config/settings/base.py`、`api-schema-baseline.json`（后端）
 
 ### 一、问题现象
 
@@ -2556,11 +2556,19 @@ F-P2-8~13 六票批量执行（用户拍板 D1 补实现 / D2 取消不回退 / 
 
 与 Q-04 已关闭部分（`page_size: 9999`，登记为 `complete-patterns.md` A-40）**同型**：前端对分页上限的假设与后端钳位不一致。区别在于 A-40 是「硬编码超大值意图取全量」，本条是「动态传 total，同样被钳位」——故 Q-04 整改时**未覆盖**到这两处。
 
-### 三、待决策事项
+### 三、决策（用户 2026-09-26 拍板）
 
-1. **导出语义**：是"导出全部匹配数据（须后端提供导出专用不分页端点或循环翻页）"，还是"显式限定导出前 N 条并在 UI 标注"？二者在接口契约与用户预期上差异显著，**须产品/用户拍板**。
-2. **前端防御**：在请求前比对 `total > 100` 并给出明确提示（比照 Q-04 已落地的 `logError` 截断告警），可作为不依赖产品决策的**兜底**先落。
-3. **循环翻页**：若选"导出全部"，需按 `page` 逐页拉取并合并，涉及分页参数契约使用方式（不改契约名，仅改调用方式）。
+原「待决策事项」三问的结论：
+
+1. **导出语义 → 选"导出全部匹配数据"**，实现路径为**新增服务端导出端点**（而非循环翻页）——循环翻页仍受每页 100 条钳位且需多次往返，绕不开根因。已新增 `GET /api/v1/assets/operation-logs/export/` 与 `GET /api/v1/users/employees/export/`，流式生成 xlsx。
+2. **前端防御 → 已落**，但升级为**前置拦截**而非事后告警：超上限时 `ElMessageBox.confirm` 询问是否仅导出前 `EXPORT_MAX_ROWS` 条，用户取消即中止，不再静默产出残缺文件。
+3. **循环翻页 → 不采用**，理由同上；分页能力改由导出端点的 `?limit=` / `?offset=` 提供（缺省为全量，任一存在即启用分批）。
+
+配套安全兜底（防"全量导出打爆内存"这一原待决策未覆盖的新风险）：
+
+- 后端 `EXPORT_MAX_ROWS`（`config/settings/base.py`，默认 10000）：省略 `limit`/`offset` 的全量导出若总行数超限 → **400 明确报错**；`limit` 超过上限时钳制到上限。
+- 前端 `VITE_EXPORT_MAX_ROWS` 镜像同值（`src/api/config.ts`），使前端能在发请求前就给出提示。
+- 响应头 `X-Export-Max-Rows` / `X-Export-Total-Count` 回传实际上限与本次实际导出条数，并加入 `CORS_EXPOSE_HEADERS` 供浏览器读取。
 
 ### 四、证据与不确定性标注
 
@@ -2568,4 +2576,90 @@ F-P2-8~13 六票批量执行（用户拍板 D1 补实现 / D2 取消不回退 / 
 - **[推测·未实测]** "导出结果实际只含前 100 条"系由上述两事实**推导**，本次**未构造 >100 条数据做端到端复现**。修复前应先补一个 >100 条的回归测试确认现象。
 - 测试 mock 中的 `2000/200/1500` 字面量（`useOperationLogExcelExport.spec.ts` 等）属测试数据，不构成生产缺陷，但会掩盖真实上限，建议同步对齐。
 
-*登记人：opencode ｜ 状态：待修复（未改代码），2026-09-26*
+### 五、修复内容
+
+| # | 端 | 内容 |
+|---|-----|------|
+| 1 | 后端 | 新建 `core/excel_export/`（`widths.py` / `workbook.py` / `streaming.py` / `mixin.py` / `schema.py`）：write-only 工作簿 + 临时文件落盘 + ZIP worksheet XML 注入列宽 + `StreamingExcelResponse`（`close()` 清理临时目录，避免 Windows 文件占用）；`build_excel_export_response(..., params=...)` 统一解析 `limit`/`offset`，Mixin 与 APIView 共用同一分批语义 |
+| 2 | 后端 | `_export_mixin.py` 删除，11 个 ViewSet（含 `EmployeeViewSet`）统一改用 `core.excel_export.ExportExcelMixin`——员工导出原因跨 app 无法 import 而会形成第二份实现（DR-4 工具单一仓库） |
+| 3 | 后端 | `OperationLogSelector.build_operation_logs_queryset()` + `OperationLogQueryService.query_operation_logs_queryset()` 承载行级 scope（`_scope_by_user`：部门列表含子部门，空列表 `.none()`，`None` 不限）；`parse_operation_log_filters` 成为列表/导出参数解析单一入口 |
+| 4 | 后端 | `EmployeeViewSet` 补显式 `get_permissions()` 分支（`export_excel` → `CanExportExcel`，否则会落回通用 `IsAuthenticated`）；导出列不含 `employee_phone`（最小化批量落盘 PII） |
+| 5 | 后端 | `parse_operation_log_filters` 返回类型由 `(filters | None, error | None)` 二元组改为抛 `InvalidOperationLogFilters`——二元组无法在类型层表达关联不变量，调用方 `filters.as_selector_kwargs()` 必触发 `mypy --strict` 的 `union-attr`（CI 门禁） |
+| 6 | 后端 | `core/excel_export/schema.py` 提供 `EXPORT_PAGINATION_PARAMETERS` / `XLSX_EXPORT_RESPONSES` 复用片段；Mixin 首挂 `@extend_schema`（见第七节契约变更） |
+| 7 | 前端 | 新建 `src/utils/fileDownload.ts::downloadBlobFile()` 收敛 `excelExporter.ts` 与 `batchImport/templateExport.ts` 两套 Blob 下载（DR-4），含 `Content-Disposition` 的 `filename` / `filename*` 解析 |
+| 8 | 前端 | `request.ts` 新增 `getBlob`；错误响应为 JSON-in-Blob 时经 `readBlobErrorData` 解析后走统一 `showErrorMessage`（否则 400/403 的中文提示会被当 Blob 丢弃） |
+| 9 | 前端 | 新建 `src/composables/useServerExcelExport.ts`（空数据拦截 → 超上限确认 → >1000 条二次确认 → `getBlob` → `downloadBlobFile` → 读 `X-Export-Total-Count`）；两个实体 composable 改为薄壳；`OperationLogDetails.vue` 抽取 `buildQueryParams()` 供列表与导出共用（DR-1） |
+| 10 | 配置 | `vitest.config.ts` 写入 `maxWorkers: 4` 与 `VITE_EXPORT_MAX_ROWS`（Q-05 的「刻意未固化」决策由本次落地，见 BF-045 第六节遗留 1） |
+
+### 六、验证
+
+```text
+① pytest apps/assetmanagement apps/usermanagement core -q   → 1229 passed / 0 failed（794s，串行单进程）
+② 定向四套件（test_excel_export / test_export_excel /
+   test_operation_log_export_scope / test_employee_export）    → 50 passed
+③ 覆盖率：--cov=core.excel_export → __init__ 100% / schema 100% /
+   workbook 100% / streaming 96% / mixin 89% / widths 89%；
+   operation_log_service.py 99%；整体 97.37%（CT-2 门槛 80%）✅
+④ ruff check . --config lint.mccabe.max-complexity=10（含 C90）→ All checks passed
+⑤ mypy . --strict → 27 errors in 12 files，逐文件比对与本次 22 个
+   改动/新增文件**零交集** → 零新增（存量债见 BF-045 第六节遗留 2）
+⑥ manage.py spectacular --format openapi-json --file api-schema-baseline.json --validate
+   → 端点 183 → 185；新增 2、删除 0、components 零漂移
+⑦ oasdiff breaking（HEAD 基线 vs 当前，v1.29.1）→ 10 × response-media-type-removed
+   （即第七节已人工确认项）；oasdiff diff 另报 1 处 description 漂移，
+   系 unregistered-assets 端点 docstring 早于本次未重导的存量漂移
+⑧ check_duplicate_invariants.py → PASS（G-1~G-5）
+⑨ 前端 npx vitest run → 138 files / 1878 tests passed
+⑩ 前端 type-check / lint / format:check → 均 0
+⑪ 前端覆盖率 → statements 92.7% / branches 87.33% /
+   functions 87.14% / lines 93.49%，无阈值错误
+```
+
+### 七、契约变更（已人工确认，§1.3 红线）
+
+`ExportExcelMixin` 首次挂 `@extend_schema`，致 **10 个既有资产导出端点**的 200 响应声明由 `application/json` 更正为 xlsx 二进制。事实依据：该 10 个端点运行时本就 `as_attachment=True` + xlsx Content-Type，旧声明是**失真文档**；`components` 与响应体结构零变化。
+
+- `oasdiff breaking` 判定为 10 × `response-media-type-removed`（破坏性）。
+- 无运行时消费方依赖旧声明：全仓仅 CI 与文档引用基线；前端这 10 个资产导出仍走客户端 `useExcelExport.ts` 路径。
+- CI `api-schema-check` 该步实测**不拦截**（本地 v1.29.1 对合成真破坏用例 `request-parameter-removed` 亦退出 0），但工具判定为权威结论，故按 §1.3 走人工确认。
+- **用户 2026-09-26 拍板：完整修正并留痕**（备选方案"仅加参数、media type 另立 BF-048"已被否决）。
+
+### 八、遗留
+
+1. **BF-047**：员工导出不接受列表搜索/状态/部门筛选（见下条）。
+2. 变异测试（`mutmut`）未覆盖本次新增的 `core/excel_export/`，沿用 BF-042 记录的 65.63% 全局基线，未单独提分。
+
+*登记人：opencode ｜ 状态：已关闭（2026-09-26），BF-047 遗留待办*
+
+---
+
+## BF-047 【待修复】员工导出未接列表筛选条件（BF-046 衍生）2026-09-26
+
+### 〇、元信息
+
+- **登记日期**：2026-09-26（来源：BF-046 落地核查中发现的衍生缺口）
+- **严重级别**：P2（导出内容 ≠ 列表所见；不静默、不丢数据，但预期不符）
+- **状态**：🔴 待修复
+- **影响范围**：`apps/usermanagement/views/employee_view.py`（后端）、`src/composables/useUserExcelExport.ts`（前端）
+
+### 一、问题现象
+
+员工列表支持 `search`（`global_search`）、状态、部门等筛选，但**导出端点不接受任何筛选参数**——用户在列表页筛选出 20 条后点击导出，得到的仍是全量员工（受 `EXPORT_MAX_ROWS` 兜底）。
+
+对照：操作日志侧已由 `parse_operation_log_filters` 让列表与导出共用同一参数入口，**无此缺口**。
+
+### 二、根因
+
+`EmployeeViewSet.get_queryset()` 不读取 `request` 的筛选参数（列表的筛选在 `get_serializer_class` / 分页链中另行处理），而 `ExportExcelMixin` 直接复用 `self.get_queryset()`——可见性一致（BF-046 的设计目标），但**筛选一致性**未随之实现。
+
+### 三、待决策事项
+
+1. 员工导出是否需要支持筛选？若需要，筛选参数契约须与列表端点逐字对齐（跨端契约，须根级统筹）。
+2. 若暂不支持，是否在 UI 上标注"导出为全量数据"以免用户误解？
+
+### 四、证据与不确定性标注
+
+- **可验证**：`useUserExcelExport.ts` 的 `exportExcel()` 不传任何筛选参数；`EmployeeViewSet` 无筛选解析入口（源码直读）。
+- **[推测]** 用户是否会因此产生误解属产品判断，未做用户验证。
+
+*登记人：opencode ｜ 状态：待修复，2026-09-26*
