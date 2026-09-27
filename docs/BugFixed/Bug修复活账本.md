@@ -1,4 +1,4 @@
-# Bug 修复活账本
+﻿# Bug 修复活账本
 
 > 唯一事实来源：所有已确认根因并完成修复的 Bug 在此登记。
 > 状态：`已关闭` / `待验证` / `降级` / `待核查`
@@ -2970,7 +2970,7 @@ xlsx 二进制响应触发 `_is_list_view() == False` → **整个筛选参数�
 
 - 基线 diff **仅限 statistics 一个端点** + 组件 `+EmployeeStatistics` / `-PaginatedEmployeeDetailList`，**零其他端点变化**。
 - 导出/列表/search 等既有端点参数零变化。
-- 护栏 6 用例（`test_employee_openapi_contract.py`）全绿：响应结构、幽灵参数消失、运行期筛选参数在位、enum 未被削平、11 个裸资产导出端点未被过度声明。
+- 护栏 6 用例（`test_employee_openapi_contract.py`）全绿：响应结构、幽灵参数消失、运行期筛选参数在位、enum 未被削平、10 个裸资产导出端点未被过度声明。
 - 门禁：全量 **1601 passed**；ruff check/format、C90、BR-4 全过；改动文件 mypy --strict 零错误。
 
 ### 六、为什么这类缺陷能长期潜伏（已转护栏）
