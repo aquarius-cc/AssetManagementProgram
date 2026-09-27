@@ -2993,9 +2993,9 @@ BF-050 的三处错误在 **1595 个用例全绿**的情况下长期存在——
 ### 〇、元信息
 
 - **登记日期**：2026-09-26（来源：BF-049 / BF-050 收尾时全量扫描生成告警）
-- **严重级别**：P3（文档层缺失，运行时正确）
-- **状态**：🔴 待修复（**已延后**至独立批次，理由见第五节）
-- **影响范围**：`apps/authusermanagement/`（后端）、全 API 每个 operation 的 `security` 数组
+- **严重级别**：**P2**（文档契约层缺陷：全 API 100% 端点引用未声明的 scheme）
+- **状态**：✅ 已修复（2026-09-26，后端 commit `5ed31d6`）
+- **影响范围**：`apps/authusermanagement/`（后端）、`config/settings/base.py`、`components.securitySchemes` 与全 API 每个 operation 的 `security` 引用关系
 
 ### 一、问题现象
 
@@ -3009,30 +3009,70 @@ There was no OpenApiAuthenticationExtension registered for that class. Ignoring 
 
 即：cookie 认证**在 OpenAPI 中完全不可见**，凭 cookie 调用的客户端不会被文档告知。
 
-### 二、附带发现（存量，HEAD 即如此）
+### 二、根因（本条初次登记时误判为「附带发现」，已订正）
 
-`components.securitySchemes` 为**空对象 `{}`**，而全局 `SECURITY: [{"BearerAuth": []}]` 却在引用 `BearerAuth`——**operation 级 `security` 引用了一个未物化的 scheme**。二者都是存量，本次改动前后一致（已比对 HEAD 基线），非本次引入。
+`config/settings/base.py` 曾写 `"SECURITY_SCHEMES": {"BearerAuth": {...}}`，但 **drf-spectacular 0.29 没有 `SECURITY_SCHEMES` 这个设置项**（其 `settings.py` 中 security 相关只有 `'SECURITY': []`），未知键被**静默忽略、不报错**。
 
-### 三、修法（未实施）
+而库的实际行为是（0.29.0 源码）：
 
-在 `apps/authusermanagement/` 新增一个 `OpenApiAuthenticationExtension` 子类，`target_class` 指向 `JWTCookieAuthentication`，`name` 建议 `cookieJWT`，`get_security_definition` 返回 `{"type": "apiKey", "in": "cookie", "name": <实际 cookie 名>}`（需先核对 `authentication.py` 里的真实 cookie 名，**不得凭印象填**）。约 15 行，无运行时行为变化（扩展只影响文档生成）。
+- `openapi.py:352-360`：`components.securitySchemes` 的条目**只**由匹配到的 `OpenApiAuthenticationExtension` 注册，**没有第二个来源**；
+- `openapi.py:362`：`"SECURITY"` 只往 operation 注入**裸引用**，**不物化**任何 scheme。
 
-### 四、证据
+两者叠加的后果（实测基线）：
 
-- **可验证**：告警文本与出现范围（AssetViewSet / AssetHistoryView / BrokenAssetViewSet / ContractViewSet / AssetTypeViewSet 等多个视图）由 `spectacular --validate` 实际输出。
-- **可验证**：`securitySchemes == {}` 且 operation `security == [{"BearerAuth": []}]`，重导出前后与 HEAD 一致。
+1. `components.securitySchemes` 键**整体缺失**——**不是**空对象 `{}`（初次登记写 `{}`，已订正）；
+2. 而 `"SECURITY": [{"BearerAuth": []}]`（`base.py:361`）照常注入，于是**全部 267 个 operation 引用了一个从不存在于 components 的 `BearerAuth`**，即**悬空 scheme 引用，面 = 100% 端点**（261 个 `[{BearerAuth:[]}]` + 6 个 AllowAny 端点 `[{BearerAuth:[]},{}]`）；
+3. 全仓 `OpenApiAuthenticationExtension` 数量为 **0**，认证类只有 `JWTCookieAuthentication` 一个。
 
-### 五、为何延后（而非顺手做掉）
+故本条不是「文档少一个 cookie scheme」这么局部，而是**认证声明链路整体缺失**。
 
-1. **影响面远超预期**：会让**全 API 每个 operation** 的 `security` 数组变化（新增一个可选认证途径），而非像 BF-049 那样只动 2 个端点。这不是"顺手"的量级。
-2. **本地无 `oasdiff`**：无法验证是否被判 breaking；`security` 数组变更的 breaking 判定只能靠 CI `api-schema-check` job 回填。
-3. **触域**：属 B11/B12 认证域 + §6 安全红线范畴，与 BF-049/BF-050（纯文档层、读写行为零变化）不同批次更清晰。
+### 三、订正记录：初次登记的修法是错的（已拦下）
 
-### 六、验收标准（实施时）
+初次登记的修法写的是「新增一个 `name = "cookieJWT"` 的扩展」。**该修法会留下 267 处 `BearerAuth` 悬空引用**——只新增一个 scheme 解决不了「已被引用 267 次的 `BearerAuth` 从未物化」这个真问题，等于没修。
 
-① 告警消失；② `components.securitySchemes` 出现 cookie scheme 且 `name` 与 `authentication.py` 实际 cookie 名逐字一致；③ `oasdiff breaking` 在 CI 通过；④ 补一个 schema 断言用例（cookie scheme 存在 + `type/in` 正确）。
+实施前核对库源码时发现并纠正：扩展的 `name` **必须沿用 `BearerAuth`**，让既有 267 处引用真正解析掉。用户拍板「双 scheme 注册、operation 不引用」（即两个通道都出现在 `components.securitySchemes` 供 Swagger UI 授权，但不改 267 个 operation 的 `security` 数组）。
 
-*登记人：opencode ｜ 状态：待修复（已延后），2026-09-26*
+### 四、修复内容
+
+1. 新增 `apps/authusermanagement/schema.py::JWTCookieAuthenticationExtension`，`name = ["BearerAuth", "cookieJWT"]` 物化两个 scheme。**BearerAuth 沿用原名**（已有 267 处按名引用）。
+2. cookie 通道的 `name` 取自 `settings.JWT_AUTH_COOKIE_ACCESS`（= `asset_access_token`，`base.py:243`），**不硬编码字面量**。初次登记标注的「实施前须核对真实 cookie 名，不得凭印象填」已完成核对。
+3. **显式覆写 `get_security_requirement` 返回 `None`**：只物化定义、不注入 operation。基类默认返回 `{name: []}`，对多 name 是 **AND** 语义（两通道须同时提供），与运行时「Bearer 优先、Cookie 兜底，任一即可」相反。
+4. `apps.py::ready()` 显式 import 扩展模块——drf-spectacular 靠 `__init_subclass__` 入 `_registry` 但**不做模块自动发现**（全库无 `import_module`/`pkgutil`），漏 import 即**静默失效**。
+5. 删除 `base.py` 的 `SECURITY_SCHEMES` 自造配置块，description 文案迁入扩展（DR-4 单一口径）。`"SECURITY"` 保留不动。
+
+### 五、证据
+
+- **可验证**：`components.securitySchemes` 键**整体缺失**（非 `{}`），267 个 operation 全部引用 `BearerAuth`——均由 `api-schema-baseline.json` 实测。
+- **可验证**：全仓 `OpenApiAuthenticationExtension` 计数为 0；`base.py` 的 `SECURITY_SCHEMES` 无对应设置项。
+- **可验证（修复后）**：基线 diff **仅 +13 行 / 0 删除** = 新增 2 个 scheme，**operation 层零变化**；`could not resolve authenticator` **0 命中**，warnings 287 → 23，errors 24（6 unique）与存量一致。
+
+### 六、护栏（7 用例，含先红后绿实测）
+
+`apps/usermanagement/tests/test_openapi_security_schema.py`。核心是 `test_no_dangling_security_references`：**遍历全量 operation 的 security，每个 scheme 名都必须能在 components 中解析**——直击根因，未来新增认证类造成的同类悬空也会被它抓住。
+
+**先红后绿已实测**：临时移除 `ready()` 后 3 条用例转红，其中该核心用例逐条列出全部悬空 operation（复现本条原始缺陷）；恢复后 13 passed。
+
+两处设计取舍值得留档：
+
+- `test_extension_resolves_auth_class` **刻意不在测试里 import** 本项目的 schema 模块——否则 `ready()` 被误删时扩展仍会在 import 那一刻注册，本用例照样通过，恰好漏掉要防的失效模式。
+- `test_no_unresolved_authenticator_warning` 查 `GENERATOR_STATS._warn_cache` 而非 `recwarn`：告警走 `drainage.warn` → `GENERATOR_STATS`，**不是** Python `warnings` 模块。
+
+### 七、为何当初延后（现已实施，理由复盘）
+
+1. **影响面判断错了方向**：初判「会让全 API 每个 operation 的 `security` 数组变化」而搁置；实际根因（悬空引用）**比预想更严重**，而修法可以做到 operation 数组零变化——**问题大小与修复成本是两个独立维度**，初判把二者混为一谈。
+2. **本地无 `oasdiff`**：breaking 判定仍只能靠 CI `api-schema-check` job 回填。
+3. 触 B11/B12 认证域 + §6 安全红线，与 BF-049/BF-050（纯文档层、读写行为零变化）分批确有必要。
+
+### 八、验收标准核对
+
+| 标准 | 结果 |
+|:---|:---|
+| ① 告警消失 | ✅ `could not resolve authenticator` 0 命中 |
+| ② cookie scheme 存在且 `name` 与真实 cookie 名逐字一致 | ✅ `asset_access_token` == `settings.JWT_AUTH_COOKIE_ACCESS` |
+| ③ `oasdiff breaking` 通过 | ⏳ 待 CI `api-schema-check` 回填（本地无该工具） |
+| ④ 补 schema 断言用例 | ✅ 7 用例，含全量悬空引用扫描 |
+
+*登记人：opencode ｜ 状态：已修复，2026-09-26（后端 commit `5ed31d6`）*
 
 ---
 
