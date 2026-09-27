@@ -2986,4 +2986,104 @@ BF-050 的三处错误在 **1595 个用例全绿**的情况下长期存在——
 
 *登记人：opencode ｜ 状态：已修复，2026-09-26*
 
+---
+
+## BF-051 【待修复·已延后】`JWTCookieAuthentication` 缺 `OpenApiAuthenticationExtension`，cookie 认证不出现在 OpenAPI 2026-09-26
+
+### 〇、元信息
+
+- **登记日期**：2026-09-26（来源：BF-049 / BF-050 收尾时全量扫描生成告警）
+- **严重级别**：P3（文档层缺失，运行时正确）
+- **状态**：🔴 待修复（**已延后**至独立批次，理由见第五节）
+- **影响范围**：`apps/authusermanagement/`（后端）、全 API 每个 operation 的 `security` 数组
+
+### 一、问题现象
+
+`python manage.py spectacular` 输出中，**所有使用 `JWTCookieAuthentication` 的视图**都带同一条告警：
+
+```
+Warning [XxxView]: could not resolve authenticator
+<class 'apps.authusermanagement.authentication.JWTCookieAuthentication'>.
+There was no OpenApiAuthenticationExtension registered for that class. Ignoring for now.
+```
+
+即：cookie 认证**在 OpenAPI 中完全不可见**，凭 cookie 调用的客户端不会被文档告知。
+
+### 二、附带发现（存量，HEAD 即如此）
+
+`components.securitySchemes` 为**空对象 `{}`**，而全局 `SECURITY: [{"BearerAuth": []}]` 却在引用 `BearerAuth`——**operation 级 `security` 引用了一个未物化的 scheme**。二者都是存量，本次改动前后一致（已比对 HEAD 基线），非本次引入。
+
+### 三、修法（未实施）
+
+在 `apps/authusermanagement/` 新增一个 `OpenApiAuthenticationExtension` 子类，`target_class` 指向 `JWTCookieAuthentication`，`name` 建议 `cookieJWT`，`get_security_definition` 返回 `{"type": "apiKey", "in": "cookie", "name": <实际 cookie 名>}`（需先核对 `authentication.py` 里的真实 cookie 名，**不得凭印象填**）。约 15 行，无运行时行为变化（扩展只影响文档生成）。
+
+### 四、证据
+
+- **可验证**：告警文本与出现范围（AssetViewSet / AssetHistoryView / BrokenAssetViewSet / ContractViewSet / AssetTypeViewSet 等多个视图）由 `spectacular --validate` 实际输出。
+- **可验证**：`securitySchemes == {}` 且 operation `security == [{"BearerAuth": []}]`，重导出前后与 HEAD 一致。
+
+### 五、为何延后（而非顺手做掉）
+
+1. **影响面远超预期**：会让**全 API 每个 operation** 的 `security` 数组变化（新增一个可选认证途径），而非像 BF-049 那样只动 2 个端点。这不是"顺手"的量级。
+2. **本地无 `oasdiff`**：无法验证是否被判 breaking；`security` 数组变更的 breaking 判定只能靠 CI `api-schema-check` job 回填。
+3. **触域**：属 B11/B12 认证域 + §6 安全红线范畴，与 BF-049/BF-050（纯文档层、读写行为零变化）不同批次更清晰。
+
+### 六、验收标准（实施时）
+
+① 告警消失；② `components.securitySchemes` 出现 cookie scheme 且 `name` 与 `authentication.py` 实际 cookie 名逐字一致；③ `oasdiff breaking` 在 CI 通过；④ 补一个 schema 断言用例（cookie scheme 存在 + `type/in` 正确）。
+
+*登记人：opencode ｜ 状态：待修复（已延后），2026-09-26*
+
+---
+
+## BF-052 【已修复】前端回落搜索把任意筛选值当 keyword，筛选值被当搜索词发出 2026-09-26
+
+### 〇、元信息
+
+- **登记日期**：2026-09-26（来源：BF-047 收尾时前端侧复盘；用户批准计划中的 D1）
+- **修复日期**：2026-09-26
+- **严重级别**：P2 潜在缺陷（逻辑错误，但**当前影响面为 0**，见第四节）
+- **状态**：✅ 已修复（回归屏障：`usePaginationSearch.spec.ts` 3 条新用例 + `UserDetails.spec.ts` 4 用例）
+- **影响范围**：`src/composables/usePaginationSearchState.ts`（前端）
+- **提交**：`dcea08b`（前端仓）
+
+### 一、问题现象
+
+`performSearchWithParams(params)` 在视图**未实现** `performSearchWithParams` 时的回落分支原为：
+
+```ts
+const keyword = params.keyword || Object.values(params).find((v) => v && v.trim()) || ''
+await performSearch(keyword)
+```
+
+即「取第一个非空筛选值当搜索词」。只传 `department_code: 'DEPT-F1'` 时会发出 `?keyword=DEPT-F1`。
+
+### 二、根因
+
+后端 `keyword` 匹配的是**员工昵称**（`search_employees` 半角昵称口径），与 `search` 字段名、与部门编码都不是一回事（见 BF-050 遗留：三种匹配语义本就不一致）。前端这一行把「筛选」与「搜索」两种语义混为一谈：既没有类型约束，也没有注释说明，等于**假设所有筛选值都是可搜索的字符串**。任何新增的非文本筛选（状态码、部门编码、日期区间）都会踩中。
+
+### 三、修复内容
+
+1. 只上报真正的 `keyword`（`params.keyword?.trim()`）；无 keyword 时**如实回落为列表加载 + 告警**，由接入方补 `performSearchWithParams`。
+2. **明确禁止反向操作**：把筛选值塞进 `keyword` 去迁就缺失的实现。
+3. 抽出 `resetSearchState()` 与 `fallbackSearchWithoutMultiParam()`：新增分支使该函数圈复杂度达 **11**，超 FR-5 上限 10，抽取后恢复合规（不是顺手重构，是门禁要求）。
+
+### 四、影响面实测为 0（但缺陷真实）
+
+全仓检索 `performSearchWithParams` 的调用点：仅 `usePaginationSearch.ts` 转出，**无任何组件调用**。故本条是**潜在缺陷**而非在线故障——但它是一颗定时炸弹：第一个实现「带筛选的列表页」的开发者会直接踩中。
+
+### 五、验证（含先红后绿）
+
+- **先红后绿已实测**：临时还原旧实现后，「非关键字筛选不得被当成搜索词」用例**转红**（`performSearch` 被误调 1 次）；恢复后 40 全绿。
+- 另 2 条新用例（keyword 与筛选并存取 keyword、纯空白 keyword 不拿其他值凑数）在旧实现下**同为绿**——它们是**语义边界锁**，防未来改动回退，不是回归锚点。如实标注，不充作锚点。
+- 全量：139 files / 1900 tests passed；覆盖率整体 92.8% statements（阈值 80）、stores 97.73%（阈值 90）；type-check / lint / format:check 三项 0；复杂度 ≤10；`check_frontend_invariants.py` PASS。
+
+### 六、附带产出：首个 `UserDetails` 接线测试（D2）
+
+BF-047 的「搜索后导出 = 搜索结果」是一条**跨三跳的隐式链**：`search.onSearchStateChange` → `userStore.currentKeyword` → `createUserExcelExport(userStore)` 读该值转发后端。任一环被重构误删都**不报错**，只有导出行集合悄悄变回全量；而既有测试全是 composable / store 层单测，**覆盖不到组件这一跳**。
+
+新增 `src/components/componentsdetails/__tests__/UserDetails.spec.ts`（4 用例）补上这一跳：搜索态变更写入 currentKeyword、卸载清空（防残留词）、`performSearch` 透传分页、导出 composable 收到同一 store 实例。**范围克制**：只测接线，不测渲染/交互/样式，不做全量快照。
+
+*登记人：opencode ｜ 状态：已修复，2026-09-26*
+
 
