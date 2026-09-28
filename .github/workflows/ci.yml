@@ -145,6 +145,22 @@ jobs:
       - name: 运行 API 文档一致性护栏
         run: python scripts/check_api_doc_consistency.py
 
+  api-doc-generate:
+    name: "M-3 配套 - API 字段/枚举生成器同步核验"
+    runs-on: ubuntu-latest
+    needs: [backend-lint]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      # 生成器驱动注释层 + 枚举区接管，文档与「Schema 基线/注解真值」必须一致。
+      # 路径基于脚本 __file__ 解析，无需 working-directory；仅依赖标准库。
+      - name: API 字段/枚举生成器同步核验（差异即失败）
+        run: python scripts/generate_api_field_reference.py --check
+
   backend-test:
     name: "后端 - 测试 + 覆盖率"
     runs-on: ubuntu-latest

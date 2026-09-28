@@ -43,3 +43,7 @@ node_modules/
 
 # 会话截图/临时产物
 snippicture/
+
+# Python 运行时缓存
+__pycache__/
+*.pyc
