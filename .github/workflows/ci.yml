@@ -128,6 +128,23 @@ jobs:
             echo "重导出命令: python manage.py spectacular --format openapi-json --file api-schema-baseline.json --validate"
           fi
 
+  api-doc-guard:
+    name: "B4 - API 文档一致性护栏"
+    runs-on: ubuntu-latest
+    needs: [backend-lint]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      # 先跑自检: 证明 V-1~V-4 规则本身会红。若规则恒绿,后续"全部通过"没有意义。
+      - name: 护栏自检（负样本必红 + 正样本不误报）
+        run: python scripts/check_api_doc_consistency.py --self-test
+      - name: 运行 API 文档一致性护栏
+        run: python scripts/check_api_doc_consistency.py
+
   backend-test:
     name: "后端 - 测试 + 覆盖率"
     runs-on: ubuntu-latest
