@@ -4200,7 +4200,8 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 ③ 红线出处：stryker.config.json:10 break 80；Rules_Fiels/backend-testing-rules.md T8 = 80%
 ④ 覆盖范围对照：stryker.config.json:6 mutate = src/stores/**/*.ts；实测 src/stores 共 31 个 .ts → 基线仅覆盖 7 个
 ⑤ 覆盖率对照（说明正交性）：BF-045 遗留①记录整体 93.11% / Store 97.72%，已达 CT-2
-未执行：全量 stryker run、mutmut 3.8.0 首跑、任何补测 —— 均属第 0a / 0b 批执行阶段
+未执行：全量 stryker run、任何补测 —— 均属第 0a / 0b 批执行阶段。
+mutmut 3.8.0 单文件已跑（waste_asset_service.py，见 BF-065），全量仍未执行。
 ```
 
 ### 六、遗留与关联事项
@@ -4209,8 +4210,9 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 2. 4 个 no-cov mutants 提示存在零覆盖代码，补测时应优先于「提高分」处理。
 3. 若最终选择下调红线，须在 `Rules_Fiels/Duplicate_Codes/complete-patterns.md` 留痕（§1.8 新发现义务），
    并按 §5.4 走沙盒期，不得直接改小数字了事。
+4. **3.8.0 唯一现场值（n=1，不可外推）**：waste_asset_service.py 16 只 → 6 killed / 10 survived = **37.5%**（exit_code_by_key 直读 {1:6, 0:10}，见 BF-065 §五）。与 2.5.1 全仓 65.63% 口径不同、不可比；65.63% 已按 BF-065 §六第 2 条作废。**0b 阈值决策不得再引用 65.63% 作为「当前水平」**。
 
-*登记人：opencode ｜ 状态：**待修复**（能力缺口，0a 仅完成「工具链已修、数据未取」的前置半边；0b 核心内容），2026-09-29*
+*登记人：opencode ｜ 状态：**待修复**（能力缺口，0a 仅完成「工具链已修」的前置半边；已取得 3.8.0 单文件参考值（37.5%，n=1 不可外推），全量分仍未取；0b 核心内容），2026-09-29*
 
 ---
 
@@ -4221,13 +4223,13 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 - **登记日期**：2026-09-29
 - **来源**：0b 首跑（WSL /tmp/mut38 全量 `mutmut run`）触发；修复方案经三轮计划评审定稿
 - **关键程度**：P1（不报错、测试全过、分数完全无意义——静默失真是门禁类缺陷中最危险形态）
-- **影响范围**：`asset_management_backend/setup.cfg`（[mutmut] also_copy）；关联 BF-062（0a 三项待验证项之一「also_copy 是否需补测试目录」在本条得到最终答案）
+- **影响范围**：`asset_management_backend/setup.cfg`（[mutmut] also_copy）；关联 BF-059（其记录的「变异测试三重失效」中，also_copy 缺 manage.py 是第 4 重失效，在本条得到最终答案）
 - **契约影响**：无
 - **跨端契约**：未变更
 
 ### 一、发现
 
-0b 首跑触发。**2.5.1 未复现**（当时确实产出 1385 只变异体），差异原因未查证。
+0b 首跑触发。**2.5.1 未复现**（当时确实产出 1385 只变异体）——差异原因已查明：2.5.1 为原地改写 + .bak 恢复机制，不依赖 also_copy 布局；3.x 改为 mutants/ 目录架构，测试对源码的解析完全取决于 also_copy 内容与 pytest-django 的路径发现，陷阱由此暴露。
 
 ### 二、现象
 
@@ -4249,13 +4251,17 @@ args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**�
 
 ```text
 闸门：mutmut print-time-estimates（约 20 秒，不跑变异体）
-判据（三条，全部通过）：
-  ① N_total=16 条，与单文件变异体总数同量级（交叉核对 mutants/*.meta ✓）
+判据（①自我循环，仅证明关联非空；有效判据为②③）：
+  ① N_total=16 条，与单文件变异体总数同量级（16 条对 16 只，自我循环）
   ② N_none（<no tests> 行数）= 0
   ③ 两条 Stopping early 文案零出现，RC=0
 单文件真实判定：waste_asset_service.py 全部 16 只变异体
-  mutmut run <16 keys> → killed 8 / survived 8（emoji 计数逐只核对）
-  ——真实分数首次产出，测试确证命中变异版代码
+  mutmut run <16 keys> → killed 6 / survived 10 = 37.5%
+  （exit_code_by_key 直读 {1:6, 0:10}，按 status_by_exit_code 映射；此前的
+  emoji 计数法混入了非本批 key，已废弃）
+  ——真实分数首次产出，测试确证命中变异版代码。机制侧成立（N_none=0 +
+  6 只被杀 = 静默失真确已消除）；分数侧反向（全仓最小文件 168 行仅 37.5%，
+  远低于 2.5.1 全仓 65.63%——但两者算子集不同不可比，见 §六第 2 条）
 ```
 
 ### 六、遗留
@@ -4265,5 +4271,6 @@ args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**�
    - **CI**：runner 工作区每次 job 后丢弃，`.meta` 不跨 run 保留 → 现状每次全量；若要 CI 增量需新增缓存步骤（待 0b 决策）。
    - 时长预算：预期显著超过 2.5.1 的 4h15m（16 核口径）；3.8.0 换 libcst 算子、变异体数量未知，CI 实际时长待首跑测量后再回填 `timeout-minutes`——**300 分钟预算未经验证，不作为已确认值引用**。
 2. **基线作废声明**：65.63%（2.5.1 / 1385 只）已作废——3.8.0 换 libcst 算子，变异体集合不同，不可与 2.5.1 数字直接对比；0b 阈值决策只能基于 3.8.0 现场参考值。
+3. **timeout 预算需重估**：`timeout-minutes: 300` 的「余量 45 分钟」论证源自 2.5.1 算子集（BF-059 记录的 4h15m/16 核）；3.8.0 变异体集合不同，余量未知，需首跑实测后重估。
 
-*登记人：AtomCode ｜ 状态：**已关闭**（setup.cfg 修复 + 闸门三判据通过 + 单文件真实分数产出），2026-09-29*
+*登记人：AtomCode ｜ 状态：**已关闭**（setup.cfg 修复 + 闸门判据通过 + 单文件真实分数 37.5%（n=1 不可外推）产出），2026-09-29*
