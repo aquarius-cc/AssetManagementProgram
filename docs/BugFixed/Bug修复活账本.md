@@ -3498,3 +3498,120 @@ raw dict 旁路同时跳过该分支，故副作用不产生。
    已在 `Rules_Fiels/Duplicate_Codes/complete-patterns.md` 登记为 **A-46**。
 
 *登记人：opencode ｜ 状态：已关闭，完成验证，2026-09-29*
+
+
+## BF-058 【已关闭】功能提交顶穿 BR-4 函数长度红线、CI 兜底拦下——master 一度红灯 2026-09-29
+
+### 〇、元信息
+
+- **登记日期**：2026-09-29
+- **来源**：本地复跑 `scripts/check_function_length_guard.py` 时暴露
+- **关键程度**：P1（CI 红灯，阻塞后续合并；非功能缺陷）
+- **影响范围**：`apps/assetmanagement/services/contract_service.py::ContractService.create_contract` + `Rules_Fiels/BR4_function_length_ledger.md`
+- **契约影响**：无（纯结构重构，运行时行为零变化，无 API 变更，基线不需重导出）
+- **跨端契约**：未变更
+
+### 一、问题现象
+
+`python scripts/check_function_length_guard.py` 报：
+
+```
+[FAIL] BR-4 函数长度护栏失败:
+  - 未登记超长函数: assetmanagement/services/contract_service.py create_contract() 逻辑行数 52 > 50
+```
+
+该护栏挂在两处 CI——`ci.yml:39`（`backend-lint` job）与 `duplicate-guard.yml:28`（`submodules: true`），
+故 `master` 自 `ed9487a` 起**一直是红的**。
+
+### 二、根因
+
+`ed9487a`（合同支付链路统一重算，BF-053~055）落实「决策 2a：创建入口的 `amount_paid`
+规范化为 approved 期初付款记录」时，在 `create_contract` 体内**内联**了 16 个逻辑行：
+
+```python
+if opening_paid and Decimal(str(opening_paid)) > 0:
+    contract.paid_record = json.dumps({...}, ensure_ascii=False)   # 15 行
+    contract.save(update_fields=["paid_record", "updated_at"])
+```
+
+把该函数从 **36 顶到 52**，越过 BR-4 的 50 红线。提交前**未跑本地长度护栏**，
+因此 CI 直接拦下。
+
+**这不是存量豁免问题**（这是判定的关键）：
+
+- 台账表格**是空的**——B1 / B2 / B3 三批已全部收口，header 明写「生产超长函数 **0 处**」，
+  guard 复测输出亦为 `[PASS] 0 超长`；
+- BR-4 规则原文明确「超限必须抽离，触发重构，**不得豁免**」；
+- guard 是**双向**的：第 1 条「未登记即红」防新增回潮，第 2 条「已拆分未移除即红」防台账腐烂。
+  故把它登记进台账表不仅绕过防线，还会与第 2 条语义冲突。
+
+结论：**只能拆分**。这也再次证明台账是**兜底通道**而非豁免通道。
+
+### 三、修复方案
+
+1. **`contract_service.py`**——把上述 16 行抽为模块级私有 helper
+   `_apply_opening_paid(contract: Contract, opening_paid: str | int | float | Decimal | None) -> None`，
+   落位于既有 4 个 helper（`_parse_paid_record` / `_build_payment_entry` /
+   `_sum_active_paid` / `_recalc_paid_amounts`）之后、类定义之前。
+   守卫由 `if ... > 0:` 改为**卫语句早返回**，语义等价。
+   `create_contract` 内 16 行塌缩为 1 行调用。
+   `create_contract` **52 → 37 逻辑行**，`_apply_opening_paid` 25 逻辑行。
+2. **原位保留「为什么」注释**（本条最易做错的一步）：`create_contract:160-163` 的 4 行
+   【BF-055 / 决策 2a】论证**不在**待抽块内部，而是位于 `pop` 之前，解释的是
+   「pop → 规范化 → 重算」**跨三处的完整链路**。塌缩后该三步仍连续可见于
+   `create_contract`，故注释**原位不动**（注释行不计入 guard 逻辑行，保留零成本）；
+   helper 的 docstring 只承接自身实现语义，**不复制**那段长论证，避免同一段文字双份维护。
+3. **`BR4_function_length_ledger.md`**——header 追加事故注记（与 `210cfa7` 格式化事故同类并列），
+   含「文件余量告急 489/500」提示。**台账表格不加行**（拆完即达标，加行反而触发第 2 条断言）。
+
+### 四、对抗审核
+
+1. **「为什么不登记台账豁免掉」**——BR-4 明文「不得豁免」；且台账双向化设计决定了
+   登记新条目会引入「已拆分未移除即红」的维护负担，而本函数拆完即达标，登记纯属倒退。
+2. **「为什么不压缩 docstring 凑行数」**——`create_contract` docstring 14 行**计入** guard 逻辑行
+   （口径见台账 header 第 4 行），压缩确可减行，但那是**纯文本规避**、丢失接口文档。
+   台账记载 B2/B3 拆分设计曾含「docstring 压缩」，但本条存在真结构解法，不取。
+3. **「为什么不抽审计日志块（12 行）代替」**——`GenericAuditService.log_create(...)`
+   只是一次委托调用，套壳价值薄；且该样板在全仓多服务重复，属**另一个 DR-1 议题**，
+   不应混入本次范围（范围蔓延）。
+4. **「卫语句真的等价吗」**——原式 `opening_paid and Decimal(str(opening_paid)) > 0`
+   与新式 `if not opening_paid or Decimal(str(opening_paid)) <= 0: return` 短路顺序一致：
+   falsy 值（含 `None`）先短路，**不会**走到 `Decimal(str(None))` 这条 `InvalidOperation` 路径。
+   非数值字符串（如 `"abc"`）两侧同样抛 `InvalidOperation`，**非本次引入**，由 Serializer 先行校验兜底。
+5. **「抽 helper 会不会让 DR-1 变差」**——不会。全仓 grep `opening_balance` / `期初已付`
+   得 15 处命中，其中**实现点仅 1 处**（原 `:144-146`），其余均为注释、`help_text`、
+   docstring 与测试断言。即本次是**纯搬移**而非「合并两处重复」。
+   `batch_create_contract` 经 `_create_item` 直接调 `create_contract`，无重复实现，
+   helper 一处即单条与批量两条路径共同受益。
+6. **「类型标注 `Any` 会不会触发 strict 报错」**——已实测：`pyproject.toml` 的 mypy 段
+   设 `warn_return_any = true`，但该 flag **只在 `return Any` 时触发**；helper 返回 `None`，
+   `Decimal(str(...))` 是内联表达式不回传，故不触发。仍采用精确 union
+   `str | int | float | Decimal | None`（比 `Any` 更贴实际入参；`float` 覆盖 API JSON 数值入参），
+   实测目标文件 **0 错误**。
+
+### 五、验证记录
+
+- **重构前后行为等价**：`test_contract_service.py::TestCreateContractOpeningPaid` 5 条
+  改动前 5 passed、改动后 5 passed，用例名与顺序逐字一致（纯重构零行为差异）
+- **护栏**：`python ../scripts/check_function_length_guard.py` → `[PASS] 0 超长函数 / 0 未登记台账`；
+  `--print` Top10 中 `create_contract` 已消失（现最高为 49 行 `complete_repair`）
+- **行数实测**：`create_contract` 52 → **37**（余量 13）；`_apply_opening_paid` 25
+- **文件行数**：475 → **489**（DR-5 上限 500，余量 11 —— 已记入台账告警）
+- **静态**：`ruff check` → All checks passed；`ruff format --check` → 1 file already formatted；
+  `C90 --config lint.mccabe.max-complexity=10` → All checks passed
+- **类型**：`mypy apps/assetmanagement/services/contract_service.py --strict` → 该文件 **0 错误**；
+  `mypy . --strict` → **27 errors / 12 文件，与存量基线一致，零新增**
+- **域回归**：`pytest apps/assetmanagement -q` → **955 passed**
+
+### 六、遗留与关联事项
+
+1. **文件余量告急**：`contract_service.py` 489/500，仅余 11 行。后续合同域功能应优先新建文件；
+   BR-6 拆分（如 `payment_service.py` 承接 `add_payment_record` / `delete_payment_record` /
+   `approve_payment_record`，三者现为 38 / 23 / 25 行）**另立议题**，本次仅记录不行动。
+2. **临界函数观察**：`complete_repair`（49）与 `reject_asset_recordcode`（49）**距红线仅 1 行**，
+   后续任何加行都会触发护栏红。建议在动手改这两个函数前先跑 `--print` 确认余量。
+3. **机制教训**：详见 `Rules_Fiels/BR4_function_length_ledger.md` header 的
+   「功能提交顶穿红线事故 + 教训（2026-09-29）」注记——本条是 `210cfa7` 之后**第二次同型事故**
+   （「功能/格式化改动会改变长度类指标」），教训已固化为「在既有大函数内追加 ≥ 10 行须复跑护栏」。
+
+*登记人：opencode ｜ 状态：已关闭，完成验证，2026-09-29*
