@@ -1,5 +1,5 @@
 # 后端测试细则 (Backend Testing Rules)
-> 版本：v1.3 | 最后更新：2026-07-09
+> 版本：v1.4 | 最后更新：2026-09-29
 > 适用范围：pytest + pytest-django + factory_boy + mutmut（变异测试）
 
 ## 一、测试目录与命名 [T1]
@@ -48,20 +48,28 @@ pytest --cov=apps.assetmanagement.services --cov-fail-under=90
 ## 七、变异测试（强化测试有效性）[T7]
 | 规则ID	| 内容 |
 | :--- | :--- |
-| T7	| 必须引入变异测试工具（推荐 mutmut），对所有 App 的核心业务代码（Service 层）执行变异测试，变异通过率（Killed Mutants）必须 ≥ 80%。|
-执行命令：
-```bash
-# 安装 mutmut
-pip install mutmut
+| T7	| 必须引入变异测试工具（mutmut，已在 `requirements/dev.txt` 钉 `mutmut==3.8.0`），对核心业务代码（Service 层）执行变异测试，变异通过率（Killed Mutants）必须 ≥ 80%。|
 
-# 运行变异测试（需逐个 App 执行）
-mutmut run --paths-to-mutate apps/assetmanagement/services
-mutmut run --paths-to-mutate apps/authusermanagement/services
-mutmut run --paths-to-mutate apps/usermanagement/services
-mutmut run --paths-to-mutate apps/unregisteredasset/services
-mutmut results
+**执行命令**（配置唯一事实源为 `asset_management_backend/setup.cfg` 的 `[mutmut]` 段，命令不传任何参数）：
+```bash
+# 运行变异测试（须在 asset_management_backend 目录下执行）
+mutmut run
+
+# 导出并判分（比率真源；`mutmut results` 只列非 killed 且无 total 行，无法算比率）
+mutmut export-cicd-stats
+python -c 'import json;s=json.load(open("mutants/mutmut-cicd-stats.json"));t=s["total"]-s["skipped"];print(round(s["killed"]/t*100,2),"%")'
+
+# 交互式查看明细
+mutmut browse
 ```
-若通过率 < 80%，触发 `[HALT]`并补充/完善测试用例。
+得分口径：`killed / (total - skipped) × 100`，与 CI `backend-mutation` 门禁一致。
+若得分 < 80%，触发 `[HALT]`并补充/完善测试用例。
+
+**易错点**（配置细节见 `setup.cfg` 内注释，此处仅列使用侧约束）：
+- **平台限制**：mutmut 3.x 拒绝在 Windows 原生运行（直接 `sys.exit(1)`），只能在 Linux/macOS 执行。
+- **变异范围**：当前 `[mutmut] source_paths` 只含 `apps/assetmanagement/services`。扩大范围须同步
+  评估耗时（3.x 首次运行为全量），并确认 `also_copy` 仍能覆盖测试的全部可导入路径。
+- **不可手工传 CLI 旗标**：CI 与本地共用 `setup.cfg`，传参会造成双口径。
 ## 八、迁移验证（宪法 CT-6 落地）[T8]
 涉及数据库迁移文件的变更，必须执行以下三步验证（与根级 CT-6 对齐）：
 ```bash
@@ -92,9 +100,9 @@ pytest --cov=apps.unregisteredasset.services --cov-fail-under=90
 # 查看详细 HTML 报告
 pytest --cov=. --cov-report=html
 
-# 变异测试
-mutmut run --paths-to-mutate apps/assetmanagement/services
-mutmut results
+# 变异测试（配置见 setup.cfg [mutmut]；T7 红线 80%）
+mutmut run
+mutmut export-cicd-stats
 
 # 迁移验证（与根级 CT-6 对齐，三步法）
 python manage.py makemigrations --dry-run 2>&1 | findstr "No changes detected"
@@ -102,6 +110,8 @@ python manage.py migrate --plan
 findstr /N "RemoveIndex RemoveField RenameField" <迁移文件名>
 ```
 ## 十、变更日志
+- **v1.4 (2026-09-29)**：T7 与 §九 命令汇总改写为 mutmut 3.8.0 口径——删除 2.x 的 `pip install mutmut`、`--paths-to-mutate`（3.x 已弃用并发 DeprecationWarning）、`mutmut results`（只列非 killed 且无 total 行，无法算比率）；改为 `mutmut run`（配置唯一事实源改为 `setup.cfg` 的 `[mutmut]` 段，命令不传参，消除 CI/本地双口径）+ `mutmut export-cicd-stats` 判分。补充得分口径公式（`killed/(total-skipped)`，与 CI 门禁一致）与三条易错点（Windows 拒绝运行、变异范围扩评耗时、不可手工传旗标）。依据后端 AGENTS §4.2，经人工审批后应用；配套改动见 `docs/BugFixed/Bug待修复计划-20260929.md` §3.10。
+
 - **v1.3 (2026-07-09)**：修复 S-1——T8 和命令汇总中移除被根级 CT-6 禁止的 `migrate <app> zero --dry-run` 命令，替换为 CT-6 许可的三步验证法；补充多 App 覆盖率检查命令。
 
 - **v1.2 (2026-07-07)**：新增第八节"迁移验证（T8）"，落地宪法 CT-6。

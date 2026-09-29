@@ -2181,7 +2181,8 @@ grep gradient-card                          → 亮/暗双态各 4 条齐备 ✅
 
 ---
 
-## BF-039 门禁三连红修复（F-P1-3 + F-P2-7 + F-P3-1）2026-09-24
+## BF-039 【已关闭】门禁三连红修复（F-P1-3 + F-P2-7 + F-P3-1）2026-09-24
+> 状态补标（2026-09-29）：依本条收尾登记人行「已关闭（全量 1368 passed 0 failed + schema 与 docstring 零漂移 + 护栏 PASS）」补齐。
 
 ### 一、问题概述
 
@@ -2228,7 +2229,8 @@ CI 静态门禁三连红（`ruff format --check` 102 文件、`ruff check` 7 错
 
 ---
 
-## BF-040 H-1 状态机契约源裁定（F-P1-4）2026-09-24
+## BF-040 【已关闭】H-1 状态机契约源裁定（F-P1-4）2026-09-24
+> 状态补标（2026-09-29）：依本条收尾登记人行「已关闭（裁定 A 方案2，纯文档 1+1 文件）」补齐。
 
 ### 一、问题概述
 
@@ -2265,7 +2267,8 @@ F-P2-* 其余项、变异测试 T8 仍开放（与 H-1 无关）。
 
 ---
 
-## BF-041 F-P2-1/2/3 可观测性与 AI 标注批 2026-09-24
+## BF-041 【部分关闭】F-P2-1/2/3 可观测性与 AI 标注批 2026-09-24
+> 状态补标（2026-09-29）：依本条收尾登记人行「首批已关闭，后续批开放」补齐为【部分关闭】——不可记「已关闭」。
 
 ### 一、问题概述
 
@@ -2297,7 +2300,9 @@ F-P2-* 其余项、变异测试 T8 仍开放（与 H-1 无关）。
 
 ---
 
-## BF-042 F-P2-2 后续批 + F-P2-6 旧报告补标 + F-P2-4 变异基线 2026-09-24
+## BF-042 【部分关闭】F-P2-2 后续批 + F-P2-6 旧报告补标 + F-P2-4 变异基线 2026-09-24
+> 状态补标（2026-09-29）：依本条收尾登记人行「F-P2-2/F-P2-6 已关闭，F-P2-4 前后端双基线归档完成（均 <80 待补测）」补齐为【部分关闭】。
+> 其中 F-P2-4 的「均 <80 待补测」缺口已于 2026-09-29 独立登记为 **BF-064**（并附 BF-059 / BF-060 / BF-061 三条工具链根因），本条不再承担该缺口。
 
 ### 一、问题概述
 
@@ -2332,7 +2337,8 @@ F-P2-* 其余项、变异测试 T8 仍开放（与 H-1 无关）。
 
 *登记人：opencode（mimo-v2.6-flash-free） ｜ 状态：F-P2-2/F-P2-6 已关闭，F-P2-4 前后端双基线归档完成（均 <80 待补测），2026-09-24*
 
-## BF-043 F-P2-8~13 AC 修订批量（行锁 409 收敛 + usage_type + FSM 锚 + 零代码闭环）2026-09-24
+## BF-043 【已关闭】F-P2-8~13 AC 修订批量（行锁 409 收敛 + usage_type + FSM 锚 + 零代码闭环）2026-09-24
+> 状态补标（2026-09-29）：依本条收尾登记人行「F-P2-8~13 全部关闭/闭环」补齐。
 
 ### 一、问题概述
 
@@ -2526,6 +2532,8 @@ F-P2-8~13 六票批量执行（用户拍板 D1 补实现 / D2 取消不回退 / 
 ### 六、遗留与关联事项
 
 1. **[未修复·待决策] 环境性超时成因**：本机空闲内存仅 4.92GB，默认 15 workers 下仍会随机超时。**本次刻意未把 `maxWorkers` 写入 `vitest.config.ts`**——为迁就单机内存状况改共享工程配置不妥，且 CI（GitHub Actions 通常 4 核）会自动取 `maxWorkers=3`，无此问题。**本地跑全量请用 `npx vitest run --maxWorkers=4`**。若需固化，属前端 AGENTS §4.1 工程配置自主范围，须先决策（可考虑按 `os.cpus()` 与可用内存动态取值）。
+   > **【2026-09-29 决策反转·本条已被推翻并落地】** 上述「刻意未固化」决策其后被**推翻**，并已在 BF-046 落地：`vue-assetmanagement/vitest.config.ts:19` 现为 `maxWorkers: 4`（含 `:14-18` 共 5 行【Q-05】注释），落地记录见 **BF-046 改动表第 10 行（本文件 :2600）**。
+   > 原文保留为历史快照，**现行口径以 BF-046 / `vitest.config.ts:19` 为准**；本条「未修复·待决策」标记随之失效（实测 2026-09-29：`vitest.config.ts` 命中 `maxWorkers: 4`）。
 2. **[存量债务·未处理] `mypy --strict` 本文件 28 errors**：经 `git stash` 基线对比，HEAD 与当前在系统 Python 下**同为 35 errors / 6 files → 零回归**。另注：解释器不同结论不同——用项目 `.venv` 跑为 **28 errors / 1 file**（系统 Python 多出的 5 文件 7 处系环境解析差异，与报告 Q-08「.venv 复跑归零」口径一致）。即本文件 28 处**为真实存量注解债**（集中在测试体缺返回标注，如 L301/L303/L315），非本次引入；不在本批范围，避免范围蔓延。
 3. **[存量·未处理] pytest teardown 告警**：`test_concurrent.py` 结束时报 `Error when trying to teardown test databases ... 6 个会话仍占用`——线程用例连接未显式关闭所致，为告警非失败（exit 0）。属独立技术债。
 4. **提交状态**：本条目登记时全部改动仍在工作区未提交。按规范需用户显式要求才提交。
@@ -2988,7 +2996,8 @@ BF-050 的三处错误在 **1595 个用例全绿**的情况下长期存在——
 
 ---
 
-## BF-051 【待修复·已延后】`JWTCookieAuthentication` 缺 `OpenApiAuthenticationExtension`，cookie 认证不出现在 OpenAPI 2026-09-26
+## BF-051 【已修复】`JWTCookieAuthentication` 缺 `OpenApiAuthenticationExtension`，cookie 认证不出现在 OpenAPI 2026-09-26
+> **【2026-09-29 标题订正】** 原标题为【待修复·已延后】，与本条正文矛盾：`:3006` 元信息已记「✅ 已修复（2026-09-26，后端 commit `5ed31d6`）」，收尾登记人行亦为「已修复」。据正文事实订正为【已修复】，原措辞保留于本注。
 
 ### 〇、元信息
 
@@ -3615,3 +3624,646 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
    （「功能/格式化改动会改变长度类指标」），教训已固化为「在既有大函数内追加 ≥ 10 行须复跑护栏」。
 
 *登记人：opencode ｜ 状态：已关闭，完成验证，2026-09-29*
+
+
+## BF-059 【部分关闭】后端变异测试门禁空转：mutmut 未声明依赖、统计口径错误、无阈值断言 2026-09-29
+
+### 〇、元信息
+
+- **登记日期**：2026-09-29
+- **来源**：CI 门禁失效排查（方案见 `docs/BugFixed/Bug待修复计划-20260929.md` §1-A①、§3.1）
+- **关键程度**：P1（门禁看似存在、实则空转，风险不外显）
+- **影响范围**：`.github/workflows/ci.yml:218-257`（job `backend-mutation`）、`asset_management_backend/requirements/dev.txt`、`asset_management_backend/setup.cfg`
+- **契约影响**：无（已改动均为 CI/构建配置，零运行时代码）
+- **跨端契约**：未变更
+- **当前阶段**：**第 0a 批已落地**（2026-09-29）——6 项修复全部实施并本地验收通过；**0b（真实得分与阈值）待 CI 首跑**
+- **状态补标（2026-09-29）**：依 0a 落地结果回填。原登记【待修复】→【部分关闭】，未关闭部分为 0b 的阈值拍板（依赖 CI 首跑真实得分，现本机 Windows 无法运行 mutmut 3.8.0）。
+
+> **⚠️ 行号引用通用说明（适用于 BF-059 ~ BF-064 六条）**：本组六条登记于 0a 执行**之前**，
+> 其 §一 / §二 / §五 中的 `ci.yml` 行号是 **0a 前的快照**。0a 在 `ci.yml` 两处变异 step 与
+> `ci-summary` 插入了 3~5 行注释、+3 个 `timeout-minutes`、+2 个 `continue-on-error`，
+> 行号整体下移，总行数 384 → **434**。**当前**关键位置（2026-09-29 实测）：
+>
+> | 对象 | 0a 前引用 | 当前实测 |
+> |:---|:---|:---|
+> | 后端 job `backend-mutation` | `:218-257` | `:218`（job 未动，**仍为 218**） |
+> | 后端变异 step | `:251` | `:251`（`continue-on-error` `:255`、`timeout-minutes` `:256`） |
+> | 后端判分 step | — | `:258`（`continue-on-error` `:264`、`timeout-minutes: 5` `:265`、`THRESHOLD` `:272`、`score` `:287`、`sys.exit` `:293`） |
+> | 前端复杂度 step | `:314-316` | `:351`（`continue-on-error` `:356`） |
+> | `frontend-test` needs | `:321` | `:363` |
+> | 前端 job `frontend-mutation` | `:346-364` | `:389`（step `:405`，`continue-on-error` `:409`、`timeout-minutes` `:410`） |
+> | `ci-summary` job | `:367-383` | `:415`（needs `:417`、gate `:430-431`、0a TODO 注释 `:432-434`） |
+> | 后端 C90 step | `:73` | `:72` |
+>
+> 下文引用未逐条改写，以免破坏登记时的取证原貌；**以本表为当前真值**。
+
+### 一、问题现象
+
+1. `ci.yml:218` 定义 job `后端 - 变异测试`（`needs: [backend-test]`），`:251` 名为「变异测试（红线 80% Killed）」的 step
+2. 该 step 的命令为 `ci.yml:253`：`mutmut run --paths-to-mutate apps/assetmanagement/services`
+3. 但 `asset_management_backend/requirements/dev.txt` **零次命中 `mutmut`**（全文 46 行，`Select-String` 计数 = 0），
+   `:250` 只执行 `pip install -r requirements/dev.txt` → 该 step 必然以「命令不存在」告终
+4. 即使命令可用，`:255`/`:256` 用 `grep -c` 统计**文本行数**、`:257` 仅 `echo`，**全 step 无任何阈值断言**
+5. 真实得分基线为 **65.63%**，低于 `Rules_Fiels/backend-testing-rules.md` T8 要求的 80% 红线
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 依赖缺失 | `requirements/dev.txt` 与其 `-r base.txt` 链均未声明 mutmut——T8 所需工具从未真正接入 |
+| 2 | 配置缺失 | `setup.cfg` 仅含 `[coverage:run]`(`:1`) 与 `[coverage:report]`(`:16`)，**无 `[mutmut]` 段** |
+| 3 | CLI 用的是 2.x 口径 | `:253` 的 `--paths-to-mutate` 对应的配置键在 mutmut 3.8.0 源码中已标记 deprecated |
+| 4 | 口径错误 | `grep -c "killed"` / `grep -c "total"` 统计的是 `mutmut results` 输出的**匹配行数**，与 mutant 总数无换算关系；无论何种输出版本都得不到比率 |
+| 5 | 断言缺失 | step 内无 `if:` 条件、无显式非零退出，job 恒为 success |
+| 6 | 规则未落地 | T8 的 80% 在 CI 中**没有任何环节**被转成退出码 |
+
+### 三、修复方案（0a 已执行，2026-09-29）
+
+| # | 变更 | 文件 | 落地状态 |
+|---|------|------|------|
+| 1 | 增 `mutmut==3.8.0` | `requirements/dev.txt` | ✅ 已落地 |
+| 2 | 新增 `[mutmut]` 段：`source_paths` / `pytest_add_cli_args` / `pytest_add_cli_args_test_selection` / `also_copy`；弃用 `paths_to_mutate`、`tests_dir`；**不写** 2.x 的 `runner` / `CI` 键（3.x 无此二键） | `setup.cfg` | ✅ 已落地（**方案原文有误，见下**） |
+| 3 | 变异 step 增 `timeout-minutes: 300` | `ci.yml` | ✅ 已落地（**位置修正为 step 级**） |
+| 4 | step 增 `continue-on-error: true`（0a 临时闸）；`ci-summary` 补 `backend-mutation.result` 判定（见 BF-061）；0b 得分达标后移除 | `ci.yml` | ⏸️ 部分落地（**`ci-summary` 经用户拍板 0a 阶段仅输出不阻断**，见 BF-061） |
+| 5 | 后端 `ruff C90` 门禁（`ci.yml:73`）**不动** | `ci.yml` | ✅ 确认未动 |
+| 6 | 增 `mutants/` 到 `.gitignore` | `.gitignore` | ✅ 已落地（0a 计划外补充：实测 mutmut 工作目录名为 `mutants`，不入忽略会污染 `git status`） |
+
+> **方案原文第 2 项的 3 处错误（对抗审核查实，以实测为准）**：
+> ① 原写 `pytest_add_cli_args = -x --assert=plain --ds=config.settings.test` **单行**——mutmut 3.8.0 的 list 型配置键按**每行一个元素**解析，单行会被当成**单个 argv 字符串**（实测 `config()` 返回 `['-x --assert=plain --ds=config.settings.test']`），pytest 无法识别；已改为多行写法。
+> ② 原方案**未提 `also_copy`**，但只配 `source_paths` 会导致 mutants 环境 import 崩溃——`also_copy` 默认为空，仅复制 tests/test/setup.cfg 等，**不含**本仓 `apps/*/tests/`、`config/`、`core/`、`utils/`。已显式配 `also_copy = apps / core / config / utils / conftest.py / pytest.ini`。
+> ③ 原方案未提 `pyproject.toml` 优先级——该文件当前**无** `[tool.mutmut]` 段，但一旦有人新增，mutmut 会**完全忽略 `setup.cfg`**。已在 `setup.cfg` 注释中留此警示。
+>
+> **方案原文第 3/4 项的位置修正**：`timeout-minutes` 与 `continue-on-error` 均改为 **step 级**（原方案写作 job 级位置），经用户拍板确认。
+
+### 四、对抗审核
+
+1. **为何不用 `--fail-under 80` 一刀切**——mutmut 无该 flag；且 2.5.1 冷启动基线 4h15m，300 分钟上限仅余 45 分钟。
+   先实测耗时再谈硬阻断，否则门禁会从「空转」直接跳到「恒超时」。
+2. **为何钉 3.8.0 而非追最新版**——AR-1：3.8.0 的 `pytest_add_cli_args_test_selection` 对目录的展开语义、
+   `also_copy` 对本仓 `apps/*/tests/` 的覆盖行为**均未首跑实证**；钉死版本是为了让首跑结果可复现，不是判断 3.8.0 为最优。
+3. **加 `continue-on-error` 算不算放水**——不算：0a 期间 `ci-summary` 仍把 `backend-mutation.result` 纳入阻断条件（BF-061），
+   即「job 内红、汇总处也红」，step 级豁免仅用于避免红灯阻断后续无关 job 的长跑，不改变最终合并判定。
+4. **为何不顺带改 C90**——后端圈复杂度是独立硬门禁，与变异测试正交；同批改两个指标会让「哪个改动导致红灯/变绿」不可归因。
+
+### 五、验证记录
+
+**登记时（只读取证，2026-09-29）**：
+
+```text
+① 依赖缺失：Select-String "mutmut" requirements/dev.txt → 命中 0（文件 46 行）
+② 配置缺失：Select-String "^\[" setup.cfg → 仅 :1 [coverage:run]、:16 [coverage:report]
+③ CI 现状：rg "mutmut run|grep -c" ci.yml → :253 run、:255 KILLED、:256 TOTAL、:257 echo；:251-257 内无 if/exit
+④ 后端基线：docs/Review/mutation-baseline-2026-09-24.md → 1385 mutants / 4h15m / 65.63%（909 killed、476 survived）
+⑤ 3.8.0 配置键现状：本机 mutmut 3.8.0 源码内 paths_to_mutate、tests_dir 标记 deprecated；无 runner / CI 配置键
+```
+
+**0a 落地后（2026-09-29，共 20 项全 PASS）**：
+
+```text
+① mutmut 3.8.0 真实 _load_config() 实跑（PYTHONUTF8=1）→ 加载成功、无弃用键 DeprecationWarning
+② list 型键切分：pytest_add_cli_args 实测返回 ['-x', '--assert=plain', '--ds=config.settings.test']（3 元素）
+③ also_copy 探针：tests / 跨 app import / models·selectors·serializers·state_machine / config·core·utils 全部 0 遗漏
+④ 判分脚本 8 场景回归：85% / 65.63% / 80% 边界 / 零分母 / 全部 skipped / 缺展示字段 / 缺 JSON —— 全 PASS
+   （首版对展示字段硬取键，回归抓到 KeyError → 改 .get 兜底，计分输入仍严格；缺陷由自己的测试抓出）
+⑤ CI heredoc 经真实 Git Bash 执行：达标 exit 0 / 未达标 exit 1 —— 双向可证
+⑥ setup.cfg 解析、ci.yml YAML 解析、stryker.config.json 解析 —— 全 PASS
+⑦ dev.txt 恰好 1 个 mutmut 版本钉（mutmut==3.8.0）
+⑧ step 级 timeout-minutes：backend-mutation=300、frontend-mutation=90
+⑨ 4 处容错点齐全（backend-mutation 两 step + frontend-mutation + frontend-complexity）
+⑩ backend-complexity（ruff C90）确认未被顺带放宽
+⑪ check_duplicate_invariants.py PASS（G-1~G-5）
+⑫ check_frontend_invariants.py PASS
+⑬ mutmut 3.8.0 requires_python >=3.10，兼容 CI Python 3.12
+未执行（受本机 Windows 限制，mutmut 3.8.0 对原生 Windows 直接 sys.exit(1)）：
+⑭ mutmut run 首跑、⑮ 耗时实测、⑯ 得分复测 —— 三项均待 CI 首跑（0b）
+```
+
+### 六、遗留与关联事项
+
+1. 关联 **BF-061**（ci-summary 漏判 mutation job）、**BF-064**（80% 口径缺口）。
+2. `asset_management_backend/pytest.ini` 现为 `DJANGO_SETTINGS_MODULE = config.settings.development`；
+   mutation 跑测试须显式传 `--ds=config.settings.test`，否则复用开发 settings（**已写入 `[mutmut]` 配置**）。
+3. `also_copy` 显式配齐（0a 已做）：实测默认集合不含本仓 `apps/*/tests/`、`config/`、`core/`、`utils/`，
+   故按探针结果补 `apps / core / config / utils / conftest.py / pytest.ini`。
+4. **`pyproject.toml` 优先级风险（0a 新增留档）**：该文件现无 `[tool.mutmut]`；一旦有人新增，mutmut 将**静默忽略** `setup.cfg` 全部配置（无警告），表现为「配置写了但不生效」。`setup.cfg` 已加注释警示。
+5. **`timeout-minutes: 300` 余量风险（0a 新增留档）**：冷启动基线 4h15m（255 min），距 300 min 上限**仅余 45 分钟**；`also_copy` 扩容后首跑可能更慢。若 CI 首跑超时，正确处置是**分片**（按 service 子包切分 `source_paths`）而非放宽上限。
+6. 0b 待办：依 CI 首跑真实得分与耗时，拍板 80% 阈值是否下调、是否移除 4 处 `continue-on-error`。
+
+*登记人：opencode ｜ 状态：0a 已落地并本地验收通过（20 项），0b 待 CI 首跑（阈值与容错拍板），2026-09-29*
+
+
+## BF-060 【部分关闭】前端变异测试命令非法：`npx vitest --mutate` 被 CAC 拒绝，job 恒红 2026-09-29
+
+### 〇、元信息
+
+- **登记日期**：2026-09-29
+- **来源**：CI 门禁失效排查（方案见 `Bug待修复计划-20260929.md` §1-A②、§3.3）
+- **关键程度**：P1（变异测试从未真正执行）
+- **影响范围**：`.github/workflows/ci.yml:346-364`（job `frontend-mutation`）、`vue-assetmanagement/stryker.config.json`
+- **契约影响**：无
+- **跨端契约**：未变更
+- **当前阶段**：**第 0a 批已落地**（2026-09-29）；**0b（31 store 全量得分与耗时）待 CI 首跑**
+- **状态补标（2026-09-29）**：依 0a 落地结果回填。【待修复】→【部分关闭】，未关闭部分为 0b 的耗时/得分拍板。
+
+### 一、问题现象
+
+1. `ci.yml:346` job `前端 - 变异测试`（`needs: [frontend-test]`），`:363` step 名「变异测试（红线 80% Killed）」
+2. `:364` 的命令为 `npx vitest --mutate`
+3. 实跑该命令 → `CACError: Unknown option \`--mutate\``
+4. 项目真实变异工具是 **Stryker**（`package.json` 已定义 `"test:mutate": "stryker run"`；
+   `stryker.config.json:4` `"testRunner": "vitest"`），Vitest 本身**不提供** mutation 能力
+5. 后果：job 每次必红；又因 `ci-summary` 未判该 job（**BF-061**），红灯**不阻断** →
+   变异测试实际处于「长期红灯但无人拦截」的假绿状态
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 命令写错 | 把 Vitest 当作变异测试运行器；`--mutate` 不是 Vitest 的合法 flag |
+| 2 | 与项目工具链脱节 | `@stryker-mutator/*` 与 `test:mutate` 脚本均已就位，CI 却未调用 |
+| 3 | 静默失败 | `ci-summary` 只 gate `backend-test`/`frontend-test`，本 job 红灯不传导（`ci.yml:380-381`） |
+
+### 三、修复方案（0a 已执行，2026-09-29）
+
+| # | 变更 | 文件 | 落地状态 |
+|---|------|------|------|
+| 1 | `:364` 改为 `npm run test:mutate`（走 `stryker run`，与本地口径一致） | `ci.yml` | ✅ 已落地 |
+| 2 | 删 `concurrency: 4`（`:18`）解除内存争用；代价是耗时上升 | `stryker.config.json` | ✅ 已落地 |
+| 3 | step 增 `timeout-minutes: 90`；0a 临时 `continue-on-error: true`，0b 移除 | `ci.yml:363` | ✅ 已落地（**位置修正为 step 级**） |
+| 4 | `break: 80`（`:10`）**暂不动**，0b 依真实得分决策 | `stryker.config.json` | ✅ 确认未动 |
+
+> **方案原文第 3 项的位置修正**：`timeout-minutes` 与 `continue-on-error` 均改为 **step 级**（原方案写作 job 级位置），经用户拍板确认。
+
+### 四、对抗审核
+
+1. **「升级 vitest 就能用 --mutate 吗」**——不能。mutation 是独立运行器能力，Vitest 未内置该 flag；
+   换运行器是唯一路径，不是版本问题。
+2. **「删 concurrency 会不会让 CI 更慢甚至超时」**——会，耗时上升。取舍是「宁慢不 flaky」：
+   既有基线（7 store / 3m51s）本身就是低并发下才稳定的。删并发后耗时须以 0a 首跑实测为准，
+   若逼近 90 分钟上限再议分片，而非把并发调回去换不确定性。
+3. **「把 break 从 80 降到 60 基线行不行」**——不行。60.00 是**聚焦 7 store** 口径，
+   而 `stryker.config.json:6` 的 `mutate` 覆盖 `src/stores/**/*.ts`（实测 31 个 store）；
+   拿聚焦分当全量红线会制造假绿，正是本次要清除的病根。
+
+### 五、验证记录
+
+**登记时（只读取证，2026-09-29）**：
+
+```text
+① 命令非法实证：npx vitest --mutate → CACError: Unknown option `--mutate`
+② 工具链事实：package.json → "test:mutate": "stryker run"；stryker.config.json:4 testRunner=vitest、:6 mutate=["src/stores/**/*.ts"]
+③ store 基数：Get-ChildItem src/stores -Filter *.ts → 31 个；既有基线仅覆盖 7 store / 120 mutants
+④ 配置行号：rg '"break"|"concurrency"' stryker.config.json → :10 break 80、:18 concurrency 4
+⑤ 前端基线：mutation-baseline-2026-09-24.md → 7 store / 120 mutants / 3m51s / score 60.00（72 killed、44 survived、4 no-cov）
+```
+
+**0a 落地后（2026-09-29）**：
+
+```text
+① stryker.config.json JSON 解析 PASS；'concurrency' 键已移除、'thresholds.break' 仍为 80 ✅
+② ci.yml 中 frontend-mutation 命令已改 npm run test:mutate；step 级 timeout-minutes=90、continue-on-error=true ✅
+③ check_frontend_invariants.py PASS
+④ 0a 判分脚本 8 场景回归全 PASS（含前端 score 口径边界）
+未执行（受本机 Windows 限制 / 耗时）：
+⑤ stryker run 实跑、⑥ 删并发后的真实耗时、⑦ 全量 31 store 真实得分 —— 待 CI 首跑（0b）
+```
+
+### 六、遗留与关联事项
+
+1. 全量 31 store 的真实得分与耗时**未知**，第 0b 批决策直接依赖该数据。
+2. 基线中 4 个 no-cov mutants 说明存在零覆盖代码，可作为后续补测的目标清单来源。
+3. 关联 **BF-061**（漏判导致本条红灯不外显）、**BF-064**（80% 口径缺口）。
+4. **删并发后的耗时未知（0a 新增留档）**：既有 3m51s 基线是**并发 4** 下的耗时，删并发后必然上升；`timeout-minutes: 90` 是否够用**尚无实测支撑**。若 CI 首跑超时，正确处置是分片而非把 `concurrency` 加回（对抗审核第 2 条的取舍在此生效）。
+
+*登记人：opencode ｜ 状态：0a 已落地并本地验收通过，0b 待 CI 首跑（31 store 全量得分与耗时），2026-09-29*
+
+
+## BF-061 【待修复】ci-summary 漏判两个 mutation job——红灯不阻断，存在假绿通道 2026-09-29
+
+### 〇、元信息
+
+- **登记日期**：2026-09-29
+- **来源**：CI 门禁失效排查（方案见 `Bug待修复计划-20260929.md` §1-A③、§3.4）
+- **关键程度**：P1（合并闸门存在缺口）
+- **影响范围**：`.github/workflows/ci.yml:367-383`（job `ci-summary`）
+- **契约影响**：无
+- **跨端契约**：未变更
+- **当前阶段**：**0a 阶段有意不实施**（2026-09-29，用户拍板）——门禁补判整体延至 0b
+- **状态补标（2026-09-29）**：本条**未关闭**，仍为【待修复】。原方案要求 0a 即补入阻断条件，经**用户拍板偏离**：0a 阶段 `ci-summary` 只 echo 输出两个 mutation job 的 result，**不纳入阻断条件**。理由见下方 §四第 4 条（补记）。0a 仅在 `ci-summary` 留 TODO 注释标记此处缺口。
+
+> **⚠️ 假绿通道在 0a 阶段依然存在**：本条是 BF-059 / BF-060 能长期共存而不被发现的结构性成因。
+> 0a 已修好两个 job 本身（BF-059 / BF-060），但**汇总闸门仍未覆盖它们**——即 0a 结束后，
+> 变异测试若再变红，仍不会阻断合并。此为**已知且被明确接受**的临时状态，0b 必须收口。
+
+### 一、问题现象
+
+1. `ci.yml:370` `ci-summary` 声明 `needs: [backend-test, backend-mutation, frontend-test, frontend-mutation]`
+2. `:376-379` **echo 了全部四个** job 的 result
+3. 但真正的阻断条件 `:380-381` **只判两个**：
+
+   ```bash
+   if [ "${{ needs.backend-test.result }}" != "success" ] || \
+      [ "${{ needs.frontend-test.result }}" != "success" ]; then
+   ```
+
+4. 后果：`backend-mutation` / `frontend-mutation` 无论红绿都**不影响合并判定**。
+   这是 BF-059（后端变异空转恒绿）与 BF-060（前端变异恒红）能长期共存而不被发现的结构性原因。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 判定面 < 采集面 | `needs` 收集 4 个 result，`if` 只消费 2 个——**echo 与 gate 不对称** |
+| 2 | 门禁语义退化 | job 层面的失败被降级为「信息展示」，闸门实际只覆盖测试与覆盖率 |
+| 3 | 与规则脱节 | T8（后端 80%）/ T16（前端 80%）是硬性规则，但无任何汇总环节承接 |
+
+### 三、修复方案（**0a 未实施，整体延至 0b**）
+
+| # | 变更 | 文件 | 落地状态 |
+|---|------|------|------|
+| 1 | 阻断条件补入两个 mutation job 的 result 判定 | `ci.yml:380-381` | ⏸️ **未实施**（用户拍板延至 0b） |
+| 2 | 与 BF-059 / BF-060 的 `continue-on-error` 配套：0b 达标后双双移除 | `ci.yml` | ⏸️ 随 0b 一并执行 |
+| 3 | `ci-summary` 留 TODO 注释标记此处缺口 | `ci.yml` | ✅ 已落地（0a 唯一改动） |
+
+### 四、对抗审核
+
+1. **「加了判定不就等于给未跑通的变异测试判死刑吗」**——正是设计意图。当前状态下**不该**合并：
+   门禁空转（BF-059）与命令非法（BF-060）都是真缺陷，先让它们红着、修复后转绿，
+   比让它们安静地绿着更安全。
+2. **「0a 期间是否会造成必然红的 master」**——会，但这是**如实反映**。
+   与 BF-062 的 `frontend-complexity` step 豁免不同：那条豁免的是「已知会红且需专项治理」的复杂度债（52 处存量），
+   本条不留豁免，因为变异测试失效属可快速修复的工具链问题，不应长期挂红。
+3. **「能否只判 `backend-mutation` 不判 `frontend-mutation`」**——不能只挑一个。
+   双源变异测试是 T8 + T16 的明确要求，单边 gate 等于把缺口从两侧挪到一侧。
+4. **【2026-09-29 补记·与上述第 2 条相反，用户拍板】**——0a 阶段**仍不补判**，理由：
+   0a 的两个变异 job 均带 `continue-on-error: true`，其红绿信号在首跑取证前**不可信**
+   （后端 65.63% / 前端 60.00 双双未达 80%，见 BF-064；`timeout-minutes: 300` 余量仅 45 分钟亦未验证）。
+   在信号未验证时把不确定结果接入合并闸门，会产生「因未验证因素卡住合并」与「红灯被当噪声忽略」
+   两头都不好的局面。**先取真实数据，再一次性收口**（0b 同时补判 + 拍板阈值 + 移除容错）。
+   **代价已明确接受**：0a→0b 期间假绿通道敞开，故本条不得被视作已修复。
+   *（第 2 条的「本条不留豁免」是 0a 之前的判断，已被本次拍板取代，保留原文以留痕。）*
+
+### 五、验证记录
+
+**登记时（只读取证，2026-09-29）**：
+
+```text
+① needs 采集面：ci.yml:370 → [backend-test, backend-mutation, frontend-test, frontend-mutation]（4 项）
+② echo 面：ci.yml:376-379 → 4 行 echo 齐全
+③ gate 面：ci.yml:380-381 → 条件仅含 backend-test、frontend-test（2 项），两个 mutation 未判
+④ 交叉印证：BF-060 记录的 CACError 使 frontend-mutation 恒红，而该红灯不影响合并判定
+```
+
+**0a 落地后（2026-09-29）**：
+
+```text
+① ci.yml YAML 解析 PASS
+② 确认阻断条件仍仅含 backend-test / frontend-test 两项（0a 未补判，符合拍板）✅
+③ 确认 echo 面仍输出全部 4 个 job result（信息面未收窄）✅
+④ 确认 ci-summary 内已留 TODO 注释标记 0b 待补判处
+⑤ 两个 test job 的既有阻断判定未被削弱 ✅
+未执行：
+⑥ 故意让某 mutation job 失败并确认 ci-summary exit 1 的行为实测 —— 门禁尚未实施，0b 才可验
+```
+
+### 六、遗留与关联事项
+
+1. 本条是 BF-059 / BF-060 的**结构性成因**，三者应同批修复、同批验证。
+2. 修复后需实测：故意让某 mutation job 失败，确认 `ci-summary` 确实 `exit 1`（不得只做静态核对）。
+3. **0b 验收清单（本条的唯一收口条件）**：① 阻断条件含 4 个 job；② 4 处 `continue-on-error` 依 0b 结论处理；③ 行为实测（非静态核对）确认 mutation 红 → `ci-summary` exit 1。三项齐备方可改【已关闭】。
+
+*登记人：opencode ｜ 状态：**待修复**（0a 经用户拍板有意不实施，仅留 TODO 注释；0b 必须收口），2026-09-29*
+
+
+## BF-062 【部分关闭】前端复杂度 error 级门禁：52 处存量失败并连带跳过后续 job 2026-09-29
+
+### 〇、元信息
+
+- **登记日期**：2026-09-29
+- **来源**：CI 门禁失效排查（方案见 `Bug待修复计划-20260929.md` §1-A④、§3.2）
+- **关键程度**：P1（阻断链扩散：一条 lint 规则失败会跳过测试与变异测试）
+- **影响范围**：`.github/workflows/ci.yml:314-316`（job `frontend-complexity`）、`vue-assetmanagement/AGENTS.md §1.3`
+- **契约影响**：无
+- **跨端契约**：未变更
+- **当前阶段**：**0a 已落地临时缓解**（step 级 `continue-on-error`），**阻断链断开但 52 处债未清**
+- **状态补标（2026-09-29）**：【待修复】→【部分关闭】。方案第 1 项（止血）已落地；第 2/3 项（规范文本不动 + 52 处债另立专项）为**长期待办**，第 4 项（0b 评估解绑阻断链）待 CI 数据。
+
+### 一、问题现象
+
+1. `ci.yml:314-316` step「复杂度检查（上限10）」执行
+   `npx eslint . --ext .vue,.ts --rule 'complexity: [2, 10]'`
+2. 本地实跑该命令 → **52 errors**，退出码 **1**
+3. 连带效应（阻断链）：
+   - `ci.yml:321` `frontend-test` 的 `needs: [frontend-lint, frontend-type-check, frontend-complexity]`
+   - `ci.yml:349` `frontend-mutation` 的 `needs: [frontend-test]`
+   → 复杂度失败 ⇒ **测试被跳过** ⇒ **变异测试被跳过**（这也是 BF-060 的红灯长期无人处理的旁证）
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 规则为 error 级 | `AGENTS.md §1.3` 将该复杂度上限定为**硬红线**（与后端 `ci.yml:73` 的 C90 同级） |
+| 2 | 存量未清 | 52 处超限代码**先于该门禁存在**，门禁上线时无过渡期，一次性把存量与增量同时判红 |
+| 3 | 无区分机制 | 门禁不区分「新增超限」（必须阻断）与「存量超限」（需专项治理），二者混在同一退出码里 |
+| 4 | 缺少阻断链设计 | `needs` 是硬依赖，任一前置红则后续**整体跳过**而非「跳过但照常汇报」，信息量损失 |
+
+### 三、修复方案（0a 已执行止血部分，2026-09-29）
+
+| # | 变更 | 文件 | 落地状态 |
+|---|------|------|------|
+| 1 | step 增 `continue-on-error: true`（**仅 step 级**，0a 临时闸） | `ci.yml:314` | ✅ 已落地 |
+| 2 | `AGENTS.md §1.3` 的 error 级措辞**不改** | `vue-assetmanagement/AGENTS.md` | ✅ 确认未改 |
+| 3 | 52 处复杂度债另立台账专项治理（0b 消解或依 §5.4 沙盒期降级） | 台账待建 | ⏳ **长期待办**（0a 未建） |
+| 4 | 0b 依 0a 的前端 mutation 真实数据，评估是否解绑阻断链 | `ci.yml:321`、`:349` | ⏳ 待 CI 数据 |
+
+> **step 级 vs job 级的可验证差别**（0a 落地时复核）：两者都会让 `frontend-complexity` 的
+> `needs` 消费方看到 `success`（断链效果一致），差别在**豁免范围**——
+> **step 级**只豁免「复杂度检查」这一个 step：该 job 其余步骤（依赖安装、配置加载等）失败**仍判 job 失败**；
+> **job 级**会把整个 job 的**一切**失败一并吞掉，导致除复杂度外的真故障（如 `npm install` 断网）
+> 也被伪装成绿灯，故障域被不必要地放大。故 0a 采用 step 级，以将豁免收窄到确知的那一点债上
+> （用户拍板的两处位置修正之一）。
+>
+> *本条仅断言 YAML 语义层面的差别；GitHub 各级别的**视觉呈现**差异未经实测，不作断言（Fact-1）。*
+
+### 四、对抗审核
+
+1. **「加 continue-on-error 是不是把红线废了」**——规则文本未动，语义未降级；
+   变的只是**step 级执行顺序**（不因它跳过无关 job），而 `ci-summary` 的阻断判定独立于本 step（BF-061）。
+   红线是否生效由规范文本与最终 gate 决定，不由阻断链的 skip 行为决定。
+2. **「为什么不直接把 52 处分批改掉」**——52 处跨越多个 store 与视图，属独立专项（0b），
+   与 CI 工具链修复（0a）混在一批会同时改变「工具链是否可用」与「代码风格达标率」两个指标，不可归因（AR-5 静态自检同理）。
+3. **「为什么后端 C90 不加豁免」**——后端 C90 **当前是绿的**（`ci.yml:72` 通过），
+   无需豁免；豁免只对已知红且需专项治理的项开。
+4. **「52 这个数会不会是环境差异」**——规则为纯静态圈复杂度计算，与运行时/依赖版本无关，
+   数字可复现（命令与退出码见验证记录）。
+
+### 五、验证记录
+
+**登记时（只读取证，2026-09-29）**：
+
+```text
+① 复杂度失败实证：npx eslint . --ext .vue,.ts --rule 'complexity: [2, 10]' → 52 errors，exit 1
+② 阻断链：ci.yml:321 frontend-test needs [frontend-lint, frontend-type-check, frontend-complexity]
+③ 二级连带：ci.yml:349 frontend-mutation needs [frontend-test]
+④ 后端对照：ci.yml:73 ruff check . --select C90 --config lint.mccabe.max-complexity=10（当前通过，无需豁免）
+⑤ 规范定位：vue-assetmanagement/AGENTS.md §1.3 复杂度上限为 error 级硬红线
+```
+
+**0a 落地后复跑（2026-09-29，当日实测）**：
+
+```text
+① 前端复杂度复跑：npx eslint . --ext .vue,.ts --rule 'complexity: [2, 10]'
+   → "52 problems (52 errors, 0 warnings)"，exit 1 —— 数字与登记时逐字相符，52 处债未变 ✅
+② 后端 C90 复跑：python -m ruff check . --select C90 --config "lint.mccabe.max-complexity=10"
+   → "All checks passed!"，exit=0 —— 佐证 §四第 3 条「后端当前是绿的」属实 ✅
+③ 阻断链已断：frontend-complexity step 现带 continue-on-error（当前 :356），job 成功
+   → frontend-test needs 满足（当前 :363）→ 测试不再被跳过 ✅
+未执行：0a 首跑后的复杂度 CI 实跑、52 处逐处消解 —— 后者属 0b 专项，52 处债台账尚未建立
+```
+
+> 行号说明：**登记时**区块 ②③④ 与 §四第 3 条中的 `:321 / :349 / :73` 为 0a 前快照，
+> 当前值见 BF-059 顶部的行号对照表；**0a 落地后复跑**区块内的 `:356 / :363` 为当前实测值。
+
+### 六、遗留与关联事项
+
+1. 52 处复杂度债**台账尚未建立**；建立时须明确标注「不覆盖后端 Ruff C90」（两者是不同规则的同名概念）。
+2. 与 **BF-060** 存在间接因果：复杂度红 → 变异测试被跳过 → `npx vitest --mutate` 的非法命令长期无人察觉。
+3. `complete_repair`（49 行）与 `reject_asset_recordcode`（49 行）距 BR-4 红线仅 1 行（见 BF-058 第六节），
+   治理 52 处时若触及这两个函数需先复跑长度护栏。
+
+*登记人：opencode ｜ 状态：部分关闭（0a 止血已落地并本地验收通过；52 处债台账待建，0b 评估阻断链），2026-09-29*
+
+
+## BF-063 【部分关闭】ci.yml 全无 timeout-minutes / continue-on-timeout 兜底，失败无边界 2026-09-29
+
+### 〇、元信息
+
+- **登记日期**：2026-09-29
+- **来源**：CI 门禁失效排查（方案见 `Bug待修复计划-20260929.md` §1-A⑤、§3.5）
+- **关键程度**：P2（可靠性问题，非正确性问题）
+- **影响范围**：`.github/workflows/ci.yml`（登记时 384 行）
+- **契约影响**：无
+- **跨端契约**：未变更
+- **当前阶段**：**0a 已给两个重任务设边界**（后端 300 min / 前端 90 min，另判分 step 5 min），**其余 job 仍无超时**
+- **状态补标（2026-09-29）**：【待修复】→【部分关闭】。方案第 1/2/3 项已落地，第 4 项（依实测重标超时值）待 CI 首跑；「全文无 timeout-minutes」这一登记时的事实**已不再成立**，但「全 job 都有边界」尚未达成。
+
+### 一、问题现象
+
+> **补标（2026-09-29）**：以下 1~3 条为**登记时**事实，0a 后已部分变化——`ci.yml` 现有
+> `timeout-minutes` ×3（backend-mutation 300 / 其判分 step 5 / frontend-mutation 90）、
+> `continue-on-error` ×4（两个 mutation step + 前端复杂度 step）。其余 job 仍无边界。
+
+1. `ci.yml` 全文 384 行，**无任何** `timeout-minutes` 声明
+2. 全仓库亦无 step 级 `continue-on-error` 兜底
+3. 后果：变异测试这类耗时数小时的任务（后端基线 4h15m）**无上界**——
+   挂死时只能等 GitHub 自身 6 小时硬上限，且失败原因与「真的跑不完」无法区分
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 缺超时 | 无 job/step 级 `timeout-minutes`，重任务无边界 |
+| 2 | 缺降级 | 单一工具链故障（如 BF-060 的非法命令）会直接阻断整条链，无「记录但放行」档位 |
+| 3 | 观测缺失 | 失败是超时、OOM 还是断言不通过，日志里无统一标记 |
+
+### 三、修复方案（0a 已执行核心部分，2026-09-29）
+
+| # | 变更 | 文件 | 落地状态 |
+|---|------|------|------|
+| 1 | `backend-mutation` step 增 `timeout-minutes: 300` | `ci.yml:251` | ✅ 已落地（step 级） |
+| 2 | `frontend-mutation` step 增 `timeout-minutes: 90` | `ci.yml:363` | ✅ 已落地（step 级） |
+| 3 | 两个 mutation step 0a 临时增 `continue-on-error: true` | `ci.yml:251`、`:363` | ✅ 已落地（step 级；另增**后端判分 step `timeout-minutes: 5`**，为原方案外补充——判分是纯 JSON 计算，5 分钟足够） |
+| 4 | 0b 依实测耗时**重新标定**两个超时值（300/90 为初始估计，非实测） | `ci.yml` | ⏳ 待 CI 首跑 |
+| 5 | 其余 job（test / lint / type-check / coverage / complexity 等）补边界 | `ci.yml` | ⏳ **未做**（原方案本就未列入，见 §四第 4 条） |
+
+### 四、对抗审核
+
+1. **「超时值怎么定的」**——后端 300 分钟来自 2.5.1 基线 4h15m（255 分钟）加冗余，但该基线是**全量 1385 mutants**、
+   3.8.0 行为未实测，故 300 是**估计值**；0a 首跑后必须重新标定，否则门禁会以「超时」掩盖「得分不足」两种不同故障。
+2. **「为什么不直接给全局 job 默认超时」**——前端覆盖率、eslint、mypy 等步骤正常耗时以分钟计，
+   统一设大值会掩盖真正的挂死；只给重任务设边界更精准。
+3. **`continue-on-error` 与 BF-061 是否重复**——不重复：前者管**执行**（超时/失败后是否继续跑后续 job），
+   后者管**判定**（是否阻止合并）。两者都要，缺一则出现「跑了但没人看」或「看了但跑不完」。
+   *（本条成立的前提是 BF-061 的 gate 0b 已补判；0a 阶段 BF-061 未实施，故「判定」侧仍缺口——见 BF-061 §四第 4 条。）*
+4. **【0a 落地后补记】**——方案只给重任务设超时，**其余 10 余个 job 仍无边界**。这不是遗漏而是取舍：
+   这些 job 正常以分钟计，且各自会被 GitHub 默认 6 小时上限兜住（不设值 ≠ 无界），
+   本期真正风险是「小时级重任务无界」而非「分钟级 job 挂死」。若要补齐，宜在**有了重任务超时的实测数据后**再定值，
+   否则也同 300/90 一样是拍脑袋数字。登记为 0b 观察项，非本期缺陷。
+
+### 五、验证记录
+
+**登记时（只读取证，2026-09-29）**：
+
+```text
+① 全文核对：ci.yml 共 384 行；rg "timeout-minutes|continue-on-error" → 0 命中
+② 耗时事实：docs/Review/mutation-baseline-2026-09-24.md → 后端 4h15m（1385 mutants）、前端 3m51s（7 store）
+```
+
+**0a 落地后（2026-09-29，YAML 解析 + 断言校验）**：
+
+```text
+① timeout-minutes 计数 0 → 3：backend-mutation 变异 step=300、判分 step=5、frontend-mutation step=90 ✅
+② continue-on-error 计数 0 → 4：两个 mutation step + 其判分 step + frontend-complexity step ✅
+③ 均确认为 step 级（0a 用户拍板的两处位置修正之一）✅
+④ 位置修正核对：原方案写作 job 级位置（ci.yml:251/:363），实际落点为对应 step ✅
+⑤ 其余 job 的 timeout-minutes：0 命中（按 §四第 4 条取舍，未列本期）
+未执行：超时值实测标定 —— 待 CI 首跑（0b）
+```
+
+### 六、遗留与关联事项
+
+1. 300 / 90 两个超时值为**初始估计**，0a 完成后须以实测重标（写入修复计划第 0b 批决策项）。
+2. 若后端 3.8.0 首跑逼近 300 分钟，需考虑按 `source_paths` 分片，而非单纯上调超时。
+3. **登记标题的定性偏重（0a 补记）**：原标题「失败无边界」不完全准确——未设 `timeout-minutes` 的 job
+   仍受 GitHub 默认 6 小时上限约束，**不是无界**；真实问题应表述为「小时级重任务与分钟级任务共用同一
+   6 小时上限，前者贴边、后者挂死不可区分」。P2 定级不变，但措辞已知有偏，避免后续据标题误判严重度。
+
+*登记人：opencode ｜ 状态：0a 已落地超时/容错（2 重任务 + 判分 step），0b 待实测重标 + 评估是否补齐其余 job，2026-09-29*
+
+
+## BF-064 【待修复】变异测试口径缺口：后端 65.63% / 前端 60.00，双双未达 80% 红线 2026-09-29
+
+### 〇、元信息
+
+- **登记日期**：2026-09-29
+- **来源**：CI 门禁失效排查（方案见 `Bug待修复计划-20260929.md` §1-D①、§4）
+- **关键程度**：P1（规则要求与实际能力之间的真实差距，此前被 BF-059/BF-060 的工具链缺陷掩盖）
+- **影响范围**：`Rules_Fiels/backend-testing-rules.md` T8、`Rules_Fiels/frontend-testing-rules.md` T16、`docs/Review/mutation-baseline-20260924.md`
+- **契约影响**：无
+- **跨端契约**：未变更
+- **当前阶段**：**本条是能力缺口而非配置缺陷，修复靠补测，不靠改配置**——0a 未改任何分数
+- **状态补标（2026-09-29）**：**仍为【待修复】**。0a 只完成了本条的**前置条件**（方案第 1 项：修好工具链 BF-059/BF-060），但因本机 Windows 无法运行 mutmut 3.8.0、CI 首跑未发生，**「真实全量得分」尚未取得**。故第 1 项处于「工具链已修 / 数据未取」的中间态，第 2/3/4 项全部未动。**本条是整个 0a→0b 链路的终点，也是 0b 的核心内容。**
+
+> **0a 对本条的实质贡献（但不足以关闭）**：① 门禁现在**会算分了**——判分公式
+> `killed / (total - skipped) * 100` 且**有阈值断言**（< 80 即 exit 1），根因表第 1 行「门禁不产分数」已消解；
+> ② 新增 `mutmut export-cicd-stats` 输出 JSON，为根因第 4 行「补测无驱动清单」提供了**稳定清单来源**。
+> 但**分数本身一分未涨**，差距 −14.37 pt（后端）/ −20.00 pt（前端，且口径仅 7 store）维持原样。
+
+### 一、问题现象
+
+| 侧 | 规则红线 | 实测基线 | 差距 | 覆盖范围 |
+|---|:---|:---|:---|:---|
+| 后端 | 80%（T8） | **65.63%** | −14.37 pt | `apps/assetmanagement/services`，1385 mutants |
+| 前端 | 80%（T16，`stryker.config.json:10` `break: 80`） | **60.00** | −20.00 pt | **仅 7 store**、120 mutants（全量为 31 store） |
+
+两项均**未达标**。此前之所以无人处置：后端门禁空转（BF-059）、前端命令非法（BF-060），
+「红灯」与「绿灯」都不携带得分信息，缺口被工具链故障整体掩盖。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 门禁不产分数 | 后端 `grep -c` 不做除法（BF-059）；前端从未跑出分数（BF-060）——**红绿都是噪音** |
+| 2 | 工具链缺位 | 即使想补测也跑不起来，见 BF-059 / BF-060 |
+| 3 | 覆盖不完整 | 前端基线仅 7 store，`mutate` 目标为 31 store，**基线不代表全量** |
+| 4 | 补测无驱动清单 | 缺「哪些 survived mutants」的稳定清单来指导补测 |
+
+### 三、修复方案（第 1 项已完成工具链半边，其余待 0b）
+
+| # | 变更 | 文件 | 落地状态 |
+|---|------|------|------|
+| 1 | 先修工具链（BF-059 / BF-060），取得**真实全量**得分 | `ci.yml`、`dev.txt`、`setup.cfg`、`stryker.config.json` | ⏳ **工具链半边已修；得分未取得**（CI 未首跑） |
+| 2 | 后端按 survived mutants 的行号补 Service 层失败/边界/回滚用例 | `apps/assetmanagement/tests/` | ⏳ 未动（**无 survived 行号清单，至今依赖 0a 的 `export-cicd-stats`**） |
+| 3 | 前端四 CRUD store 优先补测 + 复核 `ignoreStatic` 口径 | `src/stores/__tests__/` | ⏳ 未动 |
+| 4 | 0b 依真实数据决策：达标则移除 `continue-on-error`；未达标则依 §5.4 走沙盒期降级或下调红线并留痕 | `ci.yml`、`stryker.config.json:10` | ⏳ 待真实数据 |
+
+> **第 1 项的可完成性判据（0a 落地后补正）**：原写「取得真实全量得分」是一个不可验证的笼统条件。
+> 现在 0a 的判分已带 `THRESHOLD = 80.0` 与 `sys.exit(0 if score >= THRESHOLD else 1)`（`ci.yml:272`、`:293`）
+> 且前端 `break: 80`（`stryker.config.json:10`），**判据已机器化**：
+> - 后端：`CI job backend-mutation 通过 = 得分 ≥ 80%`（`export-cicd-stats` 产出 JSON，口径 `killed/(total-skipped)*100`）
+> - 前端：`CI job frontend-mutation 通过 = score ≥ 80`（stryker `break`）
+> 但**当前两个 job 都带 `continue-on-error: true`，红绿不传导到 `ci-summary`**（BF-061 §四第 4 条的拍板），
+> 故 0a 阶段**不得**用「job 变绿」当作达标的信号，只可读它输出的分数文本。
+
+### 四、对抗审核
+
+1. **「能不能把红线降到 60 让门禁转绿」**——技术上可行，但**必须**同时满足两条件才可考虑：
+   ① 分母是**全量**（前端 31 store、后端全 services），不是 7 store 聚焦口径；
+   ② 依根级 §5.4 走 14 日沙盒期 + 人工复核。
+   直接把 60.00 当新红线 = 用聚焦分冒充全量能力，是本条要根除的同类错误。
+2. **「变异测试 80% 现实吗」**——可达但昂贵。本条只登记**差距事实**并给出补测路径，
+   不预设达成时间；任何降级决策须由项目负责人拍板并留痕（§1.8 活账本义务）。
+3. **「与 CT-2 覆盖率门槛是否重复」**——不重复。CT-2 管**行覆盖**（当前整体 93.11% / Store 97.72%，已达标），
+   变异测试管**断言强度**（行被覆盖不等于能检出变异）。二者正交，本条不因覆盖率达标而降级。
+4. **「为何现在登记而不等 0a 跑完」**——本条的「差距事实」来自已归档基线，可独立成立；
+   0a 的作用是把「已归档的旧分」升级为「可复现的当前分」。二者不冲突。
+5. **【0a 落地后补记·关于两个数字的口径差】**——表中后端 −14.37 pt 是**全量**口径（1385 mutants），
+   前端 −20.00 pt 是**7 store 聚焦**口径。0b 拿到全量分之前，**这两个差距不可直接横向比较**，
+   前端的全量差距很可能**大于** 20 pt（31 store 中大量未经补测）。0b 若做「先补哪边」的优先级决策，
+   须以全量分为准，不得沿用本表的前端数字。
+
+### 五、验证记录（只读取证，修复后需重跑）
+
+```text
+① 后端基线：docs/Review/mutation-baseline-20260924.md → 65.63%（909 killed / 476 survived，1385 mutants，4h15m）
+② 前端基线：同上 → score 60.00（72 killed / 44 survived / 4 no-cov，7 store / 120 mutants，3m51s）
+③ 红线出处：stryker.config.json:10 break 80；Rules_Fiels/backend-testing-rules.md T8 = 80%
+④ 覆盖范围对照：stryker.config.json:6 mutate = src/stores/**/*.ts；实测 src/stores 共 31 个 .ts → 基线仅覆盖 7 个
+⑤ 覆盖率对照（说明正交性）：BF-045 遗留①记录整体 93.11% / Store 97.72%，已达 CT-2
+未执行：全量 stryker run、mutmut 3.8.0 首跑、任何补测 —— 均属第 0a / 0b 批执行阶段
+```
+
+### 六、遗留与关联事项
+
+1. 本条**必须**在 BF-059 / BF-060 之后处理，否则补测无法验证。
+2. 4 个 no-cov mutants 提示存在零覆盖代码，补测时应优先于「提高分」处理。
+3. 若最终选择下调红线，须在 `Rules_Fiels/Duplicate_Codes/complete-patterns.md` 留痕（§1.8 新发现义务），
+   并按 §5.4 走沙盒期，不得直接改小数字了事。
+
+*登记人：opencode ｜ 状态：**待修复**（能力缺口，0a 仅完成「工具链已修、数据未取」的前置半边；0b 核心内容），2026-09-29*
+
+---
+
+## BF-065 【已关闭】mutmut 3.8.0 迁移陷阱——also_copy 缺 manage.py，致变异测试静默失真（分数无意义且不报错）2026-09-29
+
+### 〇、元信息
+
+- **登记日期**：2026-09-29
+- **来源**：0b 首跑（WSL /tmp/mut38 全量 `mutmut run`）触发；修复方案经三轮计划评审定稿
+- **关键程度**：P1（不报错、测试全过、分数完全无意义——静默失真是门禁类缺陷中最危险形态）
+- **影响范围**：`asset_management_backend/setup.cfg`（[mutmut] also_copy）；关联 BF-062（0a 三项待验证项之一「also_copy 是否需补测试目录」在本条得到最终答案）
+- **契约影响**：无
+- **跨端契约**：未变更
+
+### 一、发现
+
+0b 首跑触发。**2.5.1 未复现**（当时确实产出 1385 只变异体），差异原因未查证。
+
+### 二、现象
+
+- `mutmut run` 16 秒 exit 1，报 `Stopping early, because we could not find any test case for any mutant`；
+- 同期 pytest 侧 **955 个测试全部通过**（10 秒、exit 0）——测试执行的是外层原版代码，零变异命中；
+- mutants/ 产物结构正常（13 个文件的变异体与 .meta 齐全，trampoline 结构完好）。
+
+### 三、根因
+
+pytest-django 4.12 `find_django_path` 的**绝对 cwd 分支**（plugin.py:203-219）从 cwd（= mutants/，绝对路径）逐级向上找含 manage.py 的目录，mutants/ 内无 manage.py → 命中**外层仓库根** → `sys.path.insert(0, /tmp/mut38)`（:224）→ early hook（`pytest_load_initial_conftests`）内 `django.setup()` 按 INSTALLED_APPS 导入 apps.*，此刻根 conftest（会插入 mutants/apps 路径）**尚未加载**，`sys.modules['apps']` 被钉死在外层原版代码——之后再改 sys.path 顺序也不再生效。
+args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**修复点唯一**：also_copy 补 manage.py。
+
+### 四、修复
+
+`setup.cfg` [mutmut] also_copy 追加 `manage.py`（同时新增「易错点 5」注释，记录机制/时序/症状/旁证/验证命令）。
+副作用两处已查证无害：① mutants/logs/ 由 FileHandler._open() 的 os.makedirs 自动创建；② 16 worker 并发写 RotatingFileHandler 属既有风险，非本条引入。
+
+### 五、验证
+
+```text
+闸门：mutmut print-time-estimates（约 20 秒，不跑变异体）
+判据（三条，全部通过）：
+  ① N_total=16 条，与单文件变异体总数同量级（交叉核对 mutants/*.meta ✓）
+  ② N_none（<no tests> 行数）= 0
+  ③ 两条 Stopping early 文案零出现，RC=0
+单文件真实判定：waste_asset_service.py 全部 16 只变异体
+  mutmut run <16 keys> → killed 8 / survived 8（emoji 计数逐只核对）
+  ——真实分数首次产出，测试确证命中变异版代码
+```
+
+### 六、遗留
+
+1. **全量耗时与增量追踪（分环境）**：
+   - **本地**：`mutants/*.meta` 即结果缓存，同工作树跨 run 保留，提供增量重跑——PR 内重跑只覆盖变更函数，预期缩短（待实测）。
+   - **CI**：runner 工作区每次 job 后丢弃，`.meta` 不跨 run 保留 → 现状每次全量；若要 CI 增量需新增缓存步骤（待 0b 决策）。
+   - 时长预算：预期显著超过 2.5.1 的 4h15m（16 核口径）；3.8.0 换 libcst 算子、变异体数量未知，CI 实际时长待首跑测量后再回填 `timeout-minutes`——**300 分钟预算未经验证，不作为已确认值引用**。
+2. **基线作废声明**：65.63%（2.5.1 / 1385 只）已作废——3.8.0 换 libcst 算子，变异体集合不同，不可与 2.5.1 数字直接对比；0b 阈值决策只能基于 3.8.0 现场参考值。
+
+*登记人：AtomCode ｜ 状态：**已关闭**（setup.cfg 修复 + 闸门三判据通过 + 单文件真实分数产出），2026-09-29*

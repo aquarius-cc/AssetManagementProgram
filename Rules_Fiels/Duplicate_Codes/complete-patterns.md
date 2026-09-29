@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.54 | **最后更新**：2026-09-29 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.55 | **最后更新**：2026-09-29 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -799,6 +799,11 @@
 - **修复建议**：保留单份权威来源（建议随 OpenAPI 契约快照走后端侧），另一份删除或改为链接引用；触及跨端文档归属，需人工决策。
 - **优先级**：低。
 - **登记日期**：2026-08-26 | 来源：H-1~H-3 整改期间审查发现
+- **状态**：✅ 已关闭（2026-09-10，方案 B 落地，用户拍板）——见本文件变更日志 v2.9.16。
+  - 唯一事实源裁定为**后端侧**（随 OpenAPI 契约快照）；前端 `API详细文档0608.md` 副本经逐字节比对确认内容一致（仅 CRLF 镜像）后删除。
+  - 同批澄清 4 份「同名不同物」文档（`API.md` / `SECURITY.md` / `TESTING.md` / `WORKFLOW.md`），经内容定性非副本，改以 `FRONTEND_` 前缀去歧义（`git mv`，内容零改动）。
+  - `docs/README.md` 新增「文档索引」段，API 契约权威指向后端。
+- **验证命令**：`Get-ChildItem -Recurse -Filter "API详细文档*"`（预期仅 1 命中且位于 `asset_management_backend\docs\`，前端侧 0 命中；2026-09-29 实测相符）。
 
 ### D-2. init_production_data 管理命令 3 个字段名 bug（CT-4 测试发现）
 - **判定**：存量缺陷（非重复代码，但由新增测试暴露）。
@@ -870,20 +875,20 @@
   - 结果：core `batch_mixins.py` 补齐 DRF `ValidationError` 分支；新增 Service 方法；View 收缩；Service 内 pop `row_number` 保契约逐字节一致（test_b5 断言零改动）
   - 回归：unregisteredasset 76 passed + 全部消费方 694 passed + 护栏 PASS + Service 覆盖率 90.48%
   - 明细见 D 区条目
-- **D-4**：API 详细文档双份维护（后端 docs 25 文件 vs 前端 docs 32 文件并存）
-  - 修复建议：跨端文档归属是组织决策——删哪份、谁做唯一事实源，需你拍板；建议后端侧为权威（随 OpenAPI 契约快照），前端改链接引用；或直接引入文档托管统一出口
-  - 风险：中（涉及跨端文档归属决策）
-  - **前置条件：用户决策唯一事实源**
+- **D-4 ✅ 已关闭（2026-09-10，方案 B）**：API 详细文档双份维护
+  - 裁定：后端 `docs/API详细文档0608.md` 为唯一事实源（随 OpenAPI 契约快照），前端副本已删除；4 份「同名不同物」文档加 `FRONTEND_` 前缀去歧义
+  - 验证：全仓 `API详细文档*` 仅 1 命中且在后端侧（2026-09-29 实测）；`docs/README.md` 文档索引段指向后端
+  - 明细见 D 区条目 + 变更日志 v2.9.16
 - **D-5**：后端 `getassetbyrecordcode` 纯路径调用必 400（路径参数被 L184 query 读取遮蔽）
   - 证据：你已决策 Q4=a：只登记不动后端，等后端排期；且前端 0 调用方、无实际影响面
   - 修复建议（供后端排期）：后端改为优先路径参数、query 兜底；补纯路径集成测试
   - 风险：低（无前端影响面）
   - **状态：⏳ 已登记待后端处理**
-- **路由直连 API**：39 个 `.vue` 直接 `import @/api/*` 绕过 Pinia Store（实测：45 行 import / 39 唯一文件 = 24 components + 15 views；其中 3 文件属 infra 导入：BasicAssetDetails→`@/api/config`、ScanAssetView→`@/api/request`、AssetBatchImport→`@/api/index`）— AssetBatchImport→`@/api/index` 已消除（2026-09-22，BF-014 复核）
-  - 修复建议：架构分层问题，涉及 39 文件的行为面重构；分域迁移（asset/contract/user…），每域先补 store 层缺方法，再改组件消费 store；vitest 回归
-  - 风险：高（此前已明确“不搭 DRY 顺车，单独评估”）
-  - **增量护栏已落地（2026-09-10，v2.9.18）**：eslint.config.ts 新增 `app/store-layer-no-direct-api`（no-restricted-imports 正则 `@/api/<业务模块>` 拦截，infra 三入口放行）+ `app/legacy-direct-api-files`（存量 36 文件豁免清单）——规则只约束新代码，存量迁移一个、从豁免清单移除一个，清单清空即关闭本条目。验证：`npx eslint .` 0 error（门禁全绿）。
-  - **前置条件：专项评估批准，制定分域迁移计划**（现仍待批准，ESLint 增量护栏不阻断、不替代）
+- **路由直连 API ✅ 已关闭（2026-09-22，FE-01 全部迁移完成）**：39 个 `.vue` 直接 `import @/api/*` 绕过 Pinia Store
+  - 原始判定：45 行 import / 39 唯一文件 = 24 components + 15 views；其中 3 文件属 infra 导入（BasicAssetDetails→`@/api/config`、ScanAssetView→`@/api/request`、AssetBatchImport→`@/api/index`）
+  - 关闭依据：本条目自定义的关闭条件为「`legacy-direct-api-files` 清单清空即关闭」。`eslint.config.ts:109` 记「FE-01 全部迁移完成，`legacy-direct-api-files` 豁免清单已清空并移除」，条件已满足
+  - 验证：`rg -c "@/api/" src --glob "*.vue"` → 0 命中（2026-09-29 实测）；`app/store-layer-no-direct-api` 规则保留在 `eslint.config.ts`，作为防回退的长期护栏（约束新代码，不依赖豁免清单）
+  - 风险：已消解。原「专项评估批准」前置条件作废——迁移已由 FE-01 批次实际完成，无需再走独立评估
 
 ### 冻结项（用户已决策不重构，列出仅为完整性）
 
@@ -917,6 +922,7 @@
 > 故同表登记；但实现与 CI 归属不同（`ci.yml` 而非 `duplicate-guard.yml`），不可混为一谈。
 
 ## 变更记录
+- **v2.9.55 (2026-09-29)**：**账本状态漂移订正**——关闭 **D-4**（API 详细文档双份维护）与 **路由直连 API**（39 个 `.vue` 绕过 Store）两条**实际早已消解、状态却仍挂「待决策/待批准」**的条目（§1.8 活账本唯一事实来源义务）。两条均为**状态回填**，零代码改动。**D-4**：修复早在 v2.9.16（2026-09-10，方案 B 用户拍板）已落地，但 D 区条目**从未补 `状态` 行**、索引区仍写「前置条件：用户决策唯一事实源」——即修复事实只存在于变更日志，条目本身未收口，本次补齐并交叉核对（v2.9.16 记「两份逐字节相同（纯 CRLF 镜像）→ 前端版删除」）。**路由直连 API**：本条目自定义关闭条件为「`legacy-direct-api-files` 豁免清单清空即关闭」，而 `eslint.config.ts:109` 已记「FE-01 全部迁移完成，豁免清单已清空并移除」——条件早已满足，索引区却仍挂「前置条件：专项评估批准（现仍待批准）」。**订正一处过度归因**：该条原记风险「高」、修复建议「涉及 39 文件的行为面重构，需专项评估批准」，但迁移已由 FE-01 批次分批实际完成（BF-014 等），**「待专项评估」这一前置条件属历史残留、从未真正需要**；不据此抹掉风险评估记录，仅在关闭行注明条件已消解。**护栏不撤**：`app/store-layer-no-direct-api`（`no-restricted-imports` 正则拦业务模块、infra 三入口放行）作为防回退的长期约束**保留在 `eslint.config.ts`**——它不依赖豁免清单，清单移除后规则对**新代码**依然生效，故关闭本条目不等于放弃护栏。验证：`Get-ChildItem -Recurse -Filter "API详细文档*"` → 仅 1 命中且在 `asset_management_backend\docs\`（前端侧 0）；`rg -c "@/api/" src --glob "*.vue"` → 0 命中；`python scripts/check_duplicate_invariants.py` PASS（G-1~G-5 未受扰）；`npx eslint .` 0 error。**教训留档**：本项目活账本存在「**变更日志已记、条目未收口**」的系统性漂移（条目与索引双处状态需手工同步，缺护栏）——本次为第 1 例（另 D-1 曾在 v2.9.15 出现同类「早稿表述作废」）。不新建 G 不变量：`complete-patterns.md` 自身的状态一致性无法用 grep 式不变量可靠判定（条目/索引/日志三处措辞各异），宜随下轮账本重构处理。
 - **v2.9.54 (2026-09-29)**：关闭 **A-46**（DR-1；BF-057）——OpenAPI 声明失真的**第三个独立机制**：显式 `responses` 与分页推断的优先级。`EmployeeViewSet.batch_sort` 运行时返裸数组（`success_response` 包装 `serializer.data`、不经过 `paginate_queryset`），基线却声明为单个 `Employee` 对象。**A-44 登记的两条机制均不适用**——机制 ① 是 `_is_list_view()` **门控**（解法「强制打开筛选参数发现」，方向相反），机制 ② 是「同名覆盖不校正」；本条是 `_is_list_view()` **判 True 之后的分支走向**：补上正确的 `EmployeeSerializer(many=True)` 会被 ViewSet 的分页推断**二次覆盖**成 `PaginatedEmployeeList`（`openapi.py:1486` → `:1492-1518` → `_get_paginator()`），即「显式 `responses` 不敌分页推断」。**解法用库内建旁路**：`responses` 传 **raw dict** 命中 `openapi.py:1471-1475` 的 `isinstance(serializer, dict)` 分支，该分支显式 `serializer = None` → `:1486` 的 `_is_list_view(None)` 恒判 False → 整条「数组+分页」推断分支一并跳过。**`core/schema.py` 零改动**（对比 A-44 需新增 `ForceFilterDiscoverySchema`）。**连带规避的 OS-5 反向失真**：`many=True` 还会翻转 `_is_list_view()` 打开 `get_filter_backends()`，给该 PUT 端点（直接调 Selector、**全程不跑 `filter_queryset`**）凭空加 5 条运行时从不消费的查询参数（`department_code` / `employee_department__department_code` / `employee_status` / `ordering` / `search`），raw dict 旁路同时跳过该分支故副作用不产生。**新增护栏 3 条**（`test_employee_openapi_contract.py`，追加不新建文件 DR-1）：`test_sort_response_is_bare_array`（**完整 ref 路径**断言——raw dict 是字面量、组件名拼错时 spectacular **不报错**（实测 `EmployeeTYPO` 照常生成、退出码 0），子串匹配会漏过前缀撞名，故**额外断言组件存在**）、`test_sort_declares_no_runtime_unused_params`（反向护栏）、`test_sort_change_does_not_affect_list`。**先红后绿已实测**：`git checkout` 还原后 `test_sort_response_is_bare_array` FAILED（1 failed, 8 passed），恢复后 9 passed；**错误解法反向验证**——改用 `many=True` 实测得 `PaginatedEmployeeList` + 7 条参数，证明两条护栏非摆设。基线逐叶子 diff **仅 3 处**、全在 sort 端点（`schema/$ref` 删 / `schema/items/$ref` 增 / `schema/type` 增），其余端点 / components / parameters **零漂移**；与代码改动**同 commit**（本地无 oasdiff，CI `api-schema-check` 比对「仓库内基线 vs 现场重生成」，同 commit 即一致）。验证：`apps/usermanagement` **185 passed**、search 契约 **16 passed** 无回归、ruff check/format + C90 全过、`mypy --strict` 27 errors / 12 files 与存量一致（改动文件零错误）、`spectacular --validate` 23 warnings (17 unique) / 23 errors (6 unique) 与存量一致、`check_duplicate_invariants` PASS、`check_api_doc_consistency` V-1~V-4 全通过。**前序误登记订正**：前序会话把现象误记为「基线为 `PaginatedEmployeeList`」并在代码注释中留痕，实测基线为 `{"$ref": "#/components/schemas/Employee"}`（**单对象**）；真实成因是**两个失败模式叠加**——无声明时判 False 跳过数组分支产出单对象、补 `many=True` 时判 True 被包成分页对象，**两条路都不是裸数组**；错误注释已随修复删除。**规则留痕**：本条**不新增业务规则条文**，既有 OS-5 / OS-7 已覆盖所需防线，同类端点增多时再考虑增补 §4.8 条款。
 - **v2.9.53 (2026-09-28)**
 ：关闭 **B-25**（DR-1；BF-053 / BF-054 / BF-055）+ **参数层 58 条清零**（承接 v2.9.52 遗留，§1.8 新发现义务）——**B-25 修复**：① 合同支付金额三处分叉收敛为 `contract_service.py` 单一重算实现 `_recalc_paid_amounts`（含 `_parse_paid_record` / `_sum_active_paid`，脏 JSON 三段容忍：金额非数字、数组型纯文本、缺 payments 键），`add`/`delete`/`approve` 三处共用；② 新增批量回填 `add_payment_record_batch` + `POST /contracts/{recordcode}/payment_record/batch/` 端点（内部 add→approve 收敛为一次请求，`status` 不开放）；③ 创建时 `amount_paid` 规范化为一条 `approved` 期初付款记录（`payment_method="opening_balance"`），创建后无条件重算——**无 DB 迁移**；④ 序列化器/视图接通（Create `amount_paid` 可写、`paid_record`/`amount_unpaid` 只读；Update 三字段全只读；批量创建 item 补字段；单条付款端点接受 `payment_date`/`payment_method`；`perform_create` 改道 Service 修复 REST 绕过）；⑤ 前端接通（`ContractForm.vue` Create `submitData` 补 `amount_paid` + Edit 禁用提示、批量导入后端接收）。**参数层 105 条清零**：注释层（`docs/api_field_annotations.json`）补 130 项 / 裁 89 项覆盖 98 条文档侧差异（说明列采自 Model `help_text`，13 个无 help_text 字段显式撰写；历史遗留 3 个枚举表全量重填——`asset_current_status` +3、`storage_type` +1、`contract_type` 6 键因 `v2.9.52` 期初书写与 choices 演进残留而逐条订正）；2 处代码侧缺口以 `@extend_schema` 显式补齐（`asset_view.py::combined_details` 必填 `asset_code` 路径参数、`out_asset_view.py::recyclable` 15 个运行时真读的查询参数），`api-schema-baseline.json` 重导出。**生成器接管口径**：v2.9.52 登记时误记为「30 张表生成器未接管需扩展扫码」，实测与 `double-check.py` 复核——**生成器早已全量接管 105/105 区域（11 枚举表 + 94 参数表）**，剩余差异全在**参数表说明列**（人工维护层），非枚举区未接管；**无需改动生成器代码**，靠注释层数据补全即可，本轮据此执行（用户在"扩展生成器"与"补数据"间已确认补数据方案）。**CI 接线**：`ci.yml` 新增 `api-doc-generate` job（`generate_api_field_reference.py --check`，fail-closed，需 `backend-lint` 先行）。验证：后端 `pytest apps/assetmanagement -q` **955 passed**、合同 Service/API 定向 **80 passed**、`makemigrations --check --dry-run` 零变化、ruff / C90 通过；生成器 `--write` 105/105、`--check` exit 0、护栏 V-1~V-4 全绿（参数表违规 0）；前端 **1898 passed**、整体覆盖率 **92.8%**、type-check / lint / format:check 三项 0；基线重导出后 `drf-spectacular` 报 23 errors（6 unique）为存量 APIView serializer 猜测失败（public_scan_view / RBACTokenRefreshView / notification / unregisteredasset），非本轮引入。前端 `Format.ts` 按引用扫描清理 **3 个零调用方死映射**（`assetStatusMapping` 纯别名 / `contractSettlementStatusMapping` 已弃用 / `assetTypeMapping` A-9 虚构分类——原估 4 个，`userStatusMapping` 有内部真值链 `getStatusDisplay` 活引用故保留，据实订正）；`wasteasset.ts::WasteAssetStats` 与后端统计端点真值对齐（`total_waste` / `current_year_count` / `monthly_distribution`，原 `total_waste_assets`/`this_year_waste`/`monthly_waste[]` 为虚构）。

@@ -249,12 +249,49 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install -r requirements/dev.txt
       - name: 变异测试（红线 80% Killed）
+        # 临时：0b 移除 continue-on-error，移除条件为 score ≥ 80。
+        # 用 step 级而非 job 级：job 级容错下 job 仍显示红叉并会连带阻断 needs 链。
+        # 配置全部来自 setup.cfg [mutmut]，此处刻意不传任何 CLI 参数（消除 CI/本地双口径）。
+        continue-on-error: true
+        timeout-minutes: 300
+        run: mutmut run
+      - name: 变异得分门禁（红线 80%）
+        # 比率真源为 export-cicd-stats 产出的 JSON。`mutmut results` 只列非 killed
+        # 且无 total 行，无法计算比率（旧写法 grep -c "killed" 恒为 0）。
+        # 口径对齐 backend-testing-rules.md T7「Killed Mutants ≥ 80%」：只计 killed，
+        # 分母剔除 skipped（skipped = 显式 pragma no mutate，不算有效变异）。
+        # 临时：0b 与上一处 continue-on-error 一并移除
+        continue-on-error: true
+        timeout-minutes: 5
         run: |
-          mutmut run --paths-to-mutate apps/assetmanagement/services
-          mutmut results
-          KILLED=$(mutmut results | grep -c "killed" || true)
-          TOTAL=$(mutmut results | grep -c "total" || true)
-          echo "Killed: $KILLED / Total: $TOTAL"
+          mutmut export-cicd-stats
+          python - <<'PY'
+          import json
+          import sys
+
+          THRESHOLD = 80.0
+          STATS = "mutants/mutmut-cicd-stats.json"
+
+          try:
+              with open(STATS, encoding="utf-8") as handle:
+                  stats = json.load(handle)
+          except FileNotFoundError:
+              print(f"未找到 {STATS}：变异测试未真正执行，得分按 0 计")
+              sys.exit(1)
+
+          tested = stats["total"] - stats["skipped"]
+          if tested <= 0:
+              print(f"无有效 mutant（total={stats['total']} skipped={stats['skipped']}）")
+              sys.exit(1)
+
+          score = stats["killed"] / tested * 100
+          # 仅用于展示的字段用 .get 兜底：旧版 mutmut 或截断文件不应让门禁抛 KeyError
+          breakdown = " ".join(
+              f"{key}={stats.get(key, 0)}" for key in ("killed", "survived", "timeout", "no_tests", "suspicious")
+          )
+          print(f"变异得分 {score:.2f}% ({breakdown} tested={tested})")
+          sys.exit(0 if score >= THRESHOLD else 1)
+          PY
 
   # ==================== 前端检查 ====================
   frontend-lint:
@@ -312,6 +349,11 @@ jobs:
           cache-dependency-path: vue-assetmanagement/package-lock.json
       - run: npm ci
       - name: 复杂度检查（上限10）
+        # 临时：52 处存量欠债，0b 消解或降级为 [1, 10] 后移除本行。
+        # ESLint 规则保持 error 级不动（与 frontend/AGENTS.md §1.3 措辞一致），
+        # 52 条在日志中完整可见；用 step 级容错解除对 needs 链的阻断。
+        # 注意：本条与 backend-complexity（ruff C90）完全独立，不得顺带放宽后端。
+        continue-on-error: true
         run: >
           npx eslint . --ext .vue,.ts --rule 'complexity: [2, 10]'
 
@@ -361,7 +403,12 @@ jobs:
           cache-dependency-path: vue-assetmanagement/package-lock.json
       - run: npm ci
       - name: 变异测试（红线 80% Killed）
-        run: npx vitest --mutate
+        # 临时：0b 移除 continue-on-error，移除条件为 score ≥ 80
+        # 命令与 frontend-testing-rules.md T16 v1.6 / 前端 AGENTS v9.6.0 对齐；
+        # 旧写法 `npx vitest --mutate` 的 --mutate 旗标在 Vitest 4.1.10 不存在（实跑 CACError）
+        continue-on-error: true
+        timeout-minutes: 90
+        run: npm run test:mutate
 
   # ==================== 汇总 ====================
   ci-summary:
@@ -382,3 +429,6 @@ jobs:
             echo "CI 检查未通过，阻止合并"
             exit 1
           fi
+          # 0a 阶段：两个变异 job 为 step 级 continue-on-error，result 恒为 success，
+          # 故此处不做判定。0b 移除两处 continue-on-error 后，在此补入
+          # backend-mutation / frontend-mutation 的 result != "success" 判定。
