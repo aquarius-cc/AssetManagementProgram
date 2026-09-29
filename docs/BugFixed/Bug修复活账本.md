@@ -3126,4 +3126,375 @@ BF-047 的「搜索后导出 = 搜索结果」是一条**跨三跳的隐式链**
 
 *登记人：opencode ｜ 状态：已修复，2026-09-26*
 
+## BF-053 【已关闭】删除/审核付款不重算金额——amount_paid 软删后永不回落（v2.9.53，B-25 子项①）2026-09-28
 
+### 〇、元信息
+
+- **登记日期**：2026-09-28（补登：v2.9.53 修复时仅在重复模式台账 B-25 内使用了编号，未按活账本格式登记条目；本次由 BF-056 §六.1 冲突扫描发现后补齐）
+- **修复日期**：2026-09-28（随 v2.9.53 合同支付重算收敛一并落地）
+- **严重级别**：P1（数据一致性：软删一笔付款后 `amount_paid` 仍含该笔且永不回落，金额与明细长期不一致）
+- **影响范围**：`apps/assetmanagement/services/contract_service.py`（后端）
+- **契约影响**：零
+
+### 一、问题现象
+
+`delete_payment_record` 与 `approve_payment_record` 只把 `status` 改为 `deleted`/`approved` 并 `save(update_fields=["paid_record", "updated_at"])`，**完全不触碰 `amount_paid`/`amount_unpaid`**；而 `add_payment_record` 是唯一做「增量 + 重算」的路径。软删一笔后 `amount_paid` 仍含该笔且永不回落，与 `paid_record` 明细长期不一致。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|:--|:--|:--|
+| 1 | 重算只在一处 | 修复前仅 `add_payment_record` 增量累加并重算；delete/approve 只改明细不改金额 |
+| 2 | 反规范化字段承诺自动计算 | `models/contract.py:97` 附近 `amount_unpaid.help_text` 明写「未支付金额(自动计算)」，与「只在 add 时算」的实现矛盾 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|:--|:--|:--|
+| 1 | 抽 `_recalc_paid_amounts`（:80）为单一重算实现，内部经 `_parse_paid_record`（:25）+ `_sum_active_paid`（:62，含脏 JSON 三段容忍：金额非数字、数组型纯文本、缺 payments 键）| `contract_service.py` |
+| 2 | `add_payment_record`（:217）/ `delete_payment_record`（:439）/ `approve_payment_record`（:473）三处统一走 `_recalc_paid_amounts` | `contract_service.py` |
+| 3 | Q-A 口径：pending 已计入 `amount_paid`，故 delete 扣减、approve 不变（:62-77 / :471-473 注释留痕）| `contract_service.py` |
+
+### 四、对抗审核
+
+- **行号漂移**：引用的 service 行号为当前工作区 `rg` 实测（`_recalc_paid_amounts` :80 等）。
+- **修复前置依赖**：BF-053 的重算语义依赖 BF-055 已把 `amount_paid` 规范化（期初已付转 approved 付款记录），否则会把「无明细但有 amount_paid」的旧合同归零——两者须同批处置（B-25 已论证，不单飞）。
+- **虚报验证**：验证记录见下，80 passed 为本次实跑输出，与此前 complete-patterns 记录一致。
+
+### 五、验证记录
+
+```text
+.venv\Scripts\python.exe -m pytest apps/assetmanagement/tests/test_contract_service.py apps/assetmanagement/tests/test_contract_view_api.py -q
+> 80 passed, 2 warnings in 54.38s
+# 关键锚点: test_contract_service.py:281 test_delete_payment_reduces_amount_paid
+#            test_contract_service.py:298 test_approve_keeps_amount_paid_unchanged
+```
+
+### 六、遗留与关联事项
+
+- B-25 依赖链：与 BF-054 / BF-055 同根因族（`amount_paid` 反规范化多写入者、无单一真值来源），关闭记录见 `Rules_Fiels/Duplicate_Codes/complete-patterns.md` B-25。
+
+*登记人：opencode ｜ 状态：已关闭，完成验证，2026-09-28*
+
+## BF-054 【已关闭】无法回填历史付款——payment_date/payment_method 硬编码 + 无批量入口（v2.9.53，B-25 子项②）2026-09-28
+
+### 〇、元信息
+
+- **登记日期**：2026-09-28（补登，见 BF-053 §〇）
+- **修复日期**：2026-09-28（随 v2.9.53 一并落地）
+- **严重级别**：P2（能力缺失：上传已执行合同时真实付款日期/支付方式无法录入，每笔历史付款须额外发一次 approve）
+- **影响范围**：`apps/assetmanagement/services/contract_service.py` + `apps/assetmanagement/views/contract_view.py`（后端）
+- **契约影响**：增量（单条付款端点新增可写 `payment_date`/`payment_method`、新增批量端点）——已随 v2.9.53 重导出 schema 基线
+
+### 一、问题现象
+
+`add_payment_record` 原实现在明细中硬编码 `date=timezone.now()`、`payment_method="bank_transfer"`、`status="pending"`，View 层只读 `amount` 与 `description`。上传**已执行**合同时真实付款日期与支付方式无法录入；若需批量回填历史付款，只能逐笔调用再逐笔 approve。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|:--|:--|:--|
+| 1 | 构造函数硬编码 | `_build_payment_entry` 修复前 `payment_date`/`payment_method`/`status` 无入参，恒为当天/`bank_transfer`/`pending` |
+| 2 | 无批量路径 | Service 与 View 均只有单条 add，批量回填须 2N 次请求 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|:--|:--|:--|
+| 1 | `_build_payment_entry` 开放 `payment_date`/`payment_method` 入参，`date` 缺省才取当天（:38-59）| `contract_service.py` |
+| 2 | `add_payment_record` 接收 `payment_date`/`payment_method`（:178-185）| `contract_service.py` |
+| 3 | 新增 `add_payment_record_batch`（:224）：批量端点，内部 add→approve 收敛为一次请求，`status` 不开放为用户输入（维持 `approved` 单一入口 + 审批留痕，决策 Q-C）| `contract_service.py` |
+| 4 | 单条付款端点接受 `payment_date`/`payment_method`（contract_view.py:216-264）、批量端点 `POST /contracts/{recordcode}/payment_record/batch/`（:280）| `contract_view.py` |
+
+### 四、对抗审核
+
+- **行号漂移**：service/view 行号均为当前工作区实测。
+- **决策留痕**：`status` 不开放为用户输入是用户 2026-09-28 拍板方向之一；需保留 pending 的历史条目时由调用方改用单条 add 端点（:232 注释）。
+- **虚报验证**：80 passed 实跑，见下。
+
+### 五、验证记录
+
+```text
+.venv\Scripts\python.exe -m pytest apps/assetmanagement/tests/test_contract_service.py apps/assetmanagement/tests/test_contract_view_api.py -q
+> 80 passed, 2 warnings in 54.38s
+# 关键锚点: test_contract_view_api.py 批量回填/日期/支付方式用例(spec 断言覆盖 payload 构造)
+```
+
+### 六、遗留与关联事项
+
+- 与 BF-055 前端批量导入断链同批修复（后端接收后 spec 断言本就覆盖 payload 构造）。
+
+*登记人：opencode ｜ 状态：已关闭，完成验证，2026-09-28*
+
+## BF-055 【已关闭】三条 amount_paid 写入路径全部静默失效——前后端断链（v2.9.53，B-25 子项③）2026-09-28
+
+### 〇、元信息
+
+- **登记日期**：2026-09-28（补登，见 BF-053 §〇）
+- **修复日期**：2026-09-28（随 v2.9.53 一并落地）
+- **严重级别**：P1（前后端断链：UI 有输入/校验/映射，后端无接收，DRF 静默丢弃，全程无报错；另造成「无明细但有 amount_paid」形态，阻塞 BF-053 重算语义）
+- **影响范围**：后端 `serializers/base_model_serializers.py` + `serializers/batch_serializers.py` + `services/contract_service.py`；前端 `ContractForm.vue`
+- **契约影响**：增量（Create `amount_paid` 转可写、Create 的 `paid_record`/`amount_unpaid` 转只读、Update 三字段只读、批量 item 补 `amount_paid`）——已随 v2.9.53 重导出 schema 基线
+
+### 一、问题现象
+
+前端三条路径（单条创建 / 单条编辑 / 批量导入）都能构造 `amount_paid`，但没有一条能送到后端：
+
+| 路径 | 前端构造点 | 断链位置 |
+|:--|:--|:--|
+| 单条创建 | `ContractForm.vue:188-202` 输入框存在 | `submitData` 为显式白名单，不含 `amount_paid` |
+| 单条编辑 | 同一输入框未绑定 `:disabled="isEdit"` → 用户改了以为生效 | 同上 |
+| 批量导入 | `contractBatchImport.config.ts` 构造 | `ContractBatchCreateItemSerializer` 未声明 `amount_paid`，View 序列化阶段丢弃 |
+
+唯一可用路径是裸 API 客户端直接 POST。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|:--|:--|:--|
+| 1 | front 构造无后端接收 | `submitData` 白名单与后端序列化器字段集之间**无任何一致性护栏**，同域三处各自断链 |
+| 2 | DRF 静默丢弃 | 系列化器未声明的请求键被静默忽略，无报错提示，天然隐藏 |
+| 3 | 测试盲区 | 前端 spec 只断言 payload 构造，后端测试不覆盖该键——断链点在两侧测试缝隙里 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|:--|:--|:--|
+| 1 | Create：`amount_paid` 语义定为「期初已付金额」并通过 Service 规范化为一条 `approved` 期初付款记录（`payment_method="opening_balance"`），再无条件重算——`amount_paid` 恒等于「Σ 非 deleted 付款」，重算恒等无损（无 DB 迁移）| `contract_service.py:131-159` |
+| 2 | `ContractCreateSerializer.amount_paid` 转可写（help_text 明示期初语义，base_model_serializers.py:152-155）；Create 的 `paid_record`/`amount_unpaid` 只读；Update 三字段全只读（:243）| `base_model_serializers.py` |
+| 3 | 批量创建 item 声明 `amount_paid`（batch_serializers.py:34）| `batch_serializers.py` |
+| 4 | `ContractForm.vue`：Create `submitData` 补 `amount_paid`（:399-403）；Edit 输入绑定 `:disabled="isEdit"` + tooltip 指引走付款记录 UI（:188-202）| `ContractForm.vue` |
+| 5 | `perform_create` 改道 Service（修复 REST 绕过 Service 的既有缺陷，contract_view.py:106 注释留痕）| `contract_view.py` |
+
+### 四、对抗审核
+
+- **行号漂移**：service/serializers 行号为当前工作区实测；前端 `ContractForm.vue` 行号为 `rg` 实测。
+- **[推测] 引入时点**：该失效自 `amount_paid` 加入这些前端界面时即存在，非近期回归；引入时点未考证。同类断链在其他域可能复发——前端 `submitData` 白名单与后端字段集无一致性护栏，已进 B-25 [推测] 段（本条只登记已实证的合同域 3 处）。
+- **虚报验证**：80 passed 实跑；前端验证引自 v2.9.53 记录（1898 passed / 92.8%）——本次未重跑前端套件，如实标注。
+
+### 五、验证记录
+
+```text
+.venv\Scripts\python.exe -m pytest apps/assetmanagement/tests/test_contract_service.py apps/assetmanagement/tests/test_contract_view_api.py -q
+> 80 passed, 2 warnings in 54.38s
+# 关键锚点: test_contract_view_api.py:273 test_create_contract_amount_paid_becomes_opening_record
+#            test_contract_view_api.py:290 test_update_contract_amount_paid_is_read_only
+#            test_contract_service.py:445-472 期初已付规范化 + amount_paid 弹出后不残留
+
+# 前端（v2.9.53 原记录，本次未重跑）:
+# 1898 passed | 整体覆盖率 92.8% | type-check / lint / format:check 全绿
+```
+
+### 六、遗留与关联事项
+
+- 依赖链：BF-055 修完（期初已付有真实入口）之后 BF-053 的重算语义才安全（B-25 三者须一并处置）。
+
+*登记人：opencode ｜ 状态：已关闭，完成验证，2026-09-28*
+
+## BF-056 【已关闭】AllowAny 登录/注册端点被残留毒 access Cookie 拒绝（SIGNING_KEY 变更后无法登录）2026-09-28
+
+### 〇、元信息
+
+- **登记日期**：2026-09-28（来源：线上复现——dev 重启后残留 Cookie 致登录接口恒定 401「此令牌对任何类型的令牌无效」）
+- **修复日期**：2026-09-28
+- **严重级别**：P2（在线故障：dev 环境 SECRET_KEY 轮换 + 残留 Cookie 并存时，登录/注册被认证类在视图前拦截，凭据正确也无法登录）
+- **影响范围**：`apps/authusermanagement/views.py`（LoginAPIView / RegisterAPIView）+ `tests/test_dual_channel_auth.py`（后端）
+- **契约影响**：零（API 响应结构、端点、状态码语义均不变；`authentication_classes=[]` 属 DRF 声明级配置）
+- **提交**：待提交（本会话工作区改动）
+
+### 一、问题现象
+
+1. 页面加载时 `/api/v1/auth/token/refresh/` 返回 401——残留旧 refresh Cookie 已失效，**属预期路径**（`RBACTokenRefreshView` 认证类已置空，401 来自视图自身 TokenError 处理，非 bug）。
+2. 用户随后输入正确凭据登录，`/api/v1/auth/login/` 同样返回 401，且文案是 **「此令牌对任何类型的令牌无效」**——这是 simplejwt `InvalidToken`（`AuthenticationFailed` 子类）被全局异常处理器转出的 detail 文案，**在进入 `LoginSerializer`/凭据校验之前就把请求打死**，"用户名或密码错误"分支根本走不到。
+3. `RegisterAPIView` 同型隐患（未实测触发，由登录证据推导，防御性同修）。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|:--|:--|:--|
+| 1 | 认证类全局生效 | `config/settings/base.py:181` `DEFAULT_AUTHENTICATION_CLASSES = [JWTCookieAuthentication]`，`LoginAPIView`/`RegisterAPIView` 未声明 `authentication_classes=[]` |
+| 2 | AllowAny 不豁免认证 | DRF `APIView.initial()→perform_authentication()` 无条件运行认证类，`permission_classes=[AllowAny]` 只豁免鉴权不豁免认证 |
+| 3 | 毒 Cookie 触发 TokenError | `authentication.py:72-82` `authenticate()` 读取 `asset_access_token` Cookie → `get_validated_token` 验签失败抛 `InvalidToken`(401) |
+| 4 | 文案指向验签失败 | 「此令牌对任何类型的令牌无效」对应 PyJWT `InvalidTokenError`（签名/算法分支）；若仅为过期会是另一分支「令牌无效或已过期」——故根因是 **SIGNING_KEY 变更** |
+| 5 | SIGNING_KEY 每次重启随机 | `config/settings/development.py:27` `SECRET_KEY = config("SECRET_KEY", default=get_random_secret_key())`——dev 未在 `.env` 固定时，每次进程冷启换密钥，旧签名 Cookie 全部验签失败 |
+| 6 | 毒 Cookie 得不到清理 | access/refresh Cookie 均 `httponly=True`（cookie_utils.py:23），JS 无法删除；`verifyCookieSession` 失败仅走 `silentLogout`（stores/auth.ts:158-169）不清服务端状态 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|:--|:--|:--|
+| 1 | `LoginAPIView` 声明 `authentication_classes: list[Any] = []`——登录不解析任何入站令牌（含残留毒 Cookie） | `apps/authusermanagement/views.py:228` |
+| 2 | `RegisterAPIView` 同款声明 | `apps/authusermanagement/views.py:170` |
+| 3 | 不透传 Bearer/Cookie 通道认证信息（`request.auth_channel` 仅用于日志观测，`getattr` 安全兜底，全仓无其他读取点） | 无额外改动 |
+| 4 | **前端不做 Cookie 清理**：HttpOnly 限制 JS 无法删除，且修复 1/2 落地后毒 Cookie 对 login/register/refresh（认证类均置空）失效，重新登录时 `set_auth_cookies` 亦会覆盖——原始方案中的前端改动项判定为不必要 | 无 |
+| 5 | 护栏测试 3 条：毒 Cookie + 正确凭据 → 200；毒 Cookie + 错误密码 → 401「用户名或密码错误」；毒 Cookie + 注册 → 201 | `tests/test_dual_channel_auth.py:218-240, 421-438` |
+
+### 四、对抗审核
+
+- **行号漂移**：本条目引用的 views.py 行号为**修复后**实测（`rg` 复核），测试行号 218-240 / 421-438 亦为当前工作区实测定位。
+- **虚报验证**：下述验证命令全部实际执行，`41 passed` / `83 passed` 为真实输出。
+- **扫描对抗点**：`RBACTokenRefreshView`（views.py:425）与 `LogoutAPIView`（views.py:358）此前已置空认证类并有护栏锚 `test_refresh_does_not_require_valid_access`——本次只是补齐 login/register 两处同型缺口，不是新发现。
+- **契约影响**：零；未触发 schema 重导出（无端点/响应变化）。
+- **登记遗漏**：`rg "BF-056"` 复核唯一；同题无已有关闭条目。
+- **CSRF 权衡**：login 从「毒 Cookie 存在时才偶发强制 CSRF」变为恒不强制 CSRF；登录反 CSRF 仍保留 `X-Requested-With` 校验，前端亦始终发送 `X-CSRFToken` 头——整体风险面不扩大。
+
+### 五、验证记录
+
+```text
+# 1) authusermanagement 专项
+.venv\Scripts\python.exe -m pytest apps/authusermanagement/tests/test_dual_channel_auth.py -q
+> 41 passed in 93.25s   (含新增 3 条毒 Cookie 护栏用例)
+
+# 2) authusermanagement 全量
+.venv\Scripts\python.exe -m pytest apps/authusermanagement/ -q
+> 83 passed in 159.07s
+
+# 3) 静态检查
+.venv\Scripts\python.exe -m ruff check apps/authusermanagement/views.py apps/authusermanagement/tests/test_dual_channel_auth.py
+> All checks passed!
+.venv\Scripts\python.exe -m mypy apps/authusermanagement/views.py
+> Success: no issues found in 1 source file
+```
+
+### 六、遗留与关联事项
+
+1. **[已解决 2026-09-28] BF 编号冲突扫描**：`Rules_Fiels/Duplicate_Codes/complete-patterns.md` B-25（v2.9.53，2026-09-28）在合同支付金额修复中使用了 **BF-053 / BF-054 / BF-055** 三个编号（作为子问题标签），但 Bug 活账本中原本**不存在这三条 `## BF-` 条目**（最大为 BF-052）。为保唯一，本条登记时曾跳号取 BF-056；随后按用户指示**已于 2026-09-28 补登 BF-053 / BF-054 / BF-055** 三条完整条目（现状：现象/根因/修复方案/对抗审核/验证记录/遗留齐全），编号顺序 BF-052 → 053 → 054 → 055 → 056 连续无断档。
+2. **前端 root-cause 加固建议（可选）**：dev 环境在 `.env` 固定 `SECRET_KEY`（development.py:119 已有指引），避免每次重启全量会话失效；属运维口径，非代码缺陷。
+3. **关联模式**：AllowAny 端点「认证类残留」属于全局性模式风险，同类端点应按 `rg "permission_classes = \[permissions.AllowAny\]"` 全量复核是否都显式置空认证类。
+
+*登记人：opencode ｜ 状态：已关闭，完成验证，2026-09-28*
+
+
+## BF-057 【已关闭】员工批量排序端点 OpenAPI 响应形状失真：基线声明单对象、运行时返裸数组 2026-09-29
+
+### 〇、元信息
+
+- **登记日期**：2026-09-29
+- **来源**：本轮 OpenAPI 契约复核（前序会话遗留条目，非新发现）
+- **关键程度**：P3（文档层失真，运行时正确）
+- **影响范围**：`apps/usermanagement/views/employee_view.py::EmployeeViewSet.batch_sort` + `api-schema-baseline.json` + `apps/usermanagement/tests/test_employee_openapi_contract.py`
+- **契约影响**：无（运行时响应字节级不变，仅修正文档声明）
+- **跨端契约**：未变更（前端 `vue-assetmanagement/src/api/user.ts:169` 的 `batchUpdateSort` 声明 `Promise<EmployeeExtended[]>`，与修正后的裸数组一致）
+
+### 一、问题现象
+
+`PUT /api/v1/users/employees/sort/` 的 200 响应在基线中声明为单个 `Employee` 对象，
+而运行时返回的是**裸员工数组**（`success_response` 包装下的 `serializer.data`）。
+消费方按 OpenAPI 生成的客户端会预期收到单个对象，实际拿到数组。
+
+前序会话曾把该现象误记为「基线为 `PaginatedEmployeeList`」，并据此在代码注释中留痕；
+实测基线为 `{"$ref": "#/components/schemas/Employee"}`（单对象），**不是**分页对象。
+该错误注释本身即本次修复的一部分（已删除）。
+
+### 二、根因
+
+这是继 BF-049 / BF-050 之后的**第三个、且相互独立**的 OpenAPI 失真机制。
+
+前序会话已实测并留痕：显式 `responses={200: EmployeeSerializer(many=True)}` **不生效**——
+声明会被 ViewSet 的分页推断覆盖成 `PaginatedEmployeeList`，故当时未写该声明（「不写无效声明」）。
+该结论本身正确，但由此推断出的「基线是分页对象」是错的。
+
+真实成因是**两个不同失败模式的叠加**：
+
+1. **未声明 `responses` 时**（修复前的实际状态）：`_get_response_for_code` 的
+   `_is_list_view(serializer)`（`openapi.py:1486`）对 `batch_sort` 求值——
+   `get_response_serializers()` 返回 `get_serializer_class()` 的回退结果
+   `EmployeeSerializer`（非 list），`is_list_serializer` 判 False；再落到
+   `self.view.action == 'list'` 亦判 False（action 名为 `batch_sort`）。
+   于是 `:1485-1518` 的**数组 + 分页推断分支整体被跳过**，退回普通 `is_serializer`
+   分支，产出单对象 `$ref`。
+2. **补上 `many=True` 时**：走 `:1492-1518` 分支，`_get_paginator()` 返回
+   `CustomPageNumberPagination`，裸数组被**重新包成** `PaginatedEmployeeList`。
+   前序会话实测确认此覆盖行为成立。
+
+即：两条路都错——不声明是单对象，声明 `many=True` 是分页对象，**都不是**裸数组。
+
+**旁路解法（本次采用）**：`responses` 传 **raw dict** 而非序列化器实例时，
+命中 `openapi.py:1471-1475` 的 `isinstance(serializer, dict)` 分支，该分支显式
+`serializer = None`；随后 `:1486` 的 `_is_list_view(None)` 恒判 False，
+整条「数组 + 分页」推断分支一并跳过，raw dict 原样透传为响应 schema。
+
+**连带副作用（必须一并规避）**：`many=True` 会翻转 `_is_list_view()`，
+进而打开 `AutoSchema.get_filter_backends()`（`openapi.py:545-549`），
+给该端点凭空加上 5 条**运行时从不消费**的查询参数：
+`department_code` / `employee_department__department_code` / `employee_status` /
+`ordering` / `search`。`batch_sort` 是 `methods=["put"]`，直接调
+`EmployeeSelector.batch_update_sort()`，**全程不跑 `filter_queryset`**。
+这属于 OS-5 双向红线所述的「文档超前于运行时」反向失真。
+raw dict 旁路同时跳过该分支，故副作用不产生。
+
+### 三、修复方案
+
+1. **`apps/usermanagement/views/employee_view.py`**——`batch_sort` 的
+   `@extend_schema` 补 `responses={200: {"type": "array", "items": {"$ref": "#/components/schemas/Employee"}}}`，
+   同时删除前序会话的遗留注释（含「基线为 PaginatedEmployeeList」错误陈述），
+   改为写明 dict 旁路机理、完整 ref 路径与 `EmployeeSerializer` 的耦合点、护栏指向。
+   **`core/schema.py` 零改动**（raw dict 是库内建旁路，无需自定义 `AutoSchema` 覆写）。
+2. **`apps/usermanagement/tests/test_employee_openapi_contract.py`**——追加 3 条护栏
+   （追加而非新建文件，DR-1）：
+   - `test_sort_response_is_bare_array`：断言 `type == "array"` 且
+     `items["$ref"] == "#/components/schemas/Employee"`（**完整路径**，不用子串匹配），
+     并断言 `Employee` 组件确实存在于 `components.schemas`。
+   - `test_sort_declares_no_runtime_unused_params`：sort 端点参数集为空（OS-5 反向护栏）。
+   - `test_sort_change_does_not_affect_list`：`list` 仍为 `PaginatedEmployeeList`
+     且保留 `page` / `page_size`（拦截 raw dict 被误提为类级或改走全局豁免）。
+3. **`api-schema-baseline.json`** 重导出，与代码改动**同 commit**。
+
+### 四、对抗审核
+
+1. **「子串匹配会不会更稳」**——不会。raw dict 是**字面量**，组件名拼错时
+   drf-spectacular **不报错**（实测写成 `EmployeeTYPO` 照常生成、退出码 0、
+   组件不存在）。子串匹配 `in` 会漏过 `EmployeeExtended` 之类的前缀撞名，
+   故必须用完整路径断言，并**额外**断言组件存在，把悬空 ref 这个静默失败面堵死。
+2. **「raw dict 会不会不跟随序列化器改名」**——会，这是本方案的**已知耦合点**。
+   已在代码注释中显式标注，并在护栏中以完整 ref 路径锁定。
+   备选方案（自定义 `AutoSchema` 覆写 `_get_paginator()` / `get_filter_backends()`）
+   可自动跟随组件名，但需改 2 个文件、引入库私有方法依赖与新名单概念；
+   经权衡取改动面更小、无私有方法依赖者。
+3. **「3 条新护栏与既有护栏是否重复」**——`test_employee_search_contract.py:75`
+   的 `NON_SEARCH_EMPLOYEE_OPERATIONS` **已含** `("/api/v1/users/employees/sort/", ("put",))`，
+   已覆盖 `search` 一项泄漏。但它只挡 `search`，挡不住 department_code /
+   employee_status / ordering；且第 3 条（`list` 未受波及）是其完全不覆盖的方向。
+   故非重复，补齐。
+4. **「是否只改了文档，掩盖了运行时问题」**——否。运行时 `batch_sort`
+   返回 `success_response(data=response_serializer.data)` 确为裸数组，
+   前端 `unwrapResponse` 后拿到 `EmployeeExtended[]`，前后端已对齐。
+   本次是文档追认运行时事实，未改任何运行时行为。
+5. **「oasdiff breaking 会不会挂」**——本地无 oasdiff 工具（CI 用 Linux 二进制），
+   无法本地验证判定结果。**基线重导出与代码改动同 commit** 是唯一安全做法：
+   CI `api-schema-check` 比对的是「仓库内基线 vs 现场重生成」，两侧同 commit 即一致。
+
+### 五、验证记录
+
+- **先红后绿**：`git checkout` 还原 `employee_view.py` 后，
+  `test_sort_response_is_bare_array` **FAILED**（1 failed, 8 passed），
+  证明护栏能捕获原缺陷；恢复后 9 passed。
+- **错误解法的反向验证**（证明第 2 条护栏非摆设）：把 `responses` 换成
+  `EmployeeSerializer(many=True)` 后实测，响应变为 `PaginatedEmployeeList`，
+  且参数集变为 7 条（含上述 5 条泄漏 + `page` / `page_size`）——两条护栏均可捕获。
+- `pytest apps/usermanagement -q` → **185 passed**
+- `pytest apps/usermanagement/tests/test_employee_openapi_contract.py -v` → 9 passed
+- `pytest apps/usermanagement/tests/test_employee_search_contract.py -q` → 16 passed（无回归）
+- `ruff check .` → All checks passed；`ruff format --check .` → 335 files already formatted
+- `ruff check . --select C90 --config lint.mccabe.max-complexity=10` → All checks passed
+- `mypy . --strict` → 27 errors / 12 files，与存量基线**一致**（改动文件零错误）
+- `spectacular --validate` → Warnings 23 (17 unique) / Errors 23 (6 unique)，与存量基线一致
+- **基线逐叶子 diff**：全库仅 **3 处**变化，全部落在 sort 端点
+  （`schema/$ref` 删、`schema/items/$ref` 增、`schema/type` 增），
+  其余端点 / components / parameters **零漂移**
+- `scripts/check_duplicate_invariants.py` → PASS
+- `scripts/check_api_doc_consistency.py` → V-1~V-4 全通过（违规 0）
+
+### 六、遗留与关联事项
+
+1. **响应信封层缺失（另立条目）**：运行时返回 `{"code":0,"message":"...","data":[...]}`，
+   而基线声明为裸数组、缺 `code` / `message` 信封层。这**不是本端点独有**——
+   `batch-create` / `change_status` 等同样只声明裸对象，属**全基线 20+ 端点的共性问题**。
+   经用户拍板，本轮只对齐既有裸对象 / 裸数组约定（改动面最小、不引入新模式），
+   「响应信封缺失」另立系统性条目。若混入本端点修复会把 1 个文件的 diff 变成基线全量重写。
+2. **raw dict 方案的固有耦合**：见「对抗审核」第 2 条。组件名变更需同步改
+   `@extend_schema` 中的字面量，护栏会以红提示。
+3. **机制教训登记**：本条为 A-44（BF-049 / BF-050）之后的**第三个独立机制**，
+   已在 `Rules_Fiels/Duplicate_Codes/complete-patterns.md` 登记为 **A-46**。
+
+*登记人：opencode ｜ 状态：已关闭，完成验证，2026-09-29*
