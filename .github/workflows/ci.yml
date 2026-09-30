@@ -183,7 +183,7 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          POSTGRES_PASSWORD: ci-dummy-not-real
           POSTGRES_DB: asset_management_test
         ports:
           - 5432:5432
@@ -200,7 +200,7 @@ jobs:
       DB_PORT: 5432
       DB_NAME: asset_management_test
       DB_USER: postgres
-      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      DB_PASSWORD: ci-dummy-not-real
       SECRET_KEY: ci-test-generic-key-not-for-any-environment-123
     steps:
       - uses: actions/checkout@v4
@@ -239,7 +239,7 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          POSTGRES_PASSWORD: ci-dummy-not-real
           POSTGRES_DB: asset_management_test
         ports:
           - 5432:5432
@@ -253,7 +253,7 @@ jobs:
       DB_PORT: 5432
       DB_NAME: asset_management_test
       DB_USER: postgres
-      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      DB_PASSWORD: ci-dummy-not-real
     steps:
       - uses: actions/checkout@v4
         with:
