@@ -4,7 +4,7 @@
 ### 📄 文档 4：后端业务规范 `/Rules_Fiels/backend-business-rules.md` (v1.17)
 
 # 后端业务规范与设计思路 (Backend Business Rules)
-> 版本：v1.17 | 最后更新：2026-09-26
+> 版本：v1.18 | 最后更新：2026-09-29
 > 适用范围：Django 6.0 + DRF 3.16 + PostgreSQL 16
 
 ## 一、设计思路（防腐与一致性）
@@ -291,10 +291,11 @@ repairing ──repair_done──┘    │               │                  �
 | BR-3	| **常量与枚举集中定义** |	资产状态、资产类型等枚举值必须定义在 apps/<app>/constants.py 或 models.py 的 TextChoices 中，禁止在函数内硬编码字符串值。Service 层比较/赋值必须使用 `Model.Field.VALUE` 形式（如 `Asset.AssetStatus.IN_USE`、`DamagedAsset.ApprovalStatus.PENDING`）。|	迁移至全局常量定义区 |
 | BR-4	| **函数长度红线** |	单个函数/方法（含 Service 方法、工具函数）不得超过 50 行（不含空行和注释）。超过时，必须拆分为多个私有方法（_helper）。|	拆分并分层调用 |
 | BR-5	| **圈复杂度管控** |	单个函数的圈复杂度（McCabe）不得超过 10。使用 ruff check --select C90 检查。超过时，必须简化条件分支或使用策略模式。|	重构分支逻辑 |
-| BR-6	| **文件行数限制** |	单个 .py 文件（不含迁移文件）不得超过 500 行。超过时，按职责拆分（如 services.py → services/checkout.py + services/recycle.py）。|	拆分为模块包 |
+| BR-6	| **文件行数限制** |	单个 .py 文件不得超过 500 **逻辑行**。口径：物理跨度行数 − 空行 − 纯 `#` 注释行 − 本文件模块 docstring（唯一实现见 `scripts/line_metrics.py`，BR-4/BR-6 共用）。**不纳入**测试文件（文件名含 `test`/`conftest` 或路径含 `tests/`、`test/` 段）与 `migrations/`。⚠️ 禁止用 PowerShell `Measure-Object -Line` 数行——它跳过空行，可低估约 12%。超过时按职责拆分（如 services.py → services/checkout.py + services/recycle.py）。护栏 `scripts/check_file_length_guard.py`，台账 `Rules_Fiels/BR6_file_length_ledger.md`。|	拆分为模块包 |
 | BR-7	| **调用链验证** |	视图（View）→ 服务（Service）→ 选择器（Selector）的纵深不得超过 3 层（View→Service→Selector 为标准深度）。若出现 View→Service→Service→Selector 等 4 层+，必须扁平化或使用事件驱动解耦。|	合并中间层或引入事件 |
 
 ## 六、变更日志
+- v1.18 (2026-09-29): **BR-6 条文实质修订**——「500 行」补齐口径定义（原条文只写「不含迁移文件」，未定义行数口径，是 D3 连续两次误判的根因）。① 口径统一为**逻辑行**＝物理跨度 − 空行 − 纯 `#` 注释行 − 模块 docstring，唯一实现 `scripts/line_metrics.py`，**BR-4/BR-6 共用**（DR-1 消重）；② **测试文件不再纳入** BR-6（与 BR-4 护栏既有 `is_test()` 排除对齐，用户 2026-09-29 拍板）；③ 新增护栏 `scripts/check_file_length_guard.py` + 台账 `Rules_Fiels/BR6_file_length_ledger.md` + CI `backend-lint` job 内 step，**零存量债，上线即阻断**，不适用 §5.4 沙盒期；④ 明令禁用 PowerShell `Measure-Object -Line`（跳空行，`operation_log_service.py` 真实 508 会被报成 447，低估约 12%）。**连带影响**：BR-4 口径同步剔除 docstring（原为「docstring 计入代码行」），因其台账当时为空表且 0 违规，实测无行为变化，已回归验证。误判纠正记录：D3 先按 `wc -l` 误判 `operation_log_service.py`(508) 违规、继而误判 `contract_service.py`(489) 为唯一目标，两次均系口径未定义所致；按逻辑行口径二者实为 432 / 399，**均不违规，故取消全部拆分动作**，交付物转为「护栏 + 口径定义」。另修复护栏 `read_text` 的 BOM 假绿缺陷：原 `utf-8` 解码遇 BOM 产生 U+FEFF 致 `ast.parse` 失败、文件被静默跳过，超限文件可蒙混过关；改为 `utf-8-sig` 打头（由负向测试发现）。
 - v1.17 (2026-09-26): 新增 §4.8 OpenAPI 契约声明细则（增补）——BF-049 / BF-050 落地。① 记录两条实测机制：`AutoSchema.get_filter_backends()` 的 `_is_list_view()` 门控（非 list 响应静默关闭筛选参数发现，且改 `responses` 会连锁翻转）、`@extend_schema` 手工声明「只替换不校正」；② OS-1~OS-7：显式 opt-in（`ForceFilterDiscoverySchema` + `frozenset`，禁改全局启发式）、名单取 action **方法名**（OS-2，附"写错静默不生效"坑点记录）、自动可产出的不手写、重声明复用共享片段、**文档超前于运行时同属失真**、PR 须 diff 基线、契约端点必须有对照运行时事实的 schema 护栏；③ 明确聚合响应用 `inline_serializer` 且不新增误导性 Serializer。附带订正：v1.16 只更新了变更日志、未升头部版本号（两处均为 v1.15），本次同步至 v1.17。本节属细则增补，不修改 B1-B10、§4.2 矩阵与 BR 条文。
 - v1.16 (2026-09-26): 新增 §4.7 员工域细则（增补，4.2 矩阵原文不改）——B12 行级隔离在员工域首次落地（BF-048）：`EmployeeViewSet` 此前直接用 `queryset` 类属性全量返回，`dept_manager` 持 `CanExportExcel` 可导出全公司员工档案。① 收窄口径完全委托既有 `get_department_codes_for_user`（三态语义与操作日志侧同源，零新业务规则）；② 收窄入口唯一化为覆写 `get_queryset()`，一次覆盖 list/retrieve/search/statistics/export，并显式收窄 `active_employees` / `by-auth-user` / `employees/{jobcode}` 三个旁路；③ 附带修正 `by-auth-user` 畸形 ID 返回 500（`ValueError`）为 404；④ `statistics` 聚合口径改随权限收窄（数值范围变化，响应结构不变）；⑤ 越权一律 404；⑥ 回归屏障 `test_employee_rbac_scope.py` 14 用例。本节属细则增补与既有规则的落地记录，不修改 4.2 矩阵原文。
 - v1.15 (2026-09-23): `[PATCH-BE]` 权限矩阵 :142「报废审批」行修订——操作列从「审批通过/拒绝」扩展为「申请（单条 create）/审批通过/拒绝/批量删除」，与实现对齐（`DamagedAssetViewSet.admin_actions` 纳入 `create`，走 `IsDeptManagerOrAbove`；方案 A：asset_admin 对单条 create ❌）。同步 `test_damaged_asset_view_api.py::TestDamagedCreateRBAC` 三角色测试同批落地（BF-037）。

@@ -3572,6 +3572,9 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
    helper 的 docstring 只承接自身实现语义，**不复制**那段长论证，避免同一段文字双份维护。
 3. **`BR4_function_length_ledger.md`**——header 追加事故注记（与 `210cfa7` 格式化事故同类并列），
    含「文件余量告急 489/500」提示。**台账表格不加行**（拆完即达标，加行反而触发第 2 条断言）。
+   > ⚠️ **后续订正（2026-09-29）**：该「489/500」提示**已于 BR-6 护栏落地批次改写为作废声明**
+   > （逻辑行口径实为 399/500，未违规）。此处为 BF-058 当时动作的历史记录，故原文保留不改；
+   > 现行结论以 `BR4_function_length_ledger.md:21` 与本条 §六 遗留① 的订正为准。
 
 ### 四、对抗审核
 
@@ -3614,9 +3617,7 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 
 ### 六、遗留与关联事项
 
-1. **文件余量告急**：`contract_service.py` 489/500，仅余 11 行。后续合同域功能应优先新建文件；
-   BR-6 拆分（如 `payment_service.py` 承接 `add_payment_record` / `delete_payment_record` /
-   `approve_payment_record`，三者现为 38 / 23 / 25 行）**另立议题**，本次仅记录不行动。
+1. ~~**文件余量告急**~~ **订正（2026-09-29，BR-6 护栏落地批次）**：本条原记「`contract_service.py` 489/500，仅余 11 行…BR-6 拆 `payment_service.py` 另立议题」，**该结论建立在 `wc -l`（含空行）口径上，予以作废**。BR-6 口径统一为**逻辑行**（排空行 / 纯 `#` 注释行 / 模块 docstring）后，`contract_service.py` 实为 **399 逻辑行**，**未超 500，无需拆分，原拆分议题取消**；`add/delete/approve_payment_record` 三方法（38/23/25 行）保持在 `contract_service.py` 内不动。**教训**：行数类指标必须显式定义口径——同一文件 `wc -l` 读 489、逻辑行读 399，差 90 行（22%），足以把「余量 11 行」误读成「已越线」。参见 `Rules_Fiels/BR6_file_length_ledger.md` 与 `Rules_Fiels/BR4_function_length_ledger.md:21` 同源订正。「合同域功能优先新建文件」可保留为风格偏好，但**不再是红线驱动**。
 2. **临界函数观察**：`complete_repair`（49）与 `reject_asset_recordcode`（49）**距红线仅 1 行**，
    后续任何加行都会触发护栏红。建议在动手改这两个函数前先跑 `--print` 确认余量。
 3. **机制教训**：详见 `Rules_Fiels/BR4_function_length_ledger.md` header 的
