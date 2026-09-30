@@ -4506,6 +4506,18 @@ args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**�
 - **WSL 复现实验（已放弃，非必需）**：曾在 WSL 原生 venv（dev.txt 一致、16 核）起全量 mutmut 交叉验证，取得 run 98/99 双次一致数据后判定实验目的已达成，pkill 终止并清理 mutants 目录。结论：环境复现不再是瓶颈，CI 双轮直接证据优先。
 - **教训**：门禁阈值类常量（score 基线、覆盖率阈值）**一律存精确值、禁用展示用四舍五入值**；展示精度可读性 ≠ 存储精度正确性，二者必须分离。
 
+**12. run 100 checkout 失败（非代码，gitlink 未推送）→ run 101 全绿收口**
+
+- **run 100（head `d0528f6`）全 job 秒败（8 秒内级联失败）**：`backend-lint` 系（ruff/mypy/C90/M-6）与前端 lint 系全 failure、其余 skipped。**根因 annotation 明示**：`remote error: upload-pack: not our ref 95f94581bff...` —— **后端子模块 commit `95f9458` 只在本地未 push**，父仓 gitlink 指向不可达 commit，`actions/checkout@v4` 直接失败并级联。与本轮代码/门禁改动无关。
+- **修复**：补推后端 `b0aec84..95f9458`（gitlink 现可达）；父仓空提交 `0d50ee9` 重触发。
+- **教训（流程级）**：父仓改 gitlink 前**必须**先确认子模块 commit 已推到远端；子模块 commit 缺失属可预见的 checkout 级联失败，判据是「秒败 + not our ref」annotation，与真实代码失败（步数多、耗时正常）形态完全不同。
+- **run 101（head `0d50ee9`）终验证：15/15 job 全绿 ✅**（CI 汇总 job 亦 success）：
+  - **后端变异测试**：step 6 `mutmut run` **success**（4分04秒）+ step 7「变异得分门禁」**success**（基线 `68.6064` 生效，此前唯一红点消解）。
+  - **后端测试+覆盖率** success；**M-3 oasdiff** success（无漂移 warning，§十 判据修复持续生效）；**B4 / M-3配套 / mypy / ruff / C90 / M-6** 全 success；**前端 4 job**（测试+覆盖率 / 变异 / TypeScript / ESLint / complexity）全 success。
+- **BF-067 主修复批收口达成**：run 91→101 累计修复并经 CI 直证的根因 —— ① `base.txt` 缺 `django-extensions`（M-3 配套 exit 2）；② `base.txt` 缺 `python-dateutil`（M-3 schema 崩）；③ CI 凭据用 `secrets.DB_PASSWORD` 致 postgres 容器从未真跑过；④ 变异基线取环境与门禁执行环境不一致（WSL timeout 伪象）；⑤ M-3 漂移 warning 判空缺陷恒假阳性；⑥ 基线存四舍五入值致门禁恒红（浮点）；⑦ 子模块 commit 未推送致 checkout 级联失败。**另立未做**：ci-cd Docker Hub 登录（§三-5）、security-scan npm audit/pip-audit（§三-6）。下一步可进入 **C 批（补测抬分 → 恢复 80% 绝对红线）** 与 **D 批（前端 stryker 基线）**。
+
+*登记人：big-pickle ｜ 状态：**修复批已收口**（run 101 15/15 全绿终验证，变异基线 68.6064 + M-3 判据修复 + 门禁显示精度三项均生效；ci-cd/security 两 workflow 另立，下一步 C/D 批），2026-09-30*
+
 *登记人：big-pickle ｜ 状态：**修复批收口中**（run 99 后端测试首绿 + M-3 漂移 warning 消除已 CI 直证；变异基线浮点取值 bug 已修 `95f9458` + 门禁显示精度提升，待 run 100 终验证；ci-cd/security 两 workflow 另立），2026-09-30*
 
 *登记人：big-pickle ｜ 状态：**修复批收口中**（run 98 后端测试首绿；变异基线已切 CI 环境 `b0aec84`、M-3 漂移 warning 判空缺陷已修、待 run 99 双验证；ci-cd/security 两 workflow 另立），2026-09-30*
