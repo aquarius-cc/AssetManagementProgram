@@ -4468,4 +4468,12 @@ args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**�
 - **修复（backend `7bc44af`）**：`django-extensions==3.2.3` 的 pin 从 dev.txt **上移对齐**至 base.txt（附 P1-38 + BF-067 注释）；dev.txt 删重（经 `-r base.txt` 继承，保 DR-1 单源）。CI 重跑后 M-3 配套应首绿；若仍有后续缺失依赖将以同样方式暴露。
 - **③ M-3 oasdiff Generate schema**：仍未定位，阻塞于登录日志——**待用户提供该步骤原始日志**（settings 加载 / 依赖解析 / 生成崩溃三段定位）。
 
+**8. CI 复跑核验 3（run 94，head efa7efa，父仓）——2 保留红只乘 M-3 schema**
+
+- **M-3 配套首绿 ✅**：`--check` exit 2 根因（base.txt 缺 django_extensions）修复后首次通过；**backend-lint(ruff) / mypy / C90 / M-6 / B4 / 前端 4 job 全绿**。
+- 仅剩 `M-3 - API Schema Diff (oasdiff)` **Generate schema** 步骤失败（exit 1，③ 未变）；backend-test/mutation 因 `needs: [api-schema-check]` 继续级联 skip。
+- **下一步**：等待用户提供 Generate schema 原始日志 → 分段定位。
+
+*登记人：big-pickle ｜ 状态：**待修复→修复批已落地**（①②④ 提交并 CI 直证；①原 ruff 回归已修；②（M-3 配套）run 94 首绿；③ M-3 schema 待日志；ci-cd/security 两 workflow 另立），2026-09-30*
+
 *登记人：big-pickle ｜ 状态：**待修复→修复批已落地**（①②④ 提交，③ 待日志；②④ 已 CI 直证，①经 run 91 直证后 ruff 回归已修 `16687a4`；ci-cd/security 两 workflow 另立），2026-09-30*
