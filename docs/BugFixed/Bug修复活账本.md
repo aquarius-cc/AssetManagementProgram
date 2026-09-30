@@ -4482,6 +4482,19 @@ args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**�
 - 修复：base.txt 追加 `python-dateutil==2.9.0.post0`（生产依赖，注释溯源加注 BF-067）。后端 commit `2d9eeef` 已 push。
 - **预期**：M-3 首绿 → 后端测试/变异首次真正执行 → 若暴露新失败再定位。
 
-*登记人：big-pickle ｜ 状态：**待修复→修复批已落地**（①②③④ 全部提交；①② M-6/ruff 与 M-3 配套已 CI 直证，③ M-3 schema 根因已确诊并修复 `2d9eeef` 待 run 97 验证；ci-cd/security 两 workflow 另立），2026-09-30*
+**10. CI 复跑核验 5~7 + 后端测试/变异收口（run 97/98/99，父仓）——变异基线环境切换 + M-3 漂移 warning 判空缺陷**
+
+- **run 97（head `f3d06b6`）**：M-3 oasdiff **首绿**（dateutil 修复生效）；新暴露 **postgres:16 容器启动失败**（"Failed to initialize container postgres:16"），级联 backend-test / backend-mutation 仍 skip。
+- **run 97 根因（纯结构取证，无猜测）**：backend-test/backend-mutation/migration-check 三 job 的 postgres 服务 `POSTGRES_PASSWORD` 与 job env `DB_PASSWORD` 均用 `${{ secrets.DB_PASSWORD }}`。该组合**从未真正执行过**（backend-test 一直级联 skip、migration-check 无历史 run），secret 缺失即展开为空字符串 → postgres 官方镜像拒空 superuser 密码 → 容器秒退。M-3 schema job 用内联 `ci-dummy-not-real` 且无 postgres 服务 → 成功，此为对照。
+- **修复（父仓 `943dcd9`，push `f3d06b6..943dcd9`）**：ci.yml 两 job + migration-check.yml 统一改内联 `ci-dummy-not-real`，与 M-3 schema job 同口径；非生产凭据，仅供 CI 一次性容器，SC-1 合规（secret 不落仓）。**未新建仓内 secret**（PR/分支环境拿不到仓级 secret，参见 GitHub 官方说明）。
+- **run 98（head `943dcd9`）**：**后端测试+覆盖率 首跑首绿**（容器修复生效）；M-3 oasdiff / M-3配套 / B4 / mypy / ruff / C90 / M-6 / 前端 4 job 全绿。唯一红 = **后端变异 step 7「变异得分门禁」exit 1**。
+- **run 98 变异失败根因（用户提供 step 7 stdout 一锤定音）**：`变异得分 68.61%（基线 70.44%，-1.83pt）（killed=1344 survived=597 timeout=0 no_tests=18 tested=1959）`。**tested=1959 全量无截断**，排除"CI 未跑完/半成品"假说。差异**全部**来自 timeout 归类：WSL 基线 113 个变异体因跨 `/mnt/d` 慢 I/O 触发超时被判 killed（+113 加分），CI 原生磁盘下这些变异体正常结束 → timeout=0。**CI pure-kill 68.61% 反高于 WSL pure-kill 64.68%**，且 `apps/assetmanagement/services`、tests、setup.cfg 自 `0093467`（基线 commit）起**零变更** → 判定为**基线取环境与门禁执行环境不一致的假性回归，非代码回归**。
+- **修复（后端 `b0aec84`，已 push `2d9eeef..b0aec84`）**：`mutmut-baseline.json` 切至 CI 执行环境实测值 —— `score 68.61 / killed 1344 / timeout 0 / survived 597 / no_tests 18 / mutants 1959`，`environment` 注明 CI ubuntu-latest，补齐 `survived`/`no_tests` 字段使基线与门禁输出口径完全对齐，`note` 记录完整根因链与"基线环境须与门禁执行环境同源"教训。门禁「相对基线不回归」此后与执行环境自洽。
+- **M-3 非破坏性漂移核实（并入本次，结论：零漂移，warning 系护栏自身缺陷）**：按根级 §3 要求在 CT-7 一致工具链下重导出（WSL 原生 venv `~/be-venv` + dev.txt 全文，Django 6.0.5 / drf-spectacular 0.29.0 / Python 3.12.3），exit 0、23 warnings/6 unique errors 与 CI 同款（属 schema 内容级提示，不阻塞）。生成结果与仓库现有 baseline **字节级一致**（`git hash-object` = `0c5193f8`，1006041 字节）→ **baseline 无需重导出**。再以 oasdiff 1.29.1 比对 baseline vs CI 同口径 current（`--format openapi`）：`breaking: No changes detected` / `summary: diff: false` / `diff: {}` → **确认零漂移**，run 98 的 warning 是**假阳性**。
+- **假阳性根因（护栏判空缺陷）**：ci.yml 原判据 `if ! oasdiff diff ... || [ -s /tmp/drift.txt ]` —— oasdiff diff 无差异时输出 `{}`（单行非空），`[ -s ]` 恒为真 → **只要 diff 命令正常执行就必然报漂移**。
+- **修复（父仓 ci.yml，BF-067）**：判据改用 `oasdiff summary ... | grep -qx "diff: false"`。已实测区分能力：零漂移→NO_DRIFT，注入伪端点 → DRIFT。warning 分支仍回显 `oasdiff diff` 详情与重导出命令，护栏意图不变、误报消除。
+- **提交**：后端 `b0aec84`（mutmut-baseline.json 单文件；api-schema-baseline.json 无变化故不入提交）；父仓 `943dcd9` 之后的本次提交含 ci.yml 判据修复 + gitlink 同步。
+
+*登记人：big-pickle ｜ 状态：**修复批收口中**（run 98 后端测试首绿；变异基线已切 CI 环境 `b0aec84`、M-3 漂移 warning 判空缺陷已修、待 run 99 双验证；ci-cd/security 两 workflow 另立），2026-09-30*
 
 *登记人：big-pickle ｜ 状态：**待修复→修复批已落地**（①②④ 提交，③ 待日志；②④ 已 CI 直证，①经 run 91 直证后 ruff 回归已修 `16687a4`；ci-cd/security 两 workflow 另立），2026-09-30*

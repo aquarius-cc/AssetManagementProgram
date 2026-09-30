@@ -132,10 +132,13 @@ jobs:
         run: oasdiff breaking api-schema-baseline.json api-schema-current.json
       - name: Warn on non-breaking drift
         # 非 breaking 漂移(新增端点/字段)不挡 CI, 仅警告提醒重导出 baseline, 防止底稿长期分叉
+        # 【BF-067】判据改用 `oasdiff summary` 的 `diff: false` 字段, 不用 `[ -s drift.txt ]`：
+        # oasdiff diff 无差异时输出 `{}`(单行非空), 原判空恒为真 → 每次都误报漂移。
+        # 已实测: 零漂移→NO_DRIFT, 注入伪端点→DRIFT（区分能力成立）。
         run: |
-          if ! oasdiff diff api-schema-baseline.json api-schema-current.json > /tmp/drift.txt 2>&1 || [ -s /tmp/drift.txt ]; then
+          if ! oasdiff summary api-schema-baseline.json api-schema-current.json 2>/dev/null | grep -qx "diff: false"; then
             echo "::warning::API schema 存在非破坏性漂移, 请评估后重导出 baseline:"
-            cat /tmp/drift.txt
+            oasdiff diff api-schema-baseline.json api-schema-current.json 2>&1 | head -100
             echo "重导出命令: python manage.py spectacular --format openapi-json --file api-schema-baseline.json --validate"
           fi
 
