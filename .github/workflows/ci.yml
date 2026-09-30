@@ -168,7 +168,10 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       # 生成器驱动注释层 + 枚举区接管，文档与「Schema 基线/注解真值」必须一致。
-      # 路径基于脚本 __file__ 解析，无需 working-directory；仅依赖标准库。
+      # 路径基于脚本 __file__ 解析，无需 working-directory；
+      # 【BF-067】生成器经 codesource._setup_django() 导入 Django 读取模型 choices，
+      # 故需先安装 base.txt（此前缺 install 导致全新 runner 无 Django → exit 2 秒败）。
+      - run: pip install -r asset_management_backend/requirements/base.txt
       - name: API 字段/枚举生成器同步核验（差异即失败）
         run: python scripts/generate_api_field_reference.py --check
 
