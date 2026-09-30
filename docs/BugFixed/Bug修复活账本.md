@@ -4419,4 +4419,35 @@ args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**�
 - 修复方案另立批次（本条目只登记现象 + 判定证据）；§三候选动作供批次立项引用。
 - 与 BF-064、BF-066 衔接：CI 变异 job 当前 skip，B 批接入后以 70.44% 为基线做口径决策。
 
-*登记人：big-pickle ｜ 状态：**待修复**（存量问题，修复另立批次），2026-09-30*
+### 七、修复记录（2026-09-30 修复批，父仓 `785c612`）
+
+**1. M-6 权限码同步检查（①，backend 子仓提交）**
+
+- **根因（实证）**：`asset_management_backend/.gitignore:134` 的 `constants/` 为一整目录排除，`constants/permission_constants.py` 因此**从未入库**（`git rev-list --all -- <path>` 空输出；`git ls-files` 0 命中）。CI 干净检出缺文件 → `check_be` 的 `be_path.exists()` 为假 → 步骤秒败 exit 1。本地过是因工作树存有该未跟踪文件。**与子模块指针无关**（GitLink 核实 `9850a34`→backend `0093467` 与 origin/master 一致）。
+- **gitignore 机制教训**：父目录被排除后 git 不干扰下探，`!constants/permission_constants.py` 否定例外对**整目录排除**不生效（git 文档原话 "It is not possible to re-include a file if a parent directory of that file is excluded"）。**正确写法**：`constants/` 改 `constants/*`（排除内容而非目录本身）+ `!constants/permission_constants.py`。
+- **修复**：backend `.gitignore:134` 按上改两行；`git add constants/permission_constants.py` 验证白名单生效（此前 `git add` 静默丢弃）；提交子仓 `d9acb34`（入库）+ `49a8bc7`（gitignore），push backend→`49a8bc7`；父仓 gitlink 更新。
+- **回归**：backend 子仓 `python scripts/generate_permission_codes.py --check` → `[M-6] PASS (FE/BE in sync)`。
+
+**2. M-3 配套 API 字段/枚举生成器同步核验（②，父仓 ci.yml）**
+
+- **根因（实证）**：ci.yml `api-doc-generate` job **无任何 pip install**，而生成器经 `scripts/api_field_reference/codesource.py:_setup_django()` 执行 `import django` + `django.setup()`——CI 全新 runner 无 Django → `SourceError("无法导入 Django")` → exit 2（主流程 `generate_api_field_reference.py:200` 捕获 SourceError 返回 2）。原注释「仅依赖标准库」不实（生成器读模型 choices）。
+- **修复**：该 job 补 `pip install -r asset_management_backend/requirements/base.txt`；注释订正为「依赖 Django 读取模型 choices」。
+- **回归**：本地带 Django 环境跑 `python scripts/generate_api_field_reference.py --check` → 输出「文档与真值一致，无需同步」，RC=0（受限于本地已装依赖，CI 全量待重跑验证）。
+
+**3. M-3 oasdiff 「Generate schema」失败（③，挂起）**
+
+- **最新进展**：失败发生在 **Generate schema** 步骤（`manage.py spectacular ... --validate`），oasdiff diff 步骤从未执行——排除「基线漂移」假设。本地以 CI 相同 env（`DJANGO_SETTINGS_MODULE=config.settings.production` + SECRET_KEY/ALLOWED_HOSTS/DB_PASSWORD/REDIS_URL dummy）+ `PYTHONIOENCODING=utf-8` 复现 `spectacular --validate` **RC=0**（生成+校验通过）；`--validate` 仅依赖 `jsonschema`（drf-spectacular 硬依赖，已在 dev.txt 传递安装）。**真实报错文本锁在需登录的 CI 日志**，待提供后分段定位（settings 加载 / 依赖解析 / 生成崩溃）。
+- **待办**：用户提供 Generate schema step 原始日志 → 定修法；通过后重导出基线检查漂移。
+
+**4. 前端测试 + 覆盖率（④，frontend 子仓提交）**
+
+- **根因（实证）**：非 `--coverage.threshold` CLI 旗标问题（与 BF-060 同族嫌疑已排除）——annotation 确认失败为**断言** `outAssetFormEditLoader.spec.ts:116`：expected `'2025-01-02'` got `'2025-01-01'`。mock 数据 `outasset_date: '2025-01-02T00:00:00+08:00'`，`src/utils/Format.ts:formatDate` 用 `new Date()` + 本地时区 `getFullYear/getMonth/getDate` → GitHub runner(UTC) 将 +08 午夜折回前一天。本地 +08 时区过、CI UTC 挂，属**时区依赖测试**。
+- **修复**：`vue-assetmanagement/vitest.config.ts` 首行注入 `process.env.TZ = 'Asia/Shanghai'`（config 加载期、worker 派生前生效），CI/本地确定性对齐，业务侧以 +08 为唯一口径；不改生产逻辑。
+- **回归**：① 正常跑 + ② **强制 `$env:TZ=UTC` 模拟 runner**，目标 spec 均 5 passed；三分支项 `type-check` / `lint` / `format:check` 全绿。提子仓 `c9a2959`，push frontend→`c9a2959`；父仓 gitlink 更新。
+
+**5. 汇总状态**
+
+- ci.yml 4 失败项中 3 项已出修复提交（M-6 / M-3 配套 / 前端 TZ），M-3 schema 留 ③ 待日志；
+- ci-cd Docker Hub 登录（⑤/§三-5）与 security-scan npm audit（⑥/§三-6）属**独立 workflow 存量项**，本批未触及，仍待立项。
+
+*登记人：big-pickle ｜ 状态：**待修复→修复批已落地**（①②④ 提交，③ 待日志；ci-cd/security 两 workflow 另立），2026-09-30*
