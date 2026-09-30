@@ -4474,6 +4474,14 @@ args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**�
 - 仅剩 `M-3 - API Schema Diff (oasdiff)` **Generate schema** 步骤失败（exit 1，③ 未变）；backend-test/mutation 因 `needs: [api-schema-check]` 继续级联 skip。
 - **下一步**：等待用户提供 Generate schema 原始日志 → 分段定位。
 
-*登记人：big-pickle ｜ 状态：**待修复→修复批已落地**（①②④ 提交并 CI 直证；①原 ruff 回归已修；②（M-3 配套）run 94 首绿；③ M-3 schema 待日志；ci-cd/security 两 workflow 另立），2026-09-30*
+**9. CI 复跑核验 4（run 96，head 4a742af，父仓）——根因确诊：python-dateutil 未声明**
+
+- 用户提供 Generate schema 日志，traceback 精确定位：`out_asset_selector.py:11 from dateutil.relativedelta import relativedelta` → `ModuleNotFoundError: No module named 'dateutil'`。
+- 只读取证：生产代码 2 处 dateutil（`out_asset_selector.py:11` 模块级 = 炸点、`dashboard_selector.py:294` 函数级）；base.txt/dev.txt 均未声明。AST 全应用扫描确认 **生产代码无其他未声明第三方依赖**。`types-python-dateutil` 曾误加入 dev.txt 且验证为多余（后端 AGENTS v9.3.0 已在案），本修复不需要 stub。
+- run 96 逐 job 结论：**唯一失败 = M-3 oasdiff**；mypy/ruff/C90/M-6/B4/M-3配套/前端 ESLint/前端 complexity/前端 TS/前端测试/前端变异 全绿；后端测试/后端变异 仍级联 skip；CI 汇总红纯由后端测试 skipped 触发。ESLint complexity 10 处高复杂度均为存量告警（该 job success，非阻断），前端变异 step 退出码 1 被 continue-on-error 掩盖（D 批 stryker 基线未取前既有状态）。
+- 修复：base.txt 追加 `python-dateutil==2.9.0.post0`（生产依赖，注释溯源加注 BF-067）。后端 commit `2d9eeef` 已 push。
+- **预期**：M-3 首绿 → 后端测试/变异首次真正执行 → 若暴露新失败再定位。
+
+*登记人：big-pickle ｜ 状态：**待修复→修复批已落地**（①②③④ 全部提交；①② M-6/ruff 与 M-3 配套已 CI 直证，③ M-3 schema 根因已确诊并修复 `2d9eeef` 待 run 97 验证；ci-cd/security 两 workflow 另立），2026-09-30*
 
 *登记人：big-pickle ｜ 状态：**待修复→修复批已落地**（①②④ 提交，③ 待日志；②④ 已 CI 直证，①经 run 91 直证后 ruff 回归已修 `16687a4`；ci-cd/security 两 workflow 另立），2026-09-30*
