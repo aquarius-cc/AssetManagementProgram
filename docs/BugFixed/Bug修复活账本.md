@@ -4495,6 +4495,19 @@ args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**�
 - **修复（父仓 ci.yml，BF-067）**：判据改用 `oasdiff summary ... | grep -qx "diff: false"`。已实测区分能力：零漂移→NO_DRIFT，注入伪端点 → DRIFT。warning 分支仍回显 `oasdiff diff` 详情与重导出命令，护栏意图不变、误报消除。
 - **提交**：后端 `b0aec84`（mutmut-baseline.json 单文件；api-schema-baseline.json 无变化故不入提交）；父仓 `943dcd9` 之后的本次提交含 ci.yml 判据修复 + gitlink 同步。
 
+**11. run 99 双验证 + 基线取值浮点陷阱（后端 `95f9458`）——68.61% 对 68.61% 却 exit 1**
+
+- **run 99（head `ece7d9d`）逐 job 结论**：13/14 job 全绿，含此前唯一红的 **后端测试+覆盖率**（首跑即 success）与 **M-3 oasdiff**（漂移 warning 消除，验证 §十 ci.yml 判据修复生效）。前端变异/前端测试/mypy/ruff/C90/M-6/B4/M-3配套/前端 TS/前端 ESLint/前端 complexity 全绿。
+- **仍红 = 后端变异**：step 6 `mutmut run` success（4分36秒 / 276s），step 7 门禁 1 秒 exit 1。
+- **根因（用户提供 step 7 stdout + 本地精确复算）**：输出 `变异得分 68.61%（基线 68.61%，-0.00pt）` 却 exit 1 —— 显示相同、实际不等。真值 `(1344+0)/(1959-0)*100 = 68.60643185298622`，而 §十 写入基线的 `68.61` 是**四舍五入值**，故 `score >= baseline` 为 False（差 -0.003568pt）。**这是基线取值的精度 bug：门禁精确比较，基线却存四舍五入显示值，必然恒红**。
+- **复现验证**：run 98 与 run 99 两轮 CI 的 stats 逐字段完全一致（killed=1344 survived=597 timeout=0 no_tests=18 suspicious=0 tested=1959），**CI 变异结果可稳定复现**，证明 §十 环境归因（timeout 归类差异）成立且已收敛，非随机噪声。
+- **修复（后端 `95f9458`）**：`mutmut-baseline.json` 的 `score` 改为**实测精确值向下取整 4 位小数 = 68.6064**（严格 ≤ 真值，门禁必过），`environment` 补「run 98/99 复现一致」，`note` 增补**取值规则**：存实测精确值向下取整、**禁用四舍五入值**（含本次事故记述）。
+- **修复（父仓 ci.yml）**：门禁 print 精度 `:.2f` → `:.4f`（score/baseline/delta 三处），避免 `:2f` 把 68.60643 与 68.6064 同渲染为 68.61 造成「显示相同却 exit 1」的误导现场再次出现。
+- **WSL 复现实验（已放弃，非必需）**：曾在 WSL 原生 venv（dev.txt 一致、16 核）起全量 mutmut 交叉验证，取得 run 98/99 双次一致数据后判定实验目的已达成，pkill 终止并清理 mutants 目录。结论：环境复现不再是瓶颈，CI 双轮直接证据优先。
+- **教训**：门禁阈值类常量（score 基线、覆盖率阈值）**一律存精确值、禁用展示用四舍五入值**；展示精度可读性 ≠ 存储精度正确性，二者必须分离。
+
+*登记人：big-pickle ｜ 状态：**修复批收口中**（run 99 后端测试首绿 + M-3 漂移 warning 消除已 CI 直证；变异基线浮点取值 bug 已修 `95f9458` + 门禁显示精度提升，待 run 100 终验证；ci-cd/security 两 workflow 另立），2026-09-30*
+
 *登记人：big-pickle ｜ 状态：**修复批收口中**（run 98 后端测试首绿；变异基线已切 CI 环境 `b0aec84`、M-3 漂移 warning 判空缺陷已修、待 run 99 双验证；ci-cd/security 两 workflow 另立），2026-09-30*
 
 *登记人：big-pickle ｜ 状态：**待修复→修复批已落地**（①②④ 提交，③ 待日志；②④ 已 CI 直证，①经 run 91 直证后 ruff 回归已修 `16687a4`；ci-cd/security 两 workflow 另立），2026-09-30*

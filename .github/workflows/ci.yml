@@ -318,7 +318,10 @@ jobs:
           breakdown = " ".join(
               f"{key}={stats.get(key, 0)}" for key in ("killed", "survived", "timeout", "no_tests", "suspicious")
           )
-          print(f"变异得分 {score:.2f}%（基线 {baseline:.2f}%，{(score - baseline):+.2f}pt）（{breakdown} tested={tested}）")
+          # 【BF-067】显示精度提到 4 位小数：门禁用 `score >= baseline` 精确比较，
+          # 而 `:.2f` 会把 68.60643 与基线 68.6064 都渲染成 68.61，出现
+          # 「显示 68.61% 对 68.61% 却 exit 1」的误导现场（run 99 实测）。
+          print(f"变异得分 {score:.4f}%（基线 {baseline:.4f}%，{(score - baseline):+.4f}pt）（{breakdown} tested={tested}）")
           sys.exit(0 if score >= baseline else 1)
           PY
 
