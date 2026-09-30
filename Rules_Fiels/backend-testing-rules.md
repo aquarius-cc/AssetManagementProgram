@@ -1,5 +1,5 @@
 # 后端测试细则 (Backend Testing Rules)
-> 版本：v1.4 | 最后更新：2026-09-29
+> 版本：v1.5 | 最后更新：2026-09-30
 > 适用范围：pytest + pytest-django + factory_boy + mutmut（变异测试）
 
 ## 一、测试目录与命名 [T1]
@@ -48,7 +48,12 @@ pytest --cov=apps.assetmanagement.services --cov-fail-under=90
 ## 七、变异测试（强化测试有效性）[T7]
 | 规则ID	| 内容 |
 | :--- | :--- |
-| T7	| 必须引入变异测试工具（mutmut，已在 `requirements/dev.txt` 钉 `mutmut==3.8.0`），对核心业务代码（Service 层）执行变异测试，变异通过率（Killed Mutants）必须 ≥ 80%。|
+| T7	| 必须引入变异测试工具（mutmut，已在 `requirements/dev.txt` 钉 `mutmut==3.8.0`），对核心业务代码（Service 层）执行变异测试，变异通过率（Killed Mutants + Timeout）必须保持**不回归**：本 run 得分不得低于 `asset_management_backend/mutmut-baseline.json` 记录的基线。 |
+
+**门禁策略修订（B批，2026-09-30）**：
+- **判分口径 = mutmut 官方公式** `(killed + timeout) / (total - skipped) × 100`（timeout 计入杀灭）。
+- **绝对红线 80% 暂挂沙盒期（根级 §5.4）**：首基线 70.44%（BF-066 全量首跑，1959 mutants）低于 80%，若立刻用绝对红线会让 CI 恒红且无法补测推进。改为**相对基线不回归**：每轮只拦「跌破基线」的回归，补测抬分后**人工更新 `mutmut-baseline.json`** 抬高基线，直至达 80% 后恢复绝对红线并解除沙盒。
+- 沙盒期留痕：本变动登记于 `docs/BugFixed/Bug修复活账本.md` BF-064/BF-066；期满（14 自然日）人工复核后转为绝对红线硬门禁。
 
 **执行命令**（配置唯一事实源为 `asset_management_backend/setup.cfg` 的 `[mutmut]` 段，命令不传任何参数）：
 ```bash
@@ -57,13 +62,13 @@ mutmut run
 
 # 导出并判分（比率真源；`mutmut results` 只列非 killed 且无 total 行，无法算比率）
 mutmut export-cicd-stats
-python -c 'import json;s=json.load(open("mutants/mutmut-cicd-stats.json"));t=s["total"]-s["skipped"];print(round(s["killed"]/t*100,2),"%")'
+python -c 'import json;s=json.load(open("mutants/mutmut-cicd-stats.json"));t=s["total"]-s["skipped"];print(round((s["killed"]+s["timeout"])/t*100,2),"%")'
 
 # 交互式查看明细
 mutmut browse
 ```
-得分口径：`killed / (total - skipped) × 100`，与 CI `backend-mutation` 门禁一致。
-若得分 < 80%，触发 `[HALT]`并补充/完善测试用例。
+得分口径：`(killed + timeout) / (total - skipped) × 100`，与 CI `backend-mutation` 门禁一致。
+若得分 < 基线（`mutmut-baseline.json`）或 == 0，触发 `[HALT]`并补充/完善测试用例。
 
 **易错点**（配置细节见 `setup.cfg` 内注释，此处仅列使用侧约束）：
 - **平台限制**：mutmut 3.x 拒绝在 Windows 原生运行（直接 `sys.exit(1)`），只能在 Linux/macOS 执行。
@@ -100,16 +105,19 @@ pytest --cov=apps.unregisteredasset.services --cov-fail-under=90
 # 查看详细 HTML 报告
 pytest --cov=. --cov-report=html
 
-# 变异测试（配置见 setup.cfg [mutmut]；T7 红线 80%）
+# 变异测试（配置见 setup.cfg [mutmut]；T7 相对基线不回归，基线见 mutmut-baseline.json）
 mutmut run
 mutmut export-cicd-stats
+python -c 'import json;s=json.load(open("mutants/mutmut-cicd-stats.json"));t=s["total"]-s["skipped"];print(round((s["killed"]+s["timeout"])/t*100,2),"%")'
 
 # 迁移验证（与根级 CT-6 对齐，三步法）
 python manage.py makemigrations --dry-run 2>&1 | findstr "No changes detected"
 python manage.py migrate --plan
 findstr /N "RemoveIndex RemoveField RenameField" <迁移文件名>
 ```
+
 ## 十、变更日志
+- **v1.5 (2026-09-30)**：T7 门禁口径修订（B批决策，人工审批）——判分公式改为 mutmut 官方公式 `(killed+timeout)/(total-skipped)×100`（timeout 计入杀灭）；绝对红线 80% 暂挂沙盒期（根级 §5.4），改为**相对基线不回归**（基线存 `asset_management_backend/mutmut-baseline.json`，首基线 70.44% 取自 BF-066 全量首跑），补测抬分后人工更新基线直至恢复 80% 绝对红线。同步修订 §九 变异命令为官方口径。配套改动：`.github/workflows/ci.yml` backend-mutation 门禁（移两处 `continue-on-error`、ci-summary 纳入 result 判定）。
 - **v1.4 (2026-09-29)**：T7 与 §九 命令汇总改写为 mutmut 3.8.0 口径——删除 2.x 的 `pip install mutmut`、`--paths-to-mutate`（3.x 已弃用并发 DeprecationWarning）、`mutmut results`（只列非 killed 且无 total 行，无法算比率）；改为 `mutmut run`（配置唯一事实源改为 `setup.cfg` 的 `[mutmut]` 段，命令不传参，消除 CI/本地双口径）+ `mutmut export-cicd-stats` 判分。补充得分口径公式（`killed/(total-skipped)`，与 CI 门禁一致）与三条易错点（Windows 拒绝运行、变异范围扩评耗时、不可手工传旗标）。依据后端 AGENTS §4.2，经人工审批后应用；配套改动见 `docs/BugFixed/Bug待修复计划-20260929.md` §3.10。
 
 - **v1.3 (2026-07-09)**：修复 S-1——T8 和命令汇总中移除被根级 CT-6 禁止的 `migrate <app> zero --dry-run` 命令，替换为 CT-6 许可的三步验证法；补充多 App 覆盖率检查命令。

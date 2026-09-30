@@ -259,20 +259,20 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install -r requirements/dev.txt
-      - name: 变异测试（红线 80% Killed）
-        # 临时：0b 移除 continue-on-error，移除条件为 score ≥ 80。
-        # 用 step 级而非 job 级：job 级容错下 job 仍显示红叉并会连带阻断 needs 链。
+      - name: 变异测试（相对基线不回归）
+        # 门禁策略 B批（2026-09-30）：相对基线不回归，基线存于 mutmut-baseline.json
+        # （首基线 70.44%，BF-066 全量首跑）。官方口径 = (killed + timeout) /
+        # (total - skipped) * 100。80% 绝对红线暂挂沙盒期，C批补测抬分后更新基线直至恢复绝对红线。
         # 配置全部来自 setup.cfg [mutmut]，此处刻意不传任何 CLI 参数（消除 CI/本地双口径）。
-        continue-on-error: true
         timeout-minutes: 300
         run: mutmut run
-      - name: 变异得分门禁（红线 80%）
+      - name: 变异得分门禁（相对基线不回归）
         # 比率真源为 export-cicd-stats 产出的 JSON。`mutmut results` 只列非 killed
         # 且无 total 行，无法计算比率（旧写法 grep -c "killed" 恒为 0）。
-        # 口径对齐 backend-testing-rules.md T7「Killed Mutants ≥ 80%」：只计 killed，
-        # 分母剔除 skipped（skipped = 显式 pragma no mutate，不算有效变异）。
-        # 临时：0b 与上一处 continue-on-error 一并移除
-        continue-on-error: true
+        # 口径 = mutmut 官方公式 (killed + timeout) / (total - skipped) * 100，
+        # 对齐 backend-testing-rules.md T7；分母剔除 skipped（skipped = 显式
+        # pragma no mutate，不算有效变异）；timeout 计入杀灭（官方口径语义）。
+        # 基线不得低于 mutmut-baseline.json 记录值；低于即回归，阻止合并。
         timeout-minutes: 5
         run: |
           mutmut export-cicd-stats
@@ -280,8 +280,18 @@ jobs:
           import json
           import sys
 
-          THRESHOLD = 80.0
+          BASELINE_FILE = "mutmut-baseline.json"
           STATS = "mutants/mutmut-cicd-stats.json"
+
+          try:
+              with open(BASELINE_FILE, encoding="utf-8") as handle:
+                  baseline = json.load(handle).get("score")
+          except (FileNotFoundError, json.JSONDecodeError) as exc:
+              print(f"基线文件读取失败（{exc}）：无法判分，阻止合并")
+              sys.exit(1)
+          if not isinstance(baseline, (int, float)):
+              print("基线文件中 score 字段缺失或非数字：无法判分，阻止合并")
+              sys.exit(1)
 
           try:
               with open(STATS, encoding="utf-8") as handle:
@@ -295,13 +305,15 @@ jobs:
               print(f"无有效 mutant（total={stats['total']} skipped={stats['skipped']}）")
               sys.exit(1)
 
-          score = stats["killed"] / tested * 100
+          # mutmut 官方口径：timeout 视为杀灭（BLOCK_TIMEOUT 的变异体最终会挂产，等价被杀）
+          score = (stats["killed"] + stats["timeout"]) / tested * 100
+
           # 仅用于展示的字段用 .get 兜底：旧版 mutmut 或截断文件不应让门禁抛 KeyError
           breakdown = " ".join(
               f"{key}={stats.get(key, 0)}" for key in ("killed", "survived", "timeout", "no_tests", "suspicious")
           )
-          print(f"变异得分 {score:.2f}% ({breakdown} tested={tested})")
-          sys.exit(0 if score >= THRESHOLD else 1)
+          print(f"变异得分 {score:.2f}%（基线 {baseline:.2f}%，{(score - baseline):+.2f}pt）（{breakdown} tested={tested}）")
+          sys.exit(0 if score >= baseline else 1)
           PY
 
   # ==================== 前端检查 ====================
@@ -440,6 +452,11 @@ jobs:
             echo "CI 检查未通过，阻止合并"
             exit 1
           fi
-          # 0a 阶段：两个变异 job 为 step 级 continue-on-error，result 恒为 success，
-          # 故此处不做判定。0b 移除两处 continue-on-error 后，在此补入
-          # backend-mutation / frontend-mutation 的 result != "success" 判定。
+          # B批（2026-09-30）：backend-mutation 已解除 continue-on-error 并切相对基线门禁，
+          # 结果纳入阻断——得分低于基线（mutmut-baseline.json）即阻止合并。
+          # frontend-mutation 仍为 step 级 continue-on-error（D批 stryker 基线未取，
+          # 红线 80% 未达成），故此处暂不做判定，待 D 批后再补入。
+          if [ "${{ needs.backend-mutation.result }}" != "success" ]; then
+            echo "后端变异门禁未通过，阻止合并"
+            exit 1
+          fi

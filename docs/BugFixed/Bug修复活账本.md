@@ -3665,7 +3665,7 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 3. 但 `asset_management_backend/requirements/dev.txt` **零次命中 `mutmut`**（全文 46 行，`Select-String` 计数 = 0），
    `:250` 只执行 `pip install -r requirements/dev.txt` → 该 step 必然以「命令不存在」告终
 4. 即使命令可用，`:255`/`:256` 用 `grep -c` 统计**文本行数**、`:257` 仅 `echo`，**全 step 无任何阈值断言**
-5. 真实得分基线为 **65.63%**，低于 `Rules_Fiels/backend-testing-rules.md` T8 要求的 80% 红线
+5. 真实得分基线为 **65.63%**，低于 `Rules_Fiels/backend-testing-rules.md` T7 要求的 80% 红线（规则 ID 订正 2026-09-30：原误记 T8，该 ID 为迁移验证；变异红线实名 T7）
 
 ### 二、根因
 
@@ -4129,12 +4129,13 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 - **登记日期**：2026-09-29
 - **来源**：CI 门禁失效排查（方案见 `Bug待修复计划-20260929.md` §1-D①、§4）
 - **关键程度**：P1（规则要求与实际能力之间的真实差距，此前被 BF-059/BF-060 的工具链缺陷掩盖）
-- **影响范围**：`Rules_Fiels/backend-testing-rules.md` T8、`Rules_Fiels/frontend-testing-rules.md` T16、`docs/Review/mutation-baseline-20260924.md`
+- **影响范围**：`Rules_Fiels/backend-testing-rules.md` T7、`Rules_Fiels/frontend-testing-rules.md` T16、`docs/Review/mutation-baseline-20260924.md`
 - **契约影响**：无
 - **跨端契约**：未变更
 - **当前阶段**：**本条是能力缺口而非配置缺陷，修复靠补测，不靠改配置**——0a 未改任何分数
 - **状态补标（2026-09-29）**：**仍为【待修复】**。0a 只完成了本条的**前置条件**（方案第 1 项：修好工具链 BF-059/BF-060），但因本机 Windows 无法运行 mutmut 3.8.0、CI 首跑未发生，**「真实全量得分」尚未取得**。故第 1 项处于「工具链已修 / 数据未取」的中间态，第 2/3/4 项全部未动。**本条是整个 0a→0b 链路的终点，也是 0b 的核心内容。**
 - **状态补标（2026-09-30）**：**真实全量分 70.44%（1959 mutants）已取得**（mutmut 3.8.0，16 核 WSL ~22 min，详见 BF-066），**< 80% 红线**；门禁口径决策转 B 批。本条维持【待修复】——分数到了，修复=补测或调阈值，尚未发生。
+- **状态补标（2026-09-30 B批决策）**：**门禁口径定为「相对基线不回归」**——① 判分公式改为 mutmut 官方口径 `(killed+timeout)/(total-skipped)×100`（timeout 计入杀灭，与 BF-066 登记的 70.44% 一致）；② 基线存 `asset_management_backend/mutmut-baseline.json`（首基线 70.44）；③ CI 移除两处 `continue-on-error` 并将 `backend-mutation.result` 纳入 `ci-summary` 阻断；④ 80% 绝对红线暂挂沙盒期（根级 §5.4），补测抬分后人工更新基线直至恢复绝对红线。配套改动见 `backend-testing-rules.md` T7 v1.5。本条维持【待修复】——得分缺口由 C 批盲区补测抬分。
 
 > **0a 对本条的实质贡献（但不足以关闭）**：① 门禁现在**会算分了**——判分公式
 > `killed / (total - skipped) * 100` 且**有阈值断言**（< 80 即 exit 1），根因表第 1 行「门禁不产分数」已消解；
@@ -4145,7 +4146,7 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 
 | 侧 | 规则红线 | 实测基线 | 差距 | 覆盖范围 |
 |---|:---|:---|:---|:---|
-| 后端 | 80%（T8） | **65.63%** | −14.37 pt | `apps/assetmanagement/services`，1385 mutants |
+| 后端 | 80%（T7，B批改为相对基线 70.44%） | **65.63%** | −14.37 pt | `apps/assetmanagement/services`，1385 mutants |
 | 前端 | 80%（T16，`stryker.config.json:10` `break: 80`） | **60.00** | −20.00 pt | **仅 7 store**、120 mutants（全量为 31 store） |
 
 两项均**未达标**。此前之所以无人处置：后端门禁空转（BF-059）、前端命令非法（BF-060），
@@ -4199,7 +4200,7 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 ```text
 ① 后端基线：docs/Review/mutation-baseline-20260924.md → 65.63%（909 killed / 476 survived，1385 mutants，4h15m）
 ② 前端基线：同上 → score 60.00（72 killed / 44 survived / 4 no-cov，7 store / 120 mutants，3m51s）
-③ 红线出处：stryker.config.json:10 break 80；Rules_Fiels/backend-testing-rules.md T8 = 80%
+③ 红线出处：stryker.config.json:10 break 80；Rules_Fiels/backend-testing-rules.md T7 = 80%（ID 订正 2026-09-30：原误记 T8）
 ④ 覆盖范围对照：stryker.config.json:6 mutate = src/stores/**/*.ts；实测 src/stores 共 31 个 .ts → 基线仅覆盖 7 个
 ⑤ 覆盖率对照（说明正交性）：BF-045 遗留①记录整体 93.11% / Store 97.72%，已达 CT-2
 未执行：全量 stryker run、任何补测 —— 均属第 0a / 0b 批执行阶段。
@@ -4285,8 +4286,8 @@ args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**�
 
 - **登记日期**：2026-09-30
 - **来源**：0b 全量基线首跑（WSL `/tmp/mut38`，mutmut 3.8.0，16 核，~22 min）实证结果
-- **关键程度**：P1（T8 规则红线 80% 与实际能力的真实差距，首次取得可复现的全量基线）
-- **影响范围**：`Rules_Fiels/backend-testing-rules.md` T8；关联 BF-059（分片预案）、BF-064（口径决策）、BF-065（timeout 预算封板）
+- **关键程度**：P1（T7 规则红线 80% 与实际能力的真实差距，首次取得可复现的全量基线）
+- **影响范围**：`Rules_Fiels/backend-testing-rules.md` T7；关联 BF-059（分片预案）、BF-064（口径决策）、BF-065（timeout 预算封板）
 - **契约影响**：无
 - **跨端契约**：未变更
 
