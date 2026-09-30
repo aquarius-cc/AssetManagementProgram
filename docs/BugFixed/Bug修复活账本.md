@@ -4134,6 +4134,7 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 - **跨端契约**：未变更
 - **当前阶段**：**本条是能力缺口而非配置缺陷，修复靠补测，不靠改配置**——0a 未改任何分数
 - **状态补标（2026-09-29）**：**仍为【待修复】**。0a 只完成了本条的**前置条件**（方案第 1 项：修好工具链 BF-059/BF-060），但因本机 Windows 无法运行 mutmut 3.8.0、CI 首跑未发生，**「真实全量得分」尚未取得**。故第 1 项处于「工具链已修 / 数据未取」的中间态，第 2/3/4 项全部未动。**本条是整个 0a→0b 链路的终点，也是 0b 的核心内容。**
+- **状态补标（2026-09-30）**：**真实全量分 70.44%（1959 mutants）已取得**（mutmut 3.8.0，16 核 WSL ~22 min，详见 BF-066），**< 80% 红线**；门禁口径决策转 B 批。本条维持【待修复】——分数到了，修复=补测或调阈值，尚未发生。
 
 > **0a 对本条的实质贡献（但不足以关闭）**：① 门禁现在**会算分了**——判分公式
 > `killed / (total - skipped) * 100` 且**有阈值断言**（< 80 即 exit 1），根因表第 1 行「门禁不产分数」已消解；
@@ -4163,7 +4164,7 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 
 | # | 变更 | 文件 | 落地状态 |
 |---|------|------|------|
-| 1 | 先修工具链（BF-059 / BF-060），取得**真实全量**得分 | `ci.yml`、`dev.txt`、`setup.cfg`、`stryker.config.json` | ⏳ **工具链半边已修；得分未取得**（CI 未首跑） |
+| 1 | 先修工具链（BF-059 / BF-060），取得**真实全量**得分 | `ci.yml`、`dev.txt`、`setup.cfg`、`stryker.config.json` | ⏳ **工具链已修；真实全量分已于 2026-09-30 取得**（70.44%，1959 mutants，见 BF-066）；CI 变异首跑仍未触发 |
 | 2 | 后端按 survived mutants 的行号补 Service 层失败/边界/回滚用例 | `apps/assetmanagement/tests/` | ⏳ 未动（**无 survived 行号清单，至今依赖 0a 的 `export-cicd-stats`**） |
 | 3 | 前端四 CRUD store 优先补测 + 复核 `ignoreStatic` 口径 | `src/stores/__tests__/` | ⏳ 未动 |
 | 4 | 0b 依真实数据决策：达标则移除 `continue-on-error`；未达标则依 §5.4 走沙盒期降级或下调红线并留痕 | `ci.yml`、`stryker.config.json:10` | ⏳ 待真实数据 |
@@ -4202,7 +4203,7 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 ④ 覆盖范围对照：stryker.config.json:6 mutate = src/stores/**/*.ts；实测 src/stores 共 31 个 .ts → 基线仅覆盖 7 个
 ⑤ 覆盖率对照（说明正交性）：BF-045 遗留①记录整体 93.11% / Store 97.72%，已达 CT-2
 未执行：全量 stryker run、任何补测 —— 均属第 0a / 0b 批执行阶段。
-mutmut 3.8.0 单文件已跑（waste_asset_service.py，见 BF-065），全量仍未执行。
+mutmut 3.8.0 全量已于 2026-09-30 跑出（70.44%（1959 mutants），见 BF-066）；前端全量 stryker 与任何补测仍未执行。
 ```
 
 ### 六、遗留与关联事项
@@ -4275,3 +4276,146 @@ args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**�
 3. **timeout 预算需重估**：`timeout-minutes: 300` 的「余量 45 分钟」论证源自 2.5.1 算子集（BF-059 记录的 4h15m/16 核）；3.8.0 变异体集合不同，余量未知，需首跑实测后重估。
 
 *登记人：AtomCode ｜ 状态：**已关闭**（setup.cfg 修复 + 闸门判据通过 + 单文件真实分数 37.5%（n=1 不可外推）产出），2026-09-29*
+
+---
+
+## BF-066 【已关闭】mutmut 3.8.0 全量基线取得：70.44% 未达 80% 红线（附首跑死因定案 + 盲区清单）2026-09-30
+
+### 〇、元信息
+
+- **登记日期**：2026-09-30
+- **来源**：0b 全量基线首跑（WSL `/tmp/mut38`，mutmut 3.8.0，16 核，~22 min）实证结果
+- **关键程度**：P1（T8 规则红线 80% 与实际能力的真实差距，首次取得可复现的全量基线）
+- **影响范围**：`Rules_Fiels/backend-testing-rules.md` T8；关联 BF-059（分片预案）、BF-064（口径决策）、BF-065（timeout 预算封板）
+- **契约影响**：无
+- **跨端契约**：未变更
+
+### 一、首跑死因定案
+
+| # | 观察 | 结论 |
+|---|------|------|
+| 1 | 首个后台 run 进程凭空消失，日志冻结于 08:46:07，`mutmut-timings.json` / `mutmut-cache.json` 均未落盘 | 非 OOM（当时约 7.1G 内存空闲），与集中分析强相关的信号为工具会话回收 |
+| 2 | 以 `setsid nohup python -m mutmut run >/tmp/mut38_fullv2.log 2>&1 </dev/null &` 重启，脱离会话后全程存活并跑完 | **死因 = 工具会话回收**，坐实 |
+| 3 | 首跑日志文件现不存在 | 与「会话回收」旁证一致；timings/cache 缺失属当时观察，登记保留原样，无需补证 |
+
+### 二、全量基线数字（实证结果）
+
+| 项 | 值 | 证据 |
+|---|:---:|---|
+| killed | 1267 | `.meta` 直读 `exit_code_by_key`：`{1:1267}` |
+| survived | 561 | `.meta` 直读：`{0:561}` |
+| timeout | 113 | `.meta` 直读：`{-24:113}` |
+| no_tests | 18 | `.meta` 直读：`{33:18}` |
+| total | 1959 | 1267+561+113+18=1959（自洽） |
+| **score（官方口径）** | **70.44%** | `__main__.py:772` `(killed+timeout)/tested*100` = 1380/1959 |
+| 严格 killed 口径 | 64.68% | 1267/1959 |
+| 速率 / 耗时 | 1.30 mut/s / ~22 min | 16 核 WSL |
+| 分片研判 | 无需分片 | 全量 ~22 min，BF-059 分片预案保持存档 |
+
+### 三、BF-065 §六「timeout 预算需重估」封板
+
+- 实测 **timeout 113/1959 = 5.8%**，全量 ~22 min 完成 → **非超时死因**；
+- `timeout-minutes: 300` 对本地 16 核口径余量充足，但 **CI runner 核数不同，`timeout-minutes` 回填仍以 CI 变异首跑实测值为准**（BF-065 §六第 3 条闭环于此）。
+
+### 四、盲区清单（C 批 CT-4 靶点）
+
+| 类别 | 计数 | 明细 |
+|---|:---:|---|
+| 函数级盲区 | 1 | `RecycleAssetService.batch_create_recycle_asset`（`apps/assetmanagement/services/recycle_asset_service.py`） |
+| 模块/类级盲区 | ~17 | `mutmut-stats.json` 78 被变异函数 vs 77 有测试映射，差额即函数级盲区；其余为模块/类级 mutant |
+| 存活热区（CT-4 优先） | — | `asset_lifecycle_mixin`（batch_create_*/batch_delete_*）、`repair_asset_service`、`waste_asset_service.batch_delete_waste_assets`、`damaged_asset_service` |
+
+### 五、对抗审核
+
+1. **数字口径**：score 仅用官方公式（`__main__.py:772`），严格 killed 口径单列不混用；`export-cicd-stats`（`mutmut-cicd-stats.json`）与 `.meta` 直读（`{1:1267, 0:561, -24:113, 33:18}`）交叉一致。
+2. **与 65.63% 不可比**：65.63% 系 2.5.1 算子集（1385 mutants，BF-065 §六第 2 条已作废）；3.8.0 换 libcst 算子，本条目为 3.8.0 官方口径全量基线，禁止与 2.5.1 数字做差。
+3. **不构成门禁达标**：70.44% < T8 80% 红线，属能力缺口事实登记；门禁口径三选（维持 80% 分阶段补测 / 相对基线不回归 / [PENDING] 登记不阻断）挂 B 批 `[待确认]`。
+
+### 六、验证记录
+
+```text
+① mutmut export-cicd-stats → mutmut-cicd-stats.json
+   killed 1267 / survived 561 / timeout 113 / no_tests 18 / total 1959 / skipped 0 / suspicious 0 ✅
+② .meta 直读 exit_code_by_key = {1:1267, 0:561, -24:113, 33:18}，求和 = 1959 ✅
+③ 公式核对：__main__.py:772 (killed + timeout) / tested * 100 = 1380 / 1959 = 70.44% ✅
+④ 交叉自洽：1267 + 561 + 113 + 18 = 1959 ✅；严格口径 1267 / 1959 = 64.68% ✅
+⑤ 死因：首跑日志冻结 08:46:07 + timings/cache 未落盘 + 非 OOM；setsid 重启存活 ✅
+```
+
+### 七、遗留与关联事项
+
+- **门禁口径三选**：挂 B 批 `[待确认]`（BF-064 转出）。
+- **盲区补测**：挂 C 批（CT-3/CT-4 锚 + ~17 模块/类级 mutant 逐条枚举）。
+- **前端 stryker 全量基线**：31 store 仍未跑，挂 D 批。
+
+*登记人：big-pickle ｜ 状态：**已关闭**（基线数据事实登记，非修复），2026-09-30*
+
+---
+
+## BF-067 【待修复】master 存量 CI 三红：ci.yml 4 失败 job + 3 skip / ci-cd Docker Hub 登录 / security-scan npm audit 2026-09-30
+
+### 〇、元信息
+
+- **登记日期**：2026-09-30
+- **来源**：A 批（护栏批次）CI 核验——head `1a29991` 对应 runs：ci.yml `36654451114` / ci-cd.yml `36654451063` / security-scan.yml `36654451058`
+- **关键程度**：P1（master 主分支持续红灯；但**与护栏批次无关**，属存量问题）
+- **影响范围**：`ci.yml`、`ci-cd.yml`、`security-scan.yml`
+- **契约影响**：无
+- **跨端契约**：未变更
+
+### 一、现象
+
+**ci.yml（run `36654451114`，15 jobs）**：
+
+| 类别 | job | 失败/跳过步骤 |
+|---|---|:---|
+| ✅ 成功 7 | 后端圈复杂度 C90 / 前端 ESLint / 前端复杂度 / 前端 TS / 后端 mypy / 后端 ruff（含护栏自测、BR-4、BR-6）/ B4 API 文档一致性护栏 | — |
+| ❌ 失败 5 | M-6 权限码同步检查 | 步骤「权限码同步校验」失败 |
+| ❌ | M-3 API Schema Diff (oasdiff) | 步骤「Generate schema」失败 |
+| ❌ | M-3 配套 API 字段/枚举生成器同步核验 | 步骤「API 字段/枚举生成器同步核验（差异即失败）」失败 |
+| ❌ | 前端 - 测试 + 覆盖率 | 步骤「整体覆盖率检查（红线 80%）」失败 |
+| ❌ | CI 汇总 | 上游 job 失败传导 |
+| ⏭️ 跳过 3 | 后端 - 变异测试 / 后端 - 测试 + 覆盖率 / 前端 - 变异测试 | 无步骤执行 |
+
+**ci-cd.yml（run `36654451063`）**：Docker Build & Push → 「Login to Docker Hub」步骤失败（Docker Hub 凭据/环境）。
+**security-scan.yml（run `36654451058`）**：npm audit → 「执行安全审计（高危阻断）」失败（存量依赖高危项）。
+
+### 二、判定（与护栏批次无关的证据）
+
+| # | 证据 | 结论 |
+|---|------|------|
+| 1 | jobs API 逐 job 核对：护栏批次新增/改动的 `scripts/`、docs、对 ci.yml 的单步改动（护栏自测 + BR-4 + BR-6）全部在「后端 - 代码规范 (ruff)」job 内成功 | 本批次改动自身门禁全绿 |
+| 2 | 先前 head `1fa7cc5` 的 runs 列表：duplicate-guard success，ci.yml / CD / security 同为三红 | 存量即红，非本次引入 |
+| 3 | 4 个失败 job（M-6 / M-3×2 / 前端覆盖率）执行的是仓库既有脚本与依赖，未触碰本批 `scripts/`+docs | 与本批改动无触点 |
+
+### 三、修复方案（另立批次，[待确认] 归属）
+
+| # | 项 | 候选动作 |
+|---|------|------|
+| 1 | M-6 权限码同步失败 | 定位「权限码同步校验」步骤失败根因（生成器/基线漂移）后修复 |
+| 2 | M-3 oasdiff「Generate schema」失败 | 修复 schema 生成；通过后重导出 `api-schema-baseline.json`（存在漂移则提交） |
+| 3 | M-3 配套生成器同步核验失败 | 对齐 API 字段/枚举生成器输出 |
+| 4 | 前端整体覆盖率 < 80% | 补测至 80%（现有 Store 97.72% 属聚焦口径，整体口径缺口另计） |
+| 5 | ci-cd Docker Hub 登录失败 | 核查 DOCKERHUB_TOKEN 凭据/过期 |
+| 6 | npm audit 高危阻断 | 按 SC-7 治理存量高危依赖（升级/替换）后豁免 |
+
+### 四、对抗审核
+
+1. **未按「护栏批次失败」登记**：本批全部自增/自改门禁绿，红项均落在既有 CI 域，定性为存量。
+2. **不因护栏绿灯稀释三红**：即使 duplicate-guard 与「护栏自测」绿，master 上 ci.yml/C D/security 三个 workflow 持续 fail 依旧成立，须单独立项修复。
+3. **skip 的 3 个变异/测试 job**：与 B 批（变异 CI 接入）衔接——当前 CI 未产出变异分数，B 批接管后需点亮 backend-mutation 并移除 `continue-on-error`（BF-064 转出项）。
+
+### 五、验证记录
+
+```text
+① jobs API（run 36654451114）逐 job 核对：成功 7 / 失败 5 / 跳过 3，与上文一致 ✅
+② runs 列表对照 head 1fa7cc5：duplicate-guard success / ci、CD、security failure ✅
+③ 本批护栏相关门禁：护栏自测 / BR-4 / BR-6 / ruff / mypy / ESLint / TS / C90 / B4 全绿 ✅
+```
+
+### 六、遗留与关联事项
+
+- 修复方案另立批次（本条目只登记现象 + 判定证据）；§三候选动作供批次立项引用。
+- 与 BF-064、BF-066 衔接：CI 变异 job 当前 skip，B 批接入后以 70.44% 为基线做口径决策。
+
+*登记人：big-pickle ｜ 状态：**待修复**（存量问题，修复另立批次），2026-09-30*
