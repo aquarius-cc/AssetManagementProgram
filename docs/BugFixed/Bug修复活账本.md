@@ -4458,5 +4458,6 @@ args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**�
 - **修复（回归护栏）**：改生成器 `scripts/generate_permission_codes.py:BE_HEADER` 模板（docstring 后补 1 空行 + import 后补 2 空行），**重新生成**产物而非手改 `permission_constants.py`（保持「勿手动编辑」约束与 MF 单一真值）；M-3 配套的 base.txt 修复提示——该 job 在 run 91 被 skip，**其修复仍未在 CI 全量验证**。
 - **回归**：`ruff check .` All checks passed / `ruff format --check .` 336 files already formatted / `generate_permission_codes.py --check` → FE/BE in sync 全 PASS。
 - **提交**：backend 子仓 `16687a4`（生成器模板 + 再生成产物）已 push（`49a8bc7..16687a4`），父仓 gitlink 同步中。
+- **延续修复（backend `72abefe`，run 91 复跑时发现生成器自身两处格式债）**：① `FE_FOOTER` 带分号 `} as const;`——仓库 prettier `.prettierrc.json semi:false`，生成产物 vs 落库文件（已删分号版）非单源，补齐为 `} as const`；② `Path.write_text` 未指定 `newline`，Windows 下默认输出 CRLF，与仓库 LF 归一冲突导致再生成即脏树——两处写出均显式 `newline="\n"`。修后重新生成：FE 子仓清零、BE `permission_constants.py` EOL 归一后索引无变更，`ruff check/format` 与 M-6 --check 全绿。已 push `16687a4..72abefe`。
 
 *登记人：big-pickle ｜ 状态：**待修复→修复批已落地**（①②④ 提交，③ 待日志；②④ 已 CI 直证，①经 run 91 直证后 ruff 回归已修 `16687a4`；ci-cd/security 两 workflow 另立），2026-09-30*
