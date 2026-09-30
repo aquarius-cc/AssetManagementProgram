@@ -37,6 +37,12 @@ jobs:
       # working-directory 无关。台账：Rules_Fiels/BR4_function_length_ledger.md
       - name: BR-4 函数长度护栏
         run: python ../scripts/check_function_length_guard.py
+      # BR-6 文件长度护栏与 BR-4 同 job 同理：ruff format 同样会重排行数，且格式
+      # 化后须复跑。口径为「逻辑行」（排空行/注释/docstring），与 BR-4 共用
+      # scripts/line_metrics.py 唯一实现(DR-1)。零存量债，上线即阻断，无容错。
+      # 脚本仅依赖标准库(ast/pathlib)。台账：Rules_Fiels/BR6_file_length_ledger.md
+      - name: BR-6 文件长度护栏
+        run: python ../scripts/check_file_length_guard.py
 
   backend-type-check:
     name: "后端 - 类型检查 (mypy)"

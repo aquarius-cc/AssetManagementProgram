@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """函数长度回归护栏 (BR-4 Function Length Regression Guard)
 
-基于 AST 语义节点扫描后端 apps 目录下所有函数/方法，按 BR-4 逻辑行口径
-（物理跨度行数 - 空行 - '#' 注释行，docstring 计入代码行）检查是否超过 50 行。
+基于 AST 语义节点扫描后端 apps 目录下所有函数/方法，按逻辑行口径检查是否超过 50 行。
+
+口径定义与实现见 scripts/line_metrics.py（本护栏不内联第二份实现，DR-1）：
+物理跨度行数 - 空行 - '#' 注释行 - 本函数 docstring。
 
 台账（豁免登记表）为唯一事实来源：Rules_Fiels/BR4_function_length_ledger.md
 
@@ -25,6 +27,14 @@ import re
 import sys
 from pathlib import Path
 
+from line_metrics import (
+    is_migration,
+    is_test,
+    iter_py_files,
+    logical_line_count,
+    read_text,
+)
+
 ROOT = Path(__file__).resolve().parent.parent
 BACKEND = ROOT / "asset_management_backend"
 LEDGER = ROOT / "Rules_Fiels" / "BR4_function_length_ledger.md"
@@ -33,50 +43,6 @@ MAX_LINES = 50
 
 BLOCKING = []
 WARNINGS = []
-
-
-def read_text(path: Path) -> str:
-    for encoding in ("utf-8", "gbk"):
-        try:
-            return path.read_text(encoding=encoding)
-        except UnicodeDecodeError:
-            continue
-    return ""
-
-
-def iter_py_files(scope_dir: Path):
-    if not scope_dir.exists():
-        return
-    for path in scope_dir.rglob("*.py"):
-        yield path
-
-
-def is_migration(path: Path) -> bool:
-    parts = path.parts
-    return any(part == "migrations" for part in parts)
-
-
-def is_test(path: Path) -> bool:
-    name = path.name
-    if "test" in name.lower() or "conftest" in name.lower():
-        return True
-    parts = path.parts
-    return any(part in ("tests", "test") for part in parts)
-
-
-def logical_line_count(source: str, node: ast.AST) -> int:
-    """BR-4 逻辑行口径：物理跨度行数 - 空行 - '#' 注释行。docstring 计入代码行。"""
-    lines = source.splitlines()
-    count = 0
-    for lineno in range(node.lineno, node.end_lineno + 1):
-        text = lines[lineno - 1]
-        stripped = text.strip()
-        if not stripped:
-            continue
-        if stripped.startswith("#"):
-            continue
-        count += 1
-    return count
 
 
 def scan(scope_dir: Path):
