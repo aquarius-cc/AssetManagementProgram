@@ -4450,4 +4450,13 @@ args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**�
 - ci.yml 4 失败项中 3 项已出修复提交（M-6 / M-3 配套 / 前端 TZ），M-3 schema 留 ③ 待日志；
 - ci-cd Docker Hub 登录（⑤/§三-5）与 security-scan npm audit（⑥/§三-6）属**独立 workflow 存量项**，本批未触及，仍待立项。
 
-*登记人：big-pickle ｜ 状态：**待修复→修复批已落地**（①②④ 提交，③ 待日志；ci-cd/security 两 workflow 另立），2026-09-30*
+**6. CI 复跑核验（run 91，head `62933f3`，父仓）**
+
+- **回落核验**：M-6 权限码同步 **SUCCESS** ✅（① 修复被 CI 证实）；前端 4 job（测试+覆盖率 / TS / ESLint / 变异）**全绿** ✅（④ TZ 注入在 Ubuntu UTC runner 下通过，非本地时区侥幸）。
+- **新失败**：**backend-lint（ruff）FAIL** —— annotation 仅「exit code 1」，本地复现为 ruff 0.15.20 `I001`（Import block 未排序/未格式化）+ `ruff format`（docstring 后缺空行）双拦 `constants/permission_constants.py`：生成器 `BE_HEADER` 模板仅 1 空行接顶层定义，且 docstring 与 `from __future__ import annotations` 直接相连。
+- **其余 skip 定性**：M-3 oasdiff / B4 护栏 / M-3 配套 / backend-test / backend-mutation 全部 `needs: [backend-lint]`，系 ruff 失败级联，**非 M-3 修复无效**。
+- **修复（回归护栏）**：改生成器 `scripts/generate_permission_codes.py:BE_HEADER` 模板（docstring 后补 1 空行 + import 后补 2 空行），**重新生成**产物而非手改 `permission_constants.py`（保持「勿手动编辑」约束与 MF 单一真值）；M-3 配套的 base.txt 修复提示——该 job 在 run 91 被 skip，**其修复仍未在 CI 全量验证**。
+- **回归**：`ruff check .` All checks passed / `ruff format --check .` 336 files already formatted / `generate_permission_codes.py --check` → FE/BE in sync 全 PASS。
+- **提交**：backend 子仓 `16687a4`（生成器模板 + 再生成产物）已 push（`49a8bc7..16687a4`），父仓 gitlink 同步中。
+
+*登记人：big-pickle ｜ 状态：**待修复→修复批已落地**（①②④ 提交，③ 待日志；②④ 已 CI 直证，①经 run 91 直证后 ruff 回归已修 `16687a4`；ci-cd/security 两 workflow 另立），2026-09-30*
