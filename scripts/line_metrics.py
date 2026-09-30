@@ -37,6 +37,7 @@ __all__ = [
     "docstring_line_numbers",
     "logical_line_count",
     "parse_module",
+    "active_ledger_lines",
 ]
 
 
@@ -114,3 +115,26 @@ def logical_line_count(source: str, node: ast.AST) -> int:
 def parse_module(source: str) -> ast.Module:
     """解析源码为 AST；SyntaxError 由调用方处理。"""
     return ast.parse(source)
+
+
+ACTIVE_SECTION_TITLE = "## 活跃台账"
+
+
+def active_ledger_lines(text: str) -> list[str]:
+    """切片出台账的「活跃」分区行——'## 活跃台账' 标题起，至下一个 '## ' 标题（含）止。
+
+    三个护栏（BR-4 / BR-6 / FR-6）共用，保证「已关闭存档」行永不被当成活跃断言。
+    台账必须显式声明活跃区；若缺失该标题，返回空表（护栏对超限零豁免 = 安全向失败）。
+    """
+    lines = text.splitlines()
+    result = []
+    active = False
+    for line in lines:
+        if line.startswith("## "):
+            if active:
+                break
+            active = ACTIVE_SECTION_TITLE in line
+            continue
+        if active:
+            result.append(line)
+    return result

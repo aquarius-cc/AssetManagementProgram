@@ -35,6 +35,7 @@ import sys
 from pathlib import Path
 
 from line_metrics import (
+    active_ledger_lines,
     is_migration,
     is_test,
     iter_py_files,
@@ -43,7 +44,8 @@ from line_metrics import (
     read_text,
 )
 
-ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_ROOT = Path(__file__).resolve().parent.parent
+ROOT = DEFAULT_ROOT
 BACKEND = ROOT / "asset_management_backend"
 LEDGER = ROOT / "Rules_Fiels" / "BR6_file_length_ledger.md"
 
@@ -92,12 +94,16 @@ LEDGER_ROW_RE = re.compile(r"^\|\s*([^|]+?)\s*\|\s*(\d+)\s*\|")
 
 
 def read_ledger(path: Path) -> dict:
-    """解析台账，返回 {后端相对 posix 路径: 登记行数}。"""
+    """解析台账「活跃」分区，返回 {后端相对 posix 路径: 登记行数}。
+
+    只解析 `## 活跃台账` 起的行（见 line_metrics.active_ledger_lines），
+    「已关闭」分区内的存档行永不参与断言。
+    """
     entries = {}
     if not path.exists():
         WARNINGS.append(f"{path.as_posix()}: 台账文件不存在")
         return entries
-    for line in read_text(path).splitlines():
+    for line in active_ledger_lines(read_text(path)):
         match = LEDGER_ROW_RE.match(line)
         if not match:
             continue
@@ -112,10 +118,19 @@ def read_ledger(path: Path) -> dict:
     return entries
 
 
-def main() -> int:
+def main(argv=None) -> int:
+    global ROOT, BACKEND, LEDGER
     parser = argparse.ArgumentParser(description="BR-6 文件长度回归护栏")
     parser.add_argument("--print", action="store_true", help="打印全量文件计数值(生成台账用)")
-    args = parser.parse_args()
+    parser.add_argument("--root", type=Path, default=None, help="扫描根目录(默认仓库根)")
+    parser.add_argument("--ledger", type=Path, default=None, help="台账路径(默认 Rules_Fiels/BR6_file_length_ledger.md)")
+    args = parser.parse_args(argv)
+
+    BLOCKING.clear()
+    WARNINGS.clear()
+    ROOT = args.root if args.root is not None else DEFAULT_ROOT
+    BACKEND = ROOT / "asset_management_backend"
+    LEDGER = args.ledger if args.ledger is not None else ROOT / "Rules_Fiels" / "BR6_file_length_ledger.md"
 
     scanned = scan()
 

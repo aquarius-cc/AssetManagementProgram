@@ -33,7 +33,8 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_ROOT = Path(__file__).resolve().parent.parent
+ROOT = DEFAULT_ROOT
 SCOPE_DIR = ROOT / "vue-assetmanagement" / "src" / "composables"
 STORE_SCOPE_DIR = ROOT / "vue-assetmanagement" / "src" / "stores"
 LEDGER = ROOT / "Rules_Fiels" / "FR6_composable_ledger.md"
@@ -167,10 +168,20 @@ def read_ledger(path: Path):
     return entries
 
 
-def main():
+def main(argv=None):
+    global ROOT, SCOPE_DIR, STORE_SCOPE_DIR, LEDGER
     parser = argparse.ArgumentParser(description="前端规模回归护栏 (FR-6 composables / FR-8 stores)")
     parser.add_argument("--print", action="store_true", help="打印全量逻辑行数(生成台账用)")
-    args = parser.parse_args()
+    parser.add_argument("--root", type=Path, default=None, help="扫描根目录(默认仓库根)")
+    parser.add_argument("--ledger", type=Path, default=None, help="台账路径(默认 Rules_Fiels/FR6_composable_ledger.md)")
+    args = parser.parse_args(argv)
+
+    BLOCKING.clear()
+    WARNINGS.clear()
+    ROOT = args.root if args.root is not None else DEFAULT_ROOT
+    SCOPE_DIR = ROOT / "vue-assetmanagement" / "src" / "composables"
+    STORE_SCOPE_DIR = ROOT / "vue-assetmanagement" / "src" / "stores"
+    LEDGER = args.ledger if args.ledger is not None else ROOT / "Rules_Fiels" / "FR6_composable_ledger.md"
 
     scanned = scan(SCOPE_DIR, iter_composables)
     scanned_stores = scan(STORE_SCOPE_DIR, iter_stores)

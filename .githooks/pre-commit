@@ -1,0 +1,41 @@
+#!/bin/sh
+# .githooks/pre-commit —— 提交前必跑 4 个规模/重复代码护栏
+#
+# 安装（一次性）：
+#   git config core.hooksPath .githooks
+# 移除（一次性）：
+#   git config --unset core.hooksPath
+#
+# 说明：
+#   - 纯本地机制（core.hooksPath 配置存于 .git/config，不入库；脚本随仓库入库）。
+#   - 从仓库根解析路径，与调用目录无关；仅需 python 在 PATH。
+#   - 即使 docs-only 提交也会运行护栏（463/465 类假绿事故根源之一就是「跨行数"""
+#     计算不在提交路径上」），总耗时约 3~5s，属可接受成本。
+#   - 四护栏任一失败即 exit 1 阻断提交；全部通过 exit 0。
+
+set -u
+
+root="$(git rev-parse --show-toplevel)"
+[ -n "$root" ] || { echo "[HOOK] 无法定位仓库根，提交阻断" >&2; exit 1; }
+
+fail=0
+for guard in \
+  check_function_length_guard \
+  check_file_length_guard \
+  check_duplicate_invariants \
+  check_frontend_invariants
+do
+  echo "[HOOK] 护栏: $guard"
+  if ! ( cd "$root" && python "scripts/$guard.py" ); then
+    echo "[HOOK-ABORT] $guard 未通过，提交被阻断" >&2
+    fail=1
+  fi
+done
+
+if [ "$fail" -ne 0 ]; then
+  echo "[HOOK] 提交被阻断：请修复违规，或按护栏提示同步台账后重试" >&2
+  exit 1
+fi
+
+echo "[HOOK] 4 个护栏全部通过"
+exit 0

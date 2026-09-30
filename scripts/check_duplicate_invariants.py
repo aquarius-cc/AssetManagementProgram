@@ -11,11 +11,13 @@
 用法：python scripts/check_duplicate_invariants.py
 """
 
+import argparse
 import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_ROOT = Path(__file__).resolve().parent.parent
+ROOT = DEFAULT_ROOT
 BACKEND = ROOT / "asset_management_backend"
 FRONTEND = ROOT / "vue-assetmanagement"
 
@@ -100,7 +102,18 @@ def check_g5_no_shadow_modules():
             )
 
 
-def main() -> int:
+def main(argv=None) -> int:
+    global ROOT, BACKEND, FRONTEND
+    parser = argparse.ArgumentParser(description="重复代码回归护栏 (G-1~G-5)")
+    parser.add_argument("--root", type=Path, default=None, help="扫描根目录(默认仓库根)")
+    args = parser.parse_args(argv)
+
+    BLOCKING.clear()
+    WARNINGS.clear()
+    ROOT = args.root if args.root is not None else DEFAULT_ROOT
+    BACKEND = ROOT / "asset_management_backend"
+    FRONTEND = ROOT / "vue-assetmanagement"
+
     check_g1_closed_patterns_absent()
     check_g2_operation_log_single_impl()
     check_g3_frontend_single_source()

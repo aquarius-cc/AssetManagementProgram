@@ -26,11 +26,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - run: pip install ruff
+      - run: pip install ruff pytest
       - name: Ruff 代码规范检查
         run: ruff check .
       - name: Ruff 格式检查
         run: ruff format --check .
+      # 护栏自测：4 个护栏（BR-4/BR-6/G-1~G-5/FR-6~FR-8）逐条断言先证红再证绿（BF-061
+      # 假绿教训）。测试仅依赖父仓根下 scripts/ 与 pytest，走 tmp_path 夹具不触碰代码库。
+      # scripts/tests/conftest.py 已把 scripts/ 加入 sys.path，故无 working-directory 依赖。
+      - name: 护栏自测（先证红后证绿）
+        run: python -m pytest ../scripts/tests -q
       # BR-4 函数长度护栏与 ruff 同 job：ruff format 会重排行数(210cfa7 曾使 B1 已拆分的
       # 两个函数由 38/49 反弹到 52/53 逻辑行越过 50 红线)，故批量格式化后必然复跑本护栏。
       # 脚本仅依赖标准库(ast/re/pathlib)，无需安装 Django；路径基于 __file__ 解析，与
