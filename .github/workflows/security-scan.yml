@@ -25,19 +25,33 @@ jobs:
           python-version: "3.12"
       - name: 安装 pip-audit
         run: pip install pip-audit
-      - name: 生成 requirements 快照
-        run: pip freeze > requirements-snapshot.txt
-      - name: 执行安全审计（高危阻断）
-        run: pip-audit --requirement requirements-snapshot.txt --fail-on=high --desc
+      - name: 执行安全审计（生产 + 开发依赖）
+        # 【修正 2026-09-30】两处缺陷：
+        # ① 审计对象错位：原实现先生成 `pip freeze > requirements-snapshot.txt`，
+        #    但本 job 从未执行 `pip install -r requirements/...`，快照里只有
+        #    pip-audit 自身的依赖，项目包一个都没装 → 等于审空气。
+        #    改为直接审计仓库声明的 requirements 文件（pip-audit 会自行解析传递依赖）。
+        # ② 参数不存在：`--fail-on=high` 在 pip-audit 2.x 中无此选项，argparse 直接
+        #    以 exit 2 失败（2026-09-30 实测，usage 列表中无任何 severity 门禁开关）。
+        #    pip-audit 的默认行为即「发现任意漏洞即 exit 1」，故不再传该参数。
+        run: |
+          pip-audit --requirement requirements/base.txt
+          pip-audit --requirement requirements/dev.txt
       - name: 生成安全报告
         if: always()
-        run: pip-audit --requirement requirements-snapshot.txt --format json --output audit-report.json || true
+        run: |
+          pip-audit --requirement requirements/base.txt --format json --output audit-report.json || true
+          pip-audit --requirement requirements/dev.txt --format json --output audit-report-dev.json || true
       - name: 上传安全报告
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: python-audit-report
-          path: asset_management_backend/audit-report.json
+          # 注：uses 步骤的 path 相对 GITHUB_WORKSPACE 解析，不受 defaults.run.working-directory 影响
+          # （与 ci.yml 的 backend-coverage-report / frontend-coverage-report 同构写法）
+          path: |
+            asset_management_backend/audit-report.json
+            asset_management_backend/audit-report-dev.json
 
   node-audit:
     name: "Node.js 依赖安全审计 (npm audit)"
@@ -109,7 +123,12 @@ jobs:
         run: |
           echo "=== 扫描 md/yml/env/txt 中的裸赋值密钥 ==="
           # 背景: 真实密码曾经 docs 审查报告进入 git 历史，原扫描器不覆盖 markdown 且引号模式漏检 env 裸赋值
-          MATCHES=$(rg -n '^[\s\-*>#]{0,8}[A-Za-z_]*(PASSWORD|SECRET|TOKEN|API_KEY)[A-Za-z_]*\s*[=:]\s*["']?[A-Za-z0-9@#*_\-+/]{8,}["']?\s*$' \
+          # 【修正 2026-09-30】原正则整串用单引号包裹，但字符类 ["']? 内含裸单引号 '，
+          # bash 在单引号串内遇到 ' 即终止字符串，剩余部分被当作命令解析 →
+          # "unexpected EOF while looking for matching '"  (exit 2)。
+          # 改用 \x22 / \x27 表示双引号与单引号，语义完全等价，且不与外层引号冲突。
+          # 已用 rg 15.1.0 实测：目标形态可命中，仓库内 git 跟踪文件零误报。
+          MATCHES=$(rg -n '^[\s\-*>#]{0,8}[A-Za-z_]*(PASSWORD|SECRET|TOKEN|API_KEY)[A-Za-z_]*\s*[=:]\s*[\x22\x27]?[A-Za-z0-9@#*_\-+/]{8,}[\x22\x27]?\s*$' \
             -g '!node_modules' -g '!*.lock' -g '!venv/' -g '!dist/' -g '!*.svg' \
             -g '!.github/**' -g '!.git/**' \
             -g '*.md' -g '*.yml' -g '*.yaml' -g '*.env' -g '*.txt' -g '*.sh' . 2>/dev/null \
