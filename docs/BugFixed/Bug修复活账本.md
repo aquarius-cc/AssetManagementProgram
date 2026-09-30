@@ -4460,4 +4460,12 @@ args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**�
 - **提交**：backend 子仓 `16687a4`（生成器模板 + 再生成产物）已 push（`49a8bc7..16687a4`），父仓 gitlink 同步中。
 - **延续修复（backend `72abefe`，run 91 复跑时发现生成器自身两处格式债）**：① `FE_FOOTER` 带分号 `} as const;`——仓库 prettier `.prettierrc.json semi:false`，生成产物 vs 落库文件（已删分号版）非单源，补齐为 `} as const`；② `Path.write_text` 未指定 `newline`，Windows 下默认输出 CRLF，与仓库 LF 归一冲突导致再生成即脏树——两处写出均显式 `newline="\n"`。修后重新生成：FE 子仓清零、BE `permission_constants.py` EOL 归一后索引无变更，`ruff check/format` 与 M-6 --check 全绿。已 push `16687a4..72abefe`。
 
+**7. CI 复跑核验 2（run 92，head 45babe3，父仓）——M-3 配套首跑暴露 baseline 缺失**
+
+- **回落核验**：backend-lint（ruff）**SUCCESS** ✅（`16687a4` 模板修复生效）；M-6 ✅、B4 ✅、前端 4 job 全绿 ✅。riff/生成器相关全部转绿。
+- **剩余两红**：① **M-3 配套 --check exit 2**（pip install base.txt 步骤已 SUCCESS，② 的「缺 Django」根因确已解决，失败后移到更深的 `django.setup()`）；② **M-3 oasdiff Generate schema exit 1**（③ 老问题未变，仍待 CI 日志）。
+- **M-3 配套根因（结构性证据，非日志取证）**：`config/settings/base.py:82` 按 P1-38 **无条件**加载 `django_extensions`，而 base.txt 未含该包 → CI 仪装 base.txt 时 Django app registry 装载 `django_extensions` 抛 ImportError → `codesource._setup_django()` 的 `django.setup()` 失败 → `SourceError` → exit 2。本地全栈（dev.txt 含 django-extensions 3.2.3）RC=0 佐证。**连带发现**：base.txt 缺此包等于「仅装 base.txt 无法启动任一 settings（dev/prod/test 均继承 base.py）」——潜在生产部署缺陷。
+- **修复（backend `7bc44af`）**：`django-extensions==3.2.3` 的 pin 从 dev.txt **上移对齐**至 base.txt（附 P1-38 + BF-067 注释）；dev.txt 删重（经 `-r base.txt` 继承，保 DR-1 单源）。CI 重跑后 M-3 配套应首绿；若仍有后续缺失依赖将以同样方式暴露。
+- **③ M-3 oasdiff Generate schema**：仍未定位，阻塞于登录日志——**待用户提供该步骤原始日志**（settings 加载 / 依赖解析 / 生成崩溃三段定位）。
+
 *登记人：big-pickle ｜ 状态：**待修复→修复批已落地**（①②④ 提交，③ 待日志；②④ 已 CI 直证，①经 run 91 直证后 ruff 回归已修 `16687a4`；ci-cd/security 两 workflow 另立），2026-09-30*
