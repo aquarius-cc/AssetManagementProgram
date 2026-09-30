@@ -1,0 +1,2 @@
+# 提交钩子禁止行尾转换：shell 脚本遇 CRLF 会解析失败（Git for Windows 实测）
+.githooks/** -text

@@ -175,6 +175,10 @@ npm run dev
 ruff check .           # 代码规范检查
 mypy . --strict        # 类型检查
 python manage.py test  # 单元测试
+
+# 行数护栏（逻辑行口径，根级 LT-1~LT-3；查数一律用 --print）
+python ../scripts/check_function_length_guard.py   # BR-4 函数 ≤ 50 行
+python ../scripts/check_file_length_guard.py       # BR-6 文件 ≤ 500 行
 ```
 
 #### 前端
@@ -184,6 +188,18 @@ npm run type-check     # TypeScript 类型检查
 npm run lint           # ESLint 代码规范
 npm run test           # Vitest 单元测试
 ```
+
+### 提交钩子（推荐）
+
+提交前自动运行上述四个护栏（仅依赖 Python 标准库，约 3~5s）。首次启用（一次性，
+配置不入库）：
+
+```bash
+git config core.hooksPath .githooks
+```
+
+钩子脚本维护于仓库 `.githooks/pre-commit`；四护栏的自测套件见 `scripts/tests/`
+（CI `backend-lint` 内强制「先证红后证绿」，变异敏感性已验证）。
 
 ### 分层架构（后端）
 
