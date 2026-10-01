@@ -4354,6 +4354,7 @@ args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**�
 ---
 
 ## BF-067 【待修复】master 存量 CI 三红：ci.yml 4 失败 job + 3 skip / ci-cd Docker Hub 登录 / security-scan npm audit 2026-09-30
+> **当前状态（2026-09-30 更新）**：§一~§三-1~§三-4 与 **§三-6 已修复并经 CI 直证**（run 106 head `f753d75`，22/23 job 全绿，双 audit 归零）；**仅剩 §三-5 ci-cd Docker Hub 登录凭据缺失**。详见下方第 12/13 条。
 
 ### 〇、元信息
 
@@ -4515,6 +4516,22 @@ args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**�
   - **后端变异测试**：step 6 `mutmut run` **success**（4分04秒）+ step 7「变异得分门禁」**success**（基线 `68.6064` 生效，此前唯一红点消解）。
   - **后端测试+覆盖率** success；**M-3 oasdiff** success（无漂移 warning，§十 判据修复持续生效）；**B4 / M-3配套 / mypy / ruff / C90 / M-6** 全 success；**前端 4 job**（测试+覆盖率 / 变异 / TypeScript / ESLint / complexity）全 success。
 - **BF-067 主修复批收口达成**：run 91→101 累计修复并经 CI 直证的根因 —— ① `base.txt` 缺 `django-extensions`（M-3 配套 exit 2）；② `base.txt` 缺 `python-dateutil`（M-3 schema 崩）；③ CI 凭据用 `secrets.DB_PASSWORD` 致 postgres 容器从未真跑过；④ 变异基线取环境与门禁执行环境不一致（WSL timeout 伪象）；⑤ M-3 漂移 warning 判空缺陷恒假阳性；⑥ 基线存四舍五入值致门禁恒红（浮点）；⑦ 子模块 commit 未推送致 checkout 级联失败。**另立未做**：ci-cd Docker Hub 登录（§三-5）、security-scan npm audit/pip-audit（§三-6）。下一步可进入 **C 批（补测抬分 → 恢复 80% 绝对红线）** 与 **D 批（前端 stryker 基线）**。
+
+**13. §三-6 依赖安全批：axios 1.20.0 + PyJWT 2.15.1，run 102→106 双 audit 归零**
+
+- **§三-6 现象（run 102 / `36743014025`）**：`security-scan` 的 `Python 依赖安全审计` 与 `Node.js 依赖安全审计` 双红。同一批触发的 `ci.yml` run 104 / `36743014190` 中，mypy / M-3 oasdiff / M-3 配套三个 job 均在 **`pip install` 阶段**硬失败（`Process completed with exit code 1`），后续测试与变异 job 被 skipped。
+- **第一次根因（自造事故）**：误钉 `Django==6.0.9`。`docs.djangoproject.com` 的 6.0 发布索引页列有 6.0.9，但 **PyPI 无此发行版**（`https://pypi.org/pypi/Django/6.0.9/json` 返回 404）→ 四个 job 安装步骤全红。**查版本存在性一律以 PyPI JSON API 为准，勿以文档索引页为据**。修正为 `Django==6.0.8`（PyPI 上 6.0.x 最高补丁），后端 `a9d639d`、父仓 `9360661`。
+- **run 103（head `9360661`）实测结论**：**多数门禁直接转绿** —— mypy ✅（证明 runtime 3.16→3.17.2 + stubs 3.18.0 + django-stubs 6.1.0 组合在真实工具链下 0 error，无需降 stubs）、M-3 oasdiff ✅（**drf-spectacular 0.29.0 与 DRF 3.17.2 共存，零破坏性漂移，0.29 刻意不升的决策成立**）、M-3 配套 ✅、ruff / C90 / M-6 / B4 / BR-4 / FR-6 / 重复代码护栏 / 密钥扫描 / 前端四项 全绿。**但两侧 audit 仍双红**，且前端 node-audit 从 run 102 的绿转红。
+- **npm 侧根因**：`npm audit --audit-level=high` 本地复现输出 `1 high severity vulnerability` —— **axios 1.19.0 命中 7 条高危 advisory**（GHSA-vh66-26gq-q6x8 / 9fr6-4gfg-395g / c29m-xwm3-cm6r / mghh-pgcx-3jjj / x97p-jq2g-jp4f / 3pq3-5fj3-cg6v / 542g-h47m-68v8：原型链污染 gadget、ReDoS、HTTP/2 adapter 绕过 DNS/proxy 控制等），影响范围 `1.0.0 - 1.19.0`，修复线 **1.20.0**。**先绿后红属 npm advisory DB 时序**（同一 lockfile 在 run 102 通过，run 103 才红），**非回归** —— 判定须以「重跑 audit」为准。修复：`package.json` `^1.11.0`→`^1.20.0`，`npm install axios@^1.20.0 --package-lock-only` 更新 lockfile（1.19.0→1.20.0，diff 仅 4 行、未波及其他包）。本地 `npm audit --audit-level=high` → **`found 0 vulnerabilities`，exit 0**。
+- **Python 侧根因**：`PyJWT==2.14.0` 为「当时最新」但**非修复线终点**，仍报高危（GHSA-ffc3-869f-jxw9 crit 等）。**教训：latest ≠ 修复线终点**。先在 PyPI 核实 `2.15.0`/`2.15.1` 均存在（latest = 2.15.1），取 **`PyJWT==2.15.1`**。
+- **本地 audit 归零验证（CT-7 工具链）**：新建独立 venv 装 `pip-audit 2.10.1`（走清华镜像 `--index-url https://pypi.tuna.tsinghua.edu.cn/simple`）。注意两个本地环境坑（**CI 为 ubuntu/UTF-8 不受影响，勿据此改 CI**）：① Windows 下 `pip_requirements_parser` 按 GBK 解码 UTF-8 requirements 文件抛 `UnicodeDecodeError`，须设 `PYTHONUTF8=1`；② `pip-audit` 2.x 的索引参数是 `--index-url` 长选项，`-i` 会被当作 `project_path` 与 `-r` 冲突报错。结果：`base.txt` 与 `dev.txt` 均 **`No known vulnerabilities found`，exit 0**。
+- **一次方法论纠错**：中途用 `https://api.osv.dev/v1/query` 逐包查询，**该端点未对 version 做有效过滤** —— 给 `Django==6.0.8` 返回了 PYSEC-2007-1 等 2007 年漏洞，输出整体不可信，**已按 Fact-1 全部丢弃**，改用 pip-audit 权威结果。
+- **提交**：前端 `fce16a0`（axios 1.20.0）；后端 `03c1c7f`（PyJWT 2.15.1）；父仓 `f753d75`（同步两个 gitlink）。文档同步另计：`CheckReport.md`（Django 6.0.5→6.0.8、DRF 3.16.0→3.17.2、drf-spectacular 0.28.0→0.29.0）、`docs/README.md`、`GuideDocumentation/后端API.md` 三处版本注记一并校正。
+- **run 106（head `f753d75`）终验证：22/23 job 全绿 ✅**（CI 汇总 job 亦 success）—— **`Python 依赖安全审计 (pip-audit)` success**、**`Node.js 依赖安全审计 (npm audit)` success**、密钥泄露扫描 success、每周安全报告 skipped（仅 push to default 触发）；后端测试+覆盖率 / 变异测试 / ruff / mypy / C90 / M-6、M-3 oasdiff / M-3 配套、B4、前端测试+覆盖率 / 变异 / ESLint / complexity / TypeScript、重复代码回归护栏 全 success。**§三-6 完成**。
+- **唯一红项不在本批**：`Docker Build & Push`（ci-cd.yml）—— 登录 Docker Hub 失败，属 **§三-5 凭据缺失**，需 `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` secret，与 §三-6 无关。
+- **三重依赖声明同时通过实测**（`djangorestframework-stubs==3.18.0` 相对 runtime 3.17.2 刻意错配、drf-spectacular 0.29.0 刻意不升、Django 6.0.8 为 6.0.x 上限），后续升版前须重跑 mypy + M-3 + B4 三项。
+
+*登记人：big-pickle ｜ 状态：**§三-6 完成**（run 106 双 audit 归零 CI 直证，axios 1.20.0 + PyJWT 2.15.1 落地；仅剩 §三-5 Docker Hub 凭据未做），2026-09-30*
 
 *登记人：big-pickle ｜ 状态：**修复批已收口**（run 101 15/15 全绿终验证，变异基线 68.6064 + M-3 判据修复 + 门禁显示精度三项均生效；ci-cd/security 两 workflow 另立，下一步 C/D 批），2026-09-30*
 
