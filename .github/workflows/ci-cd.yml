@@ -5,7 +5,16 @@
 # 只识别仓库根 .github/workflows/, 该流水线从未被执行过(审计 BF-005 疏漏1)。
 #
 # 职责划分(与根 ci.yml 去重):
-#   - 本文件       = CD(docker build/push + 镜像保留策略), 仅 master push
+#   - 本文件       = CD(docker build/push + 镜像保留策略), 仅在安全扫描通过后
+#   - ci.yml       = CI(lint/test/coverage/变异/护栏)
+#   - security-scan.yml = 依赖漏洞审计 + 密钥扫描
+#
+# 【触发改造 2026-10-01，BF-067 §三-6 后续】原为 push[master] + workflow_dispatch。
+# 现改为仅 workflow_run（监听 Dependency Security Scan 完成）：
+#   ① 部署不再与审计并行竞争，安全扫描不通过则镜像不推送；
+#   ② 移除 workflow_dispatch —— 该触发下 github.event.workflow_run 上下文为空，
+#      security-gate 必然失败，留着会制造永久红的误导性入口。代价是无法手动
+#      重跑部署，只能推空提交触发（§三-5 Docker Hub 凭据就绪后请知悉）。
 #
 # 前置要求(Secrets):
 #   - DOCKERHUB_USERNAME / DOCKERHUB_TOKEN(token 权限必须含 Read & Delete,
@@ -17,13 +26,68 @@
 name: CD Pipeline
 
 on:
-  push:
-    branches: [master]
-  workflow_dispatch:
+  workflow_run:
+    workflows: ["Dependency Security Scan"]
+    types: [completed]
+
+# 【最小权限 2026-10-01】本 workflow 的全部外部动作（Docker Hub 登录/推送/删标签）
+# 走 secrets 里的 Docker Hub 凭据与 curl，不依赖 GITHUB_TOKEN 的写能力。
+# 显式收窄为只读，作为 security-gate 注入面被突破时的爆炸半径兜底。
+permissions:
+  contents: read
 
 jobs:
+  # ==================== 部署前置门禁 ====================
+  # 【设计 2026-10-01】本仓库历史 0 PR、直推 master，GitHub required status checks
+  # 在此模式下空转，故把安全扫描结论前移到部署链路：审计不通过则镜像不推送。
+  # 三项校验缺一不可：
+  # ① event / head_branch —— workflow_run 对 fork PR 的 pull_request 运行同样会
+  #    触发，且它可访问 secrets 与写权限 token（pwn-request 风险）。只认 master 推送。
+  #    schedule 触发的扫描 event=schedule，同样被挡（不应触发部署）。
+  # ② conclusion —— 官方载明 workflow_run 无论前序结论如何都会触发，必须自己判
+  #    失败，不能靠 job 级 if 让 docker 静默 skipped。
+  # ③ head_sha == GITHUB_SHA —— 官方事件表载明 workflow_run 的 GITHUB_SHA 是
+  #    「默认分支的最新提交」而非被触发 run 的 head sha。这条相等校验同时保证了
+  #    下方 docker 的 actions/checkout 检出的就是被审计的那个 commit，避免两次推送
+  #    之间间隔导致构建到未经审计的新提交（github.sha 在单次 run 内不可变）。
+  security-gate:
+    name: "安全门禁校验"
+    runs-on: ubuntu-latest
+    steps:
+      - name: 校验审计结论与提交一致性
+        # 【注入防护 2026-10-01】值必须经 env: 传入再以 $VAR 引用，禁止直接
+        # ${{ }} 插进 run:。head_branch 可被 fork PR 的分支名影响，而 git ref
+        # 仅禁止 空格 ~ ^ : ? * [ \ 与控制字符 —— 双引号/分号/管道/美元/反引号
+        # 全部合法。直接插值会被 bash 在解析整行时先执行（|| 只短路求值、不短路
+        # 解析），构成 pwn-request 注入；workflow_run 触发的 workflow 又默认可
+        # 访问 secrets。经 env 传入则值不被二次解析。
+        env:
+          WR_EVENT: ${{ github.event.workflow_run.event }}
+          WR_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WR_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WR_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          MASTER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$WR_EVENT" != "push" ] || [ "$WR_HEAD_BRANCH" != "master" ]; then
+            echo "❌ 仅接受 master 推送触发部署（当前 event=$WR_EVENT / head_branch=$WR_HEAD_BRANCH）"
+            exit 1
+          fi
+          if [ "$WR_CONCLUSION" != "success" ]; then
+            echo "❌ 安全扫描未通过（$WR_CONCLUSION），拒绝部署"
+            exit 1
+          fi
+          if [ "$WR_HEAD_SHA" != "$MASTER_SHA" ]; then
+            echo "❌ 安全扫描提交与 master 最新提交不一致，拒绝部署"
+            echo "   审计提交: $WR_HEAD_SHA"
+            echo "   master:   $MASTER_SHA"
+            exit 1
+          fi
+          echo "✅ 安全扫描通过，审计提交 = master: $MASTER_SHA"
+
   docker:
     name: Docker Build & Push
+    needs: [security-gate]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

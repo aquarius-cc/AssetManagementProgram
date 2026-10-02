@@ -8,10 +8,69 @@ on:
   schedule:
     # 每周一凌晨 3:07 执行全量扫描（SC-8 落地）
     - cron: "7 3 * * 1"
+  workflow_dispatch:
 
 jobs:
+  # ==================== 依赖变更探测 ====================
+  # 【设计 2026-10-01，BF-067 §三-6 后续】audit 是重活（pip-audit 解析全依赖树 /
+  # npm ci 全量安装），而 advisory DB 持续新增条目：axios 在 run 102 为绿、
+  # run 103 因 DB 新增转红，同一 lockfile 零代码变更（DB 时序，非回归）。
+  # 一旦 audit 成为合并门禁，任何新 advisory 都会把全部在开 PR 一并变红，
+  # 开发者只能靠改无关 PR 的依赖来解。故 PR/push 仅在依赖文件变更时跑 audit，
+  # schedule 每周全量兜底（SC-8），workflow_dispatch 供手动立即全量重扫。
+  #
+  # 【关键约束】必须用 job 级 if:，不可改触发级 paths:。触发级过滤会让整个
+  # workflow 不运行 → check 永不出现 → 日后一旦列入 GitHub required checks，
+  # PR 将永久挂起（GitHub 不把「未上报」视为通过）。job 级 if: 下 workflow
+  # 每次都运行，Security 汇总必定上报结论。
+  changes:
+    name: "依赖变更探测"
+    runs-on: ubuntu-latest
+    outputs:
+      deps-changed: ${{ steps.detect.outputs.deps-changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # base.sha 须可达（PR 默认浅克隆只有 merge commit）
+          submodules: false     # 仅比对路径，无需子模块内容
+      - name: 比对依赖文件
+        id: detect
+        run: |
+          set -euo pipefail
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          # schedule / workflow_dispatch 无 before；仓库首个推送的 before 亦为全 0
+          if [ -z "${BASE}" ] || [ "${BASE}" = "0000000000000000000000000000000000000000" ]; then
+            echo "无可比对基线 → 按全量审计处理"
+            echo "deps-changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # 【fail-closed 修正 2026-10-01】原写法把 git diff 与 grep 串成管道直接当
+          # if 条件，靠 pipefail 传播错误。但 git diff 自身报错时（force-push 致
+          # base sha 不可达 / 浅克隆未取到该 commit / 仓库损坏），整条管道失败 →
+          # 落入 else → deps-changed=false → 审计被静默跳过而汇总仍报 success，
+          # 等于给门禁开了 fail-open 后门。改为把 git 的退出码与 grep 的匹配
+          # 结果彻底分开：git 失败即按全量审计处理。
+          #
+          # Dockerfile 入选依据：它 FROM python:3.12.8-slim-bookworm 钉了基础镜像
+          # tag，改动会改变镜像内依赖集合（实测它只装 base.txt、不装 dev.txt）
+          if ! DIFF_OUT="$(git diff --name-only "$BASE" "$GITHUB_SHA")"; then
+            echo "⚠️ 无法比对基线（git 失败）→ 按全量审计处理（fail-closed）"
+            echo "deps-changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if printf '%s\n' "$DIFF_OUT" | grep -qE \
+            '^(asset_management_backend/requirements/|asset_management_backend/(pyproject\.toml|Dockerfile)|vue-assetmanagement/package(-lock)?\.json$|\.github/workflows/security-scan\.yml$)'; then
+            echo "依赖文件有变更 → 需审计"
+            echo "deps-changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "依赖文件无变更 → 跳过 audit（schedule 仍全量）"
+            echo "deps-changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
   python-audit:
     name: "Python 依赖安全审计 (pip-audit)"
+    needs: [changes]
+    if: needs.changes.outputs.deps-changed == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -55,6 +114,8 @@ jobs:
 
   node-audit:
     name: "Node.js 依赖安全审计 (npm audit)"
+    needs: [changes]
+    if: needs.changes.outputs.deps-changed == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -190,3 +251,45 @@ jobs:
         with:
           name: security-weekly-report
           path: security-weekly-report.md
+
+  # ==================== 安全门禁汇总 ====================
+  # 【设计 2026-10-01，BF-067 §三-6 后续】与 ci.yml 的「CI 汇总」同构：把
+  # security-scan 的结论收敛为单一 check，供 GitHub required checks 引用，
+  # 并在 ci-cd.yml 作为部署前置门禁。
+  #
+  # 【易错点，不能写成无条件的 result != success → exit 1】audit 被有意跳过时
+  # result 为 skipped，那样会在依赖未变更时误红。必须先用 deps-changed 分流：
+  # 需要审计时要求 audit 成功，不需审计时放行，但 secret-scan 任何情况下都必须
+  # 成功（新增密钥与依赖变更无关，故 secret-scan 不加 needs/if，每次都跑）。
+  security-summary:
+    name: "Security 汇总"
+    runs-on: ubuntu-latest
+    needs: [changes, python-audit, node-audit, secret-scan]
+    if: always()
+    steps:
+      - name: 汇总安全门禁结果
+        run: |
+          echo "=== Security Scan Results ==="
+          echo "依赖变更探测:     ${{ needs.changes.outputs.deps-changed }}"
+          echo "Python 依赖审计:  ${{ needs.python-audit.result }}"
+          echo "Node 依赖审计:    ${{ needs.node-audit.result }}"
+          echo "密钥泄露扫描:     ${{ needs.secret-scan.result }}"
+          echo ""
+          if [ "${{ needs.changes.outputs.deps-changed }}" = "true" ] || \
+             [ "${{ github.event_name }}" = "schedule" ] || \
+             [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ needs.python-audit.result }}" != "success" ] || \
+               [ "${{ needs.node-audit.result }}" != "success" ]; then
+              echo "❌ 依赖安全审计未通过，阻止合并"
+              exit 1
+            fi
+            echo "✅ 依赖安全审计通过"
+          else
+            echo "ℹ️ 依赖文件未变更，本次跳过依赖审计（schedule 每周全量兜底）"
+          fi
+          if [ "${{ needs.secret-scan.result }}" != "success" ]; then
+            echo "❌ 密钥泄露扫描未通过，阻止合并"
+            exit 1
+          fi
+          echo "✅ 密钥泄露扫描通过"
+          echo "✅ 安全门禁通过"
