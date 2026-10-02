@@ -4354,7 +4354,7 @@ args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**�
 ---
 
 ## BF-067 【待修复】master 存量 CI 三红：ci.yml 4 失败 job + 3 skip / ci-cd Docker Hub 登录 / security-scan npm audit 2026-09-30
-> **当前状态（2026-09-30 更新）**：§一~§三-1~§三-4 与 **§三-6 已修复并经 CI 直证**（run 106 head `f753d75`，22/23 job 全绿，双 audit 归零）；**仅剩 §三-5 ci-cd Docker Hub 登录凭据缺失**。详见下方第 12/13 条。
+> **当前状态（2026-10-01 更新）**：§一~§三-1~§三-4 与 **§三-6 已修复并经 CI 直证**（run 106 head `f753d75`，双 audit 归零）；**§三-6 后续「依赖审计接入合并/部署门禁」亦已落地并 CI 直证**（head `46ef870`，`Security 汇总` success + CD `安全门禁校验` success）。**仅剩 §三-5 ci-cd Docker Hub 登录凭据缺失**。详见下方第 12/13/14 条。
 
 ### 〇、元信息
 
@@ -4530,6 +4530,29 @@ args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**�
 - **run 106（head `f753d75`）终验证：22/23 job 全绿 ✅**（CI 汇总 job 亦 success）—— **`Python 依赖安全审计 (pip-audit)` success**、**`Node.js 依赖安全审计 (npm audit)` success**、密钥泄露扫描 success、每周安全报告 skipped（仅 push to default 触发）；后端测试+覆盖率 / 变异测试 / ruff / mypy / C90 / M-6、M-3 oasdiff / M-3 配套、B4、前端测试+覆盖率 / 变异 / ESLint / complexity / TypeScript、重复代码回归护栏 全 success。**§三-6 完成**。
 - **唯一红项不在本批**：`Docker Build & Push`（ci-cd.yml）—— 登录 Docker Hub 失败，属 **§三-5 凭据缺失**，需 `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` secret，与 §三-6 无关。
 - **三重依赖声明同时通过实测**（`djangorestframework-stubs==3.18.0` 相对 runtime 3.17.2 刻意错配、drf-spectacular 0.29.0 刻意不升、Django 6.0.8 为 6.0.x 上限），后续升版前须重跑 mypy + M-3 + B4 三项。
+
+**14. §三-6 后续：依赖安全扫描接入合并/部署门禁（head `46ef870`）**
+
+- **立项依据**：第 13 条把 audit 从红转绿即收口，但 SC-7 文义要求「阻断合并」，而实际链路里 audit 与 CD 各自独立触发 —— 审计红着也能照常构建推送镜像，门禁形同虚设。本条把结论前移到部署链路并收敛为单一 check。
+- **落地方案（两层，因仓库历史 0 PR 直推 master，GitHub required checks 空转）**：① `security-scan.yml` 新增 `Security 汇总` job（与 `ci.yml` 的 `CI 汇总` 同构）；② `ci-cd.yml` 改由 `workflow_run` 监听并新增 `security-gate` job 前置。**分支保护（required checks + 强制 PR）列为独立后续项**，需管理员 token 且待团队改用 PR 流程。
+- **audit 降噪与 job 级 if 的硬约束**：audit 是重活而 advisory DB 持续新增（axios run 102 绿 / run 103 因 DB 新增转红，同一 lockfile 零代码变更），若直接全量门禁，任何新 advisory 都会把所有在开 PR 一起变红。故改为「依赖文件变更才审计 + schedule 每周全量兜底（SC-8）+ `workflow_dispatch` 手动重扫」。**必须用 job 级 `if:` 而非触发级 `paths:`** —— 后者会让 workflow 整体不运行、check 永不出现，日后列入 required checks 将使 PR 永久挂起（GitHub 不把「未上报」当通过）。
+- **实施中发现并修掉的两个真实缺陷（均非本次引入，但本次新代码会放大）**：
+  - **fail-open**：`git diff --name-only BASE SHA | grep -qE` 的管道写法下，若 `git diff` 自身报错（force-push 致 base sha 不可达 / 浅克隆未取到该 commit），`pipefail` 使管道失败 → 落入 else → `deps-changed=false` → **审计被静默跳过而汇总照报 success**。改为把 git 退出码与 grep 匹配结果分开，git 失败即按全量审计处理。
+  - **shell 注入**：`security-gate` 原将 `${{ github.event.workflow_run.head_branch }}` 直插 `run:`。`head_branch` 可被 fork PR 的分支名影响，而 git ref 仅禁止 ``空格 ~ ^ : ? * [ \`` 与控制字符 —— **双引号 / 分号 / 管道 / 美元 / 反引号全部合法**，会被 bash 在解析整行时先执行（`||` 只短路求值、不短路解析），而 `workflow_run` 触发的 workflow 默认可访问 secrets，构成 pwn-request 面。改为门禁值一律经 `env:` 传入后以 `$VAR` 引用（值不被二次解析），并显式收窄 `permissions: contents: read`。
+- **`workflow_run` 的 SHA 语义（实施前实测官方事件表确认）**：该事件下 `GITHUB_SHA` 是「**默认分支的最新提交**」而非被触发 run 的 head sha。若只校验 `conclusion` 不校验提交一致性，`docker` job 的 `actions/checkout`（默认检 `github.sha`）会检出 master tip —— 两次推送间隔时**构建到未经审计的新提交**。故 gate 强制四项：`event=push`、`head_branch=master`、`conclusion=success`、`head_sha == GITHUB_SHA`（该相等同时保证了 checkout 与 `tags:` 里的 `github.sha` 都指向被审计的 commit）。另按官方载明，`workflow_run` 无论前序结论如何都会触发，故不能靠 job 级 `if` 让 docker 静默 skipped，必须自己判失败。
+- **移除 `workflow_dispatch` 的代价（已知并接受）**：该触发下 `github.event.workflow_run` 上下文为空，gate 必然失败，留着只会制造永久红的误导入口。代价是 §三-5 凭据就绪后无法手动重跑部署，只能推空提交触发。
+- **CI 直证（head `46ef870`，commit 仅两个 workflow 文件）**：
+  - `Dependency Security Scan` run **`37005012168` = success**，job 级：依赖变更探测 success（`security-scan.yml` 自身在触发清单内 → 走审计路径，自证）、`Python 依赖安全审计 (pip-audit)` success、`Node.js 依赖安全审计 (npm audit)` success、密钥泄露扫描 success、每周安全报告 skipped（push 下预期）、**`Security 汇总` success** ← 新门禁生效。
+  - `CI Pipeline` run **`37005012100` = success**，15/15 job 全绿、0 failure（耗时 43m15s；后端测试+覆盖率 20m47s、后端变异测试、前端变异测试、`CI 汇总` 均 success）。
+  - `Duplicate Code Regression Guard` run **`37005012215` = success**。
+  - `CD Pipeline` run **`37005117969` = failure**，job 级：**`安全门禁校验` success** ← 四项校验全过；`Docker Build & Push` failure，**step 级定位为 step 4 `Login to Docker Hub`**（step 2 `actions/checkout` success，佐证 checkout 落在被审计 commit 上），即 **§三-5 凭据缺失，与本条无关**；`Prune Old Images` skipped（`needs: [docker]` 正确跳过）。
+- **本地校验与其边界**：PyYAML 校验两文件语法、needs 图闭合、outputs 声明均可解析；`wf_regex_test` 对触发正则做 8 条必命中 + 11 条必不命中断言并校验与文件内正则无漂移，**RESULT OK**；`changes` 的 git diff 对实际改动集模拟出「`security-scan.yml`→AUDIT / `ci-cd.yml`→skip」的预期分流。**边界（据实标注）**：本机 `bash` 不可用（无发行版的 WSL shim，`uname -a` 空、`/c` 盘未映射），故 shell 分支逻辑**未能本地执行验证**，改由上述 CI 实跑覆盖。另 `wf_check.py` 残留一条 `self-reference missing` 告警系该脚本自身按字面量匹配 `security-scan.yml$`（实际文件为转义形式 `security-scan\.yml$`）的误报，已由 `wf_regex_test` 的按行抽取交叉确认无漂移。
+- **历史文档证据纠错（§1.8 新发现义务）**：`docs/Review/mimo-v2.6-flash-free-2026-09-23.md`（79 / 104 / 195 行）与 `docs/Review/full-review-report-2026-09-17.md`（25 行）共 4 处，把 `--fail-on=high` 当作 SC-7「已修复」的**证据**引用，而该参数在 pip-audit 2.x 不存在。**结论无误**（fail-closed 确实满足 SC-7），错的只是证据字符串。已在各行末单元格加 `<br>2026-10-01 补注`，原结论与删除线一律未动。`融合审查报告-2026-09-23.md:84` 只引「pip-audit+cron」无需处理；`docs/compose/specs/2026-07-06-*.md` 按带日期方案存档惯例不动。
+- **一处方法论漂移（教训）**：同一事实在两处文档结论相反 —— 根 `AGENTS.md` 长期写「配置完成前标记 `[PENDING]`，不阻断合并」，而 `mimo` 审查报告已判 SC-7 为 **√**。根因是工作流落地后**无人回写根级配置**，属文档漂移而非实现缺失。本条已随 v3.7.0 补丁一并修正（见下条）。
+- **§5.4 适用性判定**：不触发沙盒期。audit 的 exit 条件与阻断阈值**一字未改**（仍为「发现任意漏洞即 exit 1」），本次仅将既有结论汇入 `Security 汇总` 并前移至部署链路，属阻断结论的执行搬运而非红线收紧。
+- **未验证项（据实标注，不冒充已验证）**：门禁的**红路径**（audit 真失败时应阻断）无法 CI 直证 —— 需故意注入漏洞才能观测，本次未做；`security-gate` 的四条拒绝分支同理未实跑，仅验证了通过分支。
+
+*登记人：big-pickle ｜ 状态：**§三-6 后续完成**（head `46ef870`：security-scan `37005012168` `Security 汇总` success、CI `37005012100` 15/15 success、CD `37005117969` `安全门禁校验` success 且仅 Docker 登录红于 §三-5；根 `AGENTS.md` 升 v3.7.0 去伪 + 4 处历史报告证据纠错；**红路径未验证**），2026-10-01*
 
 *登记人：big-pickle ｜ 状态：**§三-6 完成**（run 106 双 audit 归零 CI 直证，axios 1.20.0 + PyJWT 2.15.1 落地；仅剩 §三-5 Docker Hub 凭据未做），2026-09-30*
 

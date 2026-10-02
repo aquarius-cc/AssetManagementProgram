@@ -76,7 +76,7 @@
 | N-9 | P2 | 测试缺口（权限） | `tests/` 无 `*storage*rbac*`；`test_asset_view_api.py:298-314` | Storage View 层 **无 RBAC 测试文件**；`mark_broken`/`mark_lost` 测试 **仅 admin 正向**（`admin_authenticated_client`），无 regular 反向 403 | glob `*storage*` 仅 `test_storage_service.py`（服务层）；asset mark 测试 L298-314 无 403 断言 | N-1/N-2 修复前无红灯、修复后无绿灯锚——违反 CT-4 | 与 N-1/N-2 同 PR 补测试（先红后绿） | 新测试文件过 CI | CT-1, CT-4, B11 |
 | N-10 | P2 | 交叉基线残留 | 旧报告 #27；本轮 N-6 | 旧 46 项中经代码复核 **确认仍开放** 项：#27（console.error）；#2/#3/#4/#8 **代码侧已修复但旧报告未标 ✅** | 见下方「旧报告 46 项交叉核对」专节证据 | 基线报告状态漂移，后续审计易误读 | 在旧报告对 #2/#3/#4/#8 补 ✅ 已修复标注（文档级，本报告不改旧文件除非授权） | 人工复核后更新旧报告状态列 | Fact-1, 交叉核对 |
 | N-11 | P2 | 规范/复杂度 | `apps/authusermanagement/services.py:220`；`apps/usermanagement/management/commands/init_production_data.py:186` | 生产代码 C90 圈复杂度 **11>10**：`update_user`、`_create_role_permissions` | `ruff check --select C90 --max-complexity 10` 命中（CI 同参数）；另有 13 处命中位于 `.trae/skills/*`、`clear_database.py:254`（非生产 apps，可目录豁免或一并修） | CI C90 job 失败 | 按 BR-4 台账模式拆分两个函数（helper 提取），生产优先 | C90 命令对 apps 输出 0 | BR-4, DR-6, CT 门禁 |
-| N-12 | P2 | 安全配置卫生 | `.github/workflows/security-scan.yml` | 旧报告 #8 **已修复**：SC-7/SC-8 workflow 存在且含 weekly cron + `--fail-on=high` | 文件 6883 bytes；`pip-audit --fail-on=high`；`cron: "7 3 * * 1"` | 无（已达标）——列此行仅完成 46 项闭环 | 保持；关注 npm audit job 是否对称存在于 `ci.yml` | SC-7 实测 workflow 文件存在 | SC-7, SC-8 |
+| N-12 | P2 | 安全配置卫生 | `.github/workflows/security-scan.yml` | 旧报告 #8 **已修复**：SC-7/SC-8 workflow 存在且含 weekly cron + `--fail-on=high` | 文件 6883 bytes；`pip-audit --fail-on=high`；`cron: "7 3 * * 1"` | 无（已达标）——列此行仅完成 46 项闭环 | 保持；关注 npm audit job 是否对称存在于 `ci.yml` | SC-7 实测 workflow 文件存在 | SC-7, SC-8<br>**2026-10-01 补注**：本行以 `pip-audit --fail-on=high` 为证据有误 —— 该参数在 pip-audit 2.x 不存在（argparse 直接 exit 2），已于 2026-09-30 从 `security-scan.yml` 删除。**SC-7/SC-8 结论仍成立**，实际依据为 pip-audit 默认 fail-closed 行为 + 周期 cron，而非该参数 |
 
 ---
 
@@ -101,7 +101,7 @@
 | 3 | 疑似 OPEN | **已修复（旧报告未标 ✅）** | `asset_selector.py:100` `apply_user_scope`；`:161` `get_available_assets(user=...)`；docstring 显式 B12 |
 | 4 | 疑似 OPEN | **已修复（旧报告未标 ✅）** | `recycle_asset_service.py:171` `AuditLogger.log_state_change`（二次 FSM 审计） |
 | 5-7,9-26,29-31,33-38,40-41,44-46 | 已修复 | 维持 | 旧报告 ✅ 行，抽查无回退迹象 |
-| 8 | 疑似 OPEN（缺文件） | **已修复** | `.github/workflows/security-scan.yml` 存在，含 pip-audit fail-on=high + 周扫描 cron |
+| 8 | 疑似 OPEN（缺文件） | **已修复** | `.github/workflows/security-scan.yml` 存在，含 pip-audit fail-on=high + 周扫描 cron<br>**2026-10-01 补注**：末段「含 pip-audit fail-on=high」表述有误 —— 该参数在 pip-audit 2.x 不存在（argparse exit 2），2026-09-30 已从工作流删除。**「已修复」结论不变**，实际依据为 pip-audit 默认 fail-closed 行为 + 周期 cron |
 | 27 | OPEN | **仍开放** | 生产前端 `console.error` 实测 **160**；本轮升为 N-6（P2） |
 | 28,32,42,43 | 误报 | 维持误报 | 旧报告已论证（RBAC 设计、reject 方法归属、SoftDeleteManager、调用链实测） |
 | 39 | 重复 | 维持 | 与 #30 同一缺陷已去重 |
@@ -192,7 +192,7 @@
 | SC-3 | 参数化 SQL | **√** | ORM 为主；旧#33 clear_database 白名单已修 | — |
 | SC-4 | 动态表名白名单 | **√** | `_validate_table_name` 已加 | — |
 | SC-5~6 | 上传校验 | **[~]** | 本轮未见大文件上传主流程详录 | 需人工确认上传功能范围 |
-| SC-7 | 依赖高危阻断 | **√** | security-scan.yml `--fail-on=high`（旧#8 已修） | — |
+| SC-7 | 依赖高危阻断 | **√** | security-scan.yml `--fail-on=high`（旧#8 已修） | —<br>**2026-10-01 补注**：证据列的 `--fail-on=high` 在 pip-audit 2.x 不存在（argparse exit 2），2026-09-30 已删除。**√ 判定不变**，实际依据为 pip-audit 默认 fail-closed 行为（发现任意漏洞即 exit 1，严于 SC-7 的 CVSS≥7.0 口径） |
 | SC-8 | 每周扫描 | **√** | cron `7 3 * * 1` | — |
 | OC-1 | trace_id 透传 | **√** | `TraceIDFilter` + production json filter | — |
 | OC-2 | 结构化日志 | **√**（后端）/[x]（前端 160 console） | `StructuredJSONFormatter`；前端 N-6 | 后端达标 |

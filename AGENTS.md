@@ -1,5 +1,5 @@
 # AI 执行引擎总配置 (Root Engine)
-> 版本：v3.6.1 | 最后更新：2026-09-30
+> 版本：v3.7.0 | 最后更新：2026-10-01
 > 职责：跨端契约仲裁、全局红线、宪法级规则（测试/DRY/安全/可观测性/AI鲁棒性/交互写作）、子引擎路由
 
 ## §1 核心执行协议（所有子引擎必须遵守）
@@ -227,22 +227,31 @@ AI 在任务完成后，必须输出以下审计票：
 | SC-6	| 上传文件名必须重命名（如UUID），禁止使用原始文件名。	| 触发 `[HALT]` |
 | SC-7	| CI门禁必须包含依赖漏洞扫描（Python用pip-audit，Node用npm audit），检测到高危（CVSS≥7.0）组件时直接阻断合并。	| 阻断CI |
 
-> **CI 配置模板**（需在 `.github/workflows/security-scan.yml` 中创建）：<br>
-> ```yaml
-> name: Dependency Security Scan
-> on: [pull_request]
-> jobs:
->   security-scan:
->     runs-on: ubuntu-latest
->     steps:
->       - uses: actions/checkout@v4
->       - name: Python dependency audit
->         run: pip install pip-audit && pip-audit --fail-on=high
->       - name: Node dependency audit
->         run: npm audit --audit-level=high
-> ```<br>
-> **执行状态**：CI workflow 配置完成前标记为 `[PENDING]`，不阻断合并；完成后自动转为硬性门禁。
 | SC-8	| 每周自动扫描所有依赖，生成安全报告。| 必须执行 |
+> **执行状态（2026-10-01 更新，取代原「配置完成前标记 `[PENDING]`，不阻断合并」的标注）**：
+> `.github/workflows/security-scan.yml` 已落地并经 CI 直证（BF-067 §三-6：axios 1.20.0 + PyJWT 2.15.1
+> 落地后双 audit 归零，head `0494019` 21/24 job 全绿）。当前实现与本条文义存在三处**刻意为之**的差异：
+>
+> ① **无 severity 开关，实为 fail-closed**。`pip-audit` 2.x 已移除 `--fail-on` 类参数（原模板中的
+>    `pip-audit --fail-on=high` 会使 argparse 以 exit 2 失败，2026-09-30 实测），故现为「发现任意漏洞即
+>    exit 1」，**严于**本条的 CVSS≥7.0 口径。**刻意不按 severity 过滤**：实测 PYSEC 系列 advisory 的
+>    severity 字段大量为空，按 severity 过滤会静默放行一批漏洞，属安全回退。
+> ② **触发降噪**。audit 为重活（解析全依赖树 / `npm ci` 全量安装），而 advisory DB 持续新增条目——
+>    axios 在 run 102 为绿、run 103 因 DB 新增转红，同一 lockfile 零代码变更。故 PR/push 仅在依赖文件
+>    变更时执行 audit，**schedule 每周全量兜底**（SC-8），另设 `workflow_dispatch` 供手动全量重扫。
+>    实现用 job 级 `if:` 而非触发级 `paths:`，否则 workflow 不运行、check 永不出现，日后列入
+>    required checks 将使 PR 永久挂起。依赖探测的 `git diff` 失败按 fail-closed 处理（按全量审计），
+>    不得静默跳过。
+> ③ **合并门禁分两层落地**。本仓库历史 0 PR、直推 `master`，GitHub required checks 在此模式下空转。
+>    故现为：① workflow 内 `Security 汇总` job（与 ci.yml `CI 汇总` 同构，按依赖是否变更分流，
+>    避免「有意 skipped」被误判为失败，密钥扫描任何情况下均必查）；② ci-cd.yml 部署前置门禁
+>    （`workflow_run` 监听，校验 `event=push`、`head_branch=master`、`conclusion=success`、
+>    `head_sha == GITHUB_SHA` 四项）。**GitHub 分支保护（required checks + 强制 PR）列为独立后续项**，
+>    待团队改用 PR 流程后落地。
+>
+> **§5.4 适用性判定**：不适用沙盒期。audit 的 exit 条件与阻断阈值**一字未改**，本次仅将既有结论汇入
+> `Security 汇总` 并前移至部署链路，属阻断结论的执行搬运而非红线收紧。
+
 子引擎执行任务前必须主动检查本契约，发现违反立即 `[HALT]`。
 
 ## §7 可观测性契约（全端通用）
@@ -301,6 +310,7 @@ AI 在任务完成后，必须输出以下审计票：
 > **执行监督**：审计票自检项中必须包含 `Fact-1[√]` 和 `Style-1~Style-3[√]`。
 
 ## §10 变更日志
+- **v3.7.0 (2026-10-01)**：**SC-7 执行状态去伪**——原「CI 配置完成前标记 `[PENDING]`，不阻断合并」与实际不符（`security-scan.yml` 早已落地并经 CI 直证），且原附 CI 模板含**无效参数** `pip-audit --fail-on=high`（2.x 已移除该类开关，会使 argparse exit 2）。改为记录三条刻意差异：① 无 severity 开关、fail-closed 严于 CVSS≥7.0，**刻意不按 severity 过滤**（PYSEC severity 字段大量为空，过滤会静默放行）；② audit 触发降噪至「依赖文件变更 + schedule 每周全量兜底」，用 job 级 `if:` 而非触发级 `paths:`（后者致 check 缺失，日后 required checks 下 PR 永久挂起）；③ 合并门禁按「workflow 内 `Security 汇总` + ci-cd 部署前置门禁（`workflow_run`）」两层落地，GitHub 分支保护列为独立后续项（历史 0 PR、直推 master，required checks 空转）。**§5.4 适用性判定**：不触发沙盒期——exit 条件与阻断阈值一字未改，仅搬运既有阻断结论。配套：`ci-cd.yml` 触发条件由 `push[master] + workflow_dispatch` 改为 `workflow_run`，**移除 `workflow_dispatch`**（该触发下 `workflow_run` 上下文为空，gate 必然失败）；新增 `security-gate` 校验 `event=push` / `head_branch=master` / `conclusion=success` / `head_sha == GITHUB_SHA` 四项，门禁值一律经 `env:` 传入以防 `head_branch` 承载 shell 注入，并显式收窄 `permissions: contents: read`。
 - **v3.6.1 (2026-09-30)**：新增 **§1.9 行数口径红线（LT-1~LT-3）**——行数类指标统一「逻辑行」口径（物理跨度 − 空行 − 纯 `#` 注释 − 本节点 docstring），唯一实现收敛于 `scripts/line_metrics.py`（DR-1）；禁止 `wc -l` / `Measure-Object -Line` / `(Get-Content f).Count` 充当结论，查数一律以护栏 `--print` 为准。事故实证：RF-058/BF-058 两次误判（`wc -l` 误指 489/508，逻辑行实为 399/432）。配套落地：四护栏（BR-4 / BR-6 / G / FR）参数化可测化（`--root`/`--ledger`）+ 自测套件 `scripts/tests/`（25 passed，红绿双态 + 变异敏感性已验证）+ `ci.yml` `backend-lint` 内嵌「护栏自测（先证红后证绿）」step + `.githooks/pre-commit` 提交钩子（一次启用：`git config core.hooksPath .githooks`）+ BR-4/BR-6 台账「活跃/已关闭」双分区（BR-4 已关闭区 19 行自 `1f2acb5` 恢复存档）。**§5.4 适用性判定**：本条不收紧任何阈值、不改变 CI 阻断行为，属结论核验纪律而非门禁收紧，故不触发 14 日沙盒期。
 
 - **v3.6.0 (2026-09-29)**：新增 **CT-7**（门禁结论必须以 CI 工具链复核）——静态门禁（类型检查 / lint / 覆盖率）的结论**必须**在 `requirements/dev.txt`（及前端 `package.json`）**声明的版本**下取得；禁止用本地漂移环境的数字充当 CI 基线。§1.4 补该行，§4 审计票必填项同步 `CT-7[√]`，后端子引擎 §1.3 落具体复核命令与事故实证。<br>**事故实证**：本次会话实测——本地 mypy 1.15.0 / django-stubs 5.2.9 / djangorestframework-stubs 3.16.9 / 未装 types-channels，而 `dev.txt` 声明 2.1.0 / 6.1.0 / 3.18.0 / 已声明；本地 `mypy . --strict` 报 **27 条 / 12 文件**，而 **CI 同版本实为 0 条**（`Success: no issues found in 220 source files`）。据此幻影基线曾差点误改 4 处生产代码（`interfaces.py` DI 边界签名 4 处、删除 3 条 `type: ignore`），并误将 `types-python-dateutil` 写入依赖。5 条 `unused-ignore` 在真实工具链下**全部有效，一条都不能删**。<br>**§5.4 适用性判定**：本条不收紧任何阈值、不改变 CI 阻断行为，属结论核验纪律而非门禁收紧，故不触发 14 日沙盒期。经 §5.2 流程经人工审批（用户选定保留具体数字而非抽象表述）后应用。
