@@ -753,6 +753,15 @@
 - **状态**：⚠️ 已降级至 C 区（2026-09-28，用户拍板「仅留痕不迁移」）| 来源：前端 A3 审查项 + 对抗审核
 - **登记日期**：2026-09-28
 
+### C-12. 后端分组端点 query 筛选字段声明式重复（3 键 × 2 Serializer，B4 引入，刻意保留）
+- **判定**：**声明式 schema 重复，非业务规则重复**。`AssetGroupQuerySerializer`（汇总）与 `AssetGroupChildrenQuerySerializer`（明细）各自逐字声明了 `asset_current_status` / `asset_type_recordcode` / `asset_storage_recordcode` 三个 `CharField(required=False, allow_blank=True)`，共 6 处。
+- **位置**：`apps/assetmanagement/serializers/asset_grouped_serializers.py`（两个 Serializer 类各 3 个字段声明）。
+- **为何不收敛为共享常量/动态注入**：真正构成 DR-1 违规的**业务规则**——「query 键 → ORM 字段路径」的映射——已唯一实现于 Selector 的 `SUMMARY_FILTER_PATHS`，明细侧的子集由 `PASS_THROUGH_FILTER_PATHS` **派生**（去掉 `contract_code`），无第二份。剩下的只是 6 行 DRF 字段声明；而从字典动态注入字段会使 OpenAPI 生成与 `mypy --strict` 失去静态可见性，为省 3 行而牺牲可读性与工具链支持不划算。
+- **风险与护栏**：若日后只改一侧的键名/增删键，两端即分叉，**破坏契约不变量 I-1**（明细数 ≠ 汇总数）且不报错。故以**测试**而非 DRY 兜底：`test_pass_through_filters_match_summary_endpoint` 静态断言两端键集相等、且每个键的字段路径逐个一致。改任一侧必须同步，否则该用例变红。
+- **状态**：⚠️ 已降级至 C 区（2026-10-04，B4 落地时识别并留痕）——刻意保留，以测试护栏替代 DRY。
+- **登记日期**：2026-10-04 | 来源：v2.3 阶段 2 · B4（§1.8 新发现义务）
+- **验证命令**：`python -m pytest apps/assetmanagement/tests/test_asset_group_children_view.py -k pass_through -q`（预期 1 passed；键集分叉即红）
+
 ---
 ### A-46. 【已关闭 2026-09-29】OpenAPI 声明失真的**第三个独立机制**：显式 `responses` 与分页推断的优先级（DR-1；BF-057）
 - **编号**：顺延登记（A-45 为前序最大号）。**状态**：✅ 已关闭 | 关闭日期：2026-09-29 | 登记来源：BF-057 修复
@@ -841,6 +850,21 @@
 - **优先级**：低（暂无用户可见缺陷，收敛属预防性治理）。
 - **登记日期**：2026-09-09 | 二次核验修正：2026-09-09 | 来源：前端设计与质量审计核验
 - **验证命令**：`rg -n "z-index" vue-assetmanagement/src --glob "*.vue" --glob "*.scss"`（预期 4 文件 8 处）
+
+### D-7. 布尔 query 参数手写解析（跨 app 词表不一致，View 层解析）
+- **判定**：**同形态解析逻辑重复 + 分层违规**，当前无用户可见缺陷（notification 侧 `is_read` 的取值集合与其前端约定一致），但存在两处实质风险。
+- **发现来源**：v2.3 阶段 2 · B3 收尾（2026-10-04）。B3 原实现曾在 `asset_grouped_selector._apply_summary_filters` 手写 `str(...).strip().lower() == "true"`，与 `AssetGroupQuerySerializer` 的 DRF `BooleanField` 构成**同一参数的两套词表**（DR-1 禁止）。B3 收尾已删除该手写实现，故**本条登记的是收敛后仍存留的跨 app 同形态模式**，而非已修复项。
+- **现存位置（实测 `rg -n 'lower\(\) == .true.' apps/ core/` 命中唯一 1 处）**：
+  - `apps/notification/views.py:31` —— `queryset.filter(is_read=is_read.lower() == "true")`
+- **两处风险**：
+  1. **词表不一致**：DRF `BooleanField` 接受 `true/t/yes/y/on/1` 及其否向对应项，并对无法识别的值抛 **400 响亮失败**；手写 `== "true"` 只认 `true`，其余（如 `?is_read=1`）**静默当作 False**。同一「布尔 query 参数」语义在项目内有两套真值表。
+  2. **分层违规**（后端 AGENTS §1.2）：View 层只应「接收请求、调用 Service、返回 Response」，字符串→布尔的归一化属数据校验，应在 Serializer。故 notification 该行同时是 DR-1（唯一实现）与分层铁律的偏离。
+- **B3 收尾采取的收敛口径（可作为 notification 的参考范式）**：归一化唯一入口 = Serializer（`BooleanField`）；Selector/View 层**只认真 bool**，违规值以 `TypeError` 响亮失败而非静默忽略。落地于 `asset_grouped_selector._resolve_no_contract`，并以 `test_non_bool_no_contract_rejected_not_silently_ignored` 钉住。**关键取舍**：宁可抛错也不静默多返回数据——静默错答比 400 更难排查。
+- **修复建议**：notification 侧新增 `NotificationQuerySerializer`（含 `is_read = BooleanField(required=False, default=None)`），View 改走 `validated_data`。⚠️ **须先确认前端 `is_read` 实际下发的字面量集合**——若前端已在发 `1`/`0`，则现实现本就是隐性 Bug（`?is_read=1` 恒返回未读），改造会**变更既有响应行为**，须按 §5.2 走审批而非当纯重构处理。
+- **优先级**：低（当前无用户可见缺陷）／**风险等级**：中（词表漂移方向为「静默」，一旦前端改用 `1`/`0` 即静默错答）。
+- **状态**：⬜ 待核查（未做前端下发字面量的实证核查，故不列入 B 区待修复）
+- **登记日期**：2026-10-04 | 来源：v2.3 阶段 2 · B3 收尾（§1.8 新发现义务）
+- **验证命令**：`rg -n 'lower\(\) == .true.' apps/ core/`（预期收敛后仅剩 `apps/notification/views.py:31` 一处）
 
 ---
 

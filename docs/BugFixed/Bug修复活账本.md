@@ -4556,6 +4556,272 @@ args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**�
 
 *登记人：big-pickle ｜ 状态：**§三-6 后续完成**（head `46ef870`：security-scan `37005012168` `Security 汇总` success、CI `37005012100` 15/15 success、CD `37005117969` `安全门禁校验` success 且仅 Docker 登录红于 §三-5；降噪路径另经 head `7c8328b` run `37009744504` 直证：audit 双 skipped 而 `Security 汇总` 仍 success；根 `AGENTS.md` 升 v3.7.0 去伪 + 4 处历史报告证据纠错；**红路径未验证**），2026-10-01*
 
+## BF-068 【已关闭】create fan-out 落库值重复：N 条资产各存 N，使 SUM 口径得 N²（登记来源：资产分组展开表格实施方案 v2.3 阶段1 R-11② / Q-7 / W-2）
+
+### 〇、元信息
+
+- **登记日期**：2026-10-03
+- **来源**：`docs/资产分组展开表格-实施方案-v2.3.md` 阶段1 缺陷 R-11②、Q-7；修复项 W-2，回归 T1
+- **关键程度**：P1（每次 N>1 的创建都写入错误数量，任何按该字段汇总的统计口径失真 N 倍）
+- **影响范围**：`apps/assetmanagement/services/asset_service.py`（`create_asset`）；测试 `tests/test_services.py`、`tests/test_batch_create_asset.py`
+- **契约影响**：无 —— 请求字段名/类型/默认值与响应结构均未变，仅落库值纠正回设计意图
+- **跨端契约**：未变更
+
+### 一、现象
+
+1. 单次创建传 `asset_purchase_number=3`，`Asset.objects.count()` 正确为 3（fan-out 条数无误），但三条记录的 `asset_purchase_number` **全为 3** 而非 1。
+2. 故「Σ实物数量」= 3×3 = 9 = **N²**，按该字段求和的统计与台账口径虚高。
+3. N=1 时不显现（1×1=1），故长期未被察觉。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|---|---|
+| 1 | 入参未剥离 | 修复前 `create_asset` 仅 `pop("asset_code")`，`asset_purchase_number=N` 原样留在 `asset_data` |
+| 2 | fan-out 循环 | 循环内 `single_data = {**asset_data, "asset_code": code}` 继承 N → 每条明细都带 N |
+| 3 | 落库 | `Asset.objects.create(**single_data)` 直接写入 N |
+| 4 | **缺陷逃逸根因** | 修复前全仓**无任何测试断言 create 后的落值**（`test_services.py` 既有用例只断言 `len(assets)==3` 与 code 后缀），故该缺陷在测试全绿下长期存活 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|---|---|
+| 1 | 在 fan-out **之前**覆写 `asset_data["asset_purchase_number"] = 1`，使循环内 `single_data` 自然为 1（不在循环内重复赋值） | `services/asset_service.py:137`（`create_asset` 在 `:127`，`@transaction.atomic` 在 `:126`） |
+| 2 | T1 补落值断言 `assert [a.asset_purchase_number for a in assets] == [1, 1, 1]` | `tests/test_services.py:110`（N=3 入参 `:91`） |
+| 3 | T1c 补批量落值断言 `sorted(...) == [1, 1, 1]` | `tests/test_batch_create_asset.py:236`（用例 `test_batch_create_should_handle_purchase_number`，N=3 入参 `:227`） |
+
+### 四、对抗审核
+
+1. **是否改动 API 契约**：否。字段名、类型、默认值、响应结构均未变；改动只把落库值纠正回「每台 1 台」的设计意图，COUNT 口径随之成立。
+2. **覆写位置是否安全**：置于 `@transaction.atomic`（`:126`）内、fan-out 循环前，单事务生效。`asset_data` 为函数内 `dict(asset_data)` 副本（`:130`），覆写不污染调用方传入对象。批量路径 `batch_create_asset`（`:255`）经 `_create_item` 复用同一函数，故**一处改动覆盖单条与批量两条路径**（DR-1）。
+3. **是否掩盖了更深的 bug**：未。`purchase_number` 仍作瞬态入参决定 fan-out 条数（`:133` 读取 → `:143` 传生成器），覆写只作用于写入侧，读取侧与写入侧职责已分离且各有断言锚定。
+4. **不可变性配套**：仅修 create 落值不足以保证该字段不被事后改写，故另立 **BF-071**（PATCH 可自由改写）。二者根因与代码路径不同，**不并入本条**。
+5. **口径选择依据**：`rg` 确认全仓无 `Sum("asset_purchase_number")`，故采用 COUNT；修复后恒等式 `asset_count = N = Σ实物数量` 成立。
+
+### 五、验证记录
+
+```text
+① 后端全量 pytest：958 passed, 6 warnings in 494.00s（基线 955，净增 3，与新增用例数一致）✅
+② ruff check .：All checks passed ✅
+③ 四项护栏 EXIT=0：check_file_length_guard / check_function_length_guard /
+   check_frontend_invariants / check_duplicate_invariants ✅
+④ T1/T1c 落值断言实测转绿（test_services.py:110、test_batch_create_asset.py:236）✅
+```
+
+**验证边界（据实标注，不冒充已验证）**：以上全部为**本地**执行，**未经 CI 直证** —— 相关改动当前未提交（父仓 `git status` 显示子模块 ` m`），无对应 CI run ID 与 job 级结论。按 CT-7，CI 基线须以 `requirements/dev.txt` 声明工具链在 CI 侧取得，**本条目数字不代表 CI 水平**。
+
+### 六、遗留与关联事项
+
+- 关联 **BF-071**（同字段 PATCH 可写缺陷，W-3 关闭）、**BF-070**（同字段缺 `min_value` → 500，W-4 关闭）、**BF-069**（「行/条」口径误判为少算 → 改判非缺陷）。
+- 快照护栏 G-1~G-5 未受扰：本次无新增重复实现、无影子死文件。
+
+*登记人：big-pickle ｜ 状态：已关闭（W-2 + T1/T1c；本地验证通过，CI 未直证），2026-10-03*
+
+## BF-069 【已关闭】批量创建「上报条数少算」改判为非缺陷：success_count 按行计即设计语义（登记来源：v2.3 阶段1 W-5）
+
+> **本条为「非缺陷改判」登记**，目的为留痕改判结论、防止后续重复上报（对齐 BF-028 / BF-029 / BF-030 的误报纠正先例）。本条**不含代码缺陷修复**，所涉改动为界面口径消歧。
+
+### 〇、元信息
+
+- **登记日期**：2026-10-03
+- **来源**：`docs/资产分组展开表格-实施方案-v2.3.md` 阶段1；修复项 W-5（前端双计数）
+- **关键程度**：P3（界面表述易误导，非数据缺陷）
+- **影响范围**：`vue-assetmanagement/src/components/componentsdetails/detils/AssetBatchImport.vue` 及其 spec
+- **契约影响**：无 —— 后端响应结构与字段语义**均未改动**
+- **跨端契约**：未变更
+
+### 一、核实结论（原表述 > 实测事实）
+
+**原表述**：批量创建成功提示「成功 N 条」少于实际生成的资产数 → 少算，疑似丢数据。
+
+**实测事实**：
+
+| # | 事实 | 依据 |
+|---|---|---|
+| 1 | `"success_count": len(success_items)` —— 按**成功行**计 | `core/batch_mixins.py:134` |
+| 2 | `_create_item` 返回 `result[0]` —— 每行只回一个代表元素，故 `success_items` 每行一个 | `services/asset_service.py:266` |
+| 3 | `success_items: T[]` + 元素类型注释 | `src/types/common.ts:63`（注释 `:56`） |
+| 4 | 1 行 / N=3 → 断言 `success_count == 1` 且 `count == 3` | `tests/test_batch_create_asset.py:233` / `:234` |
+| 5 | **数据无丢失**：`create_asset` 带 `@transaction.atomic`（`:126`），单行 fan-out 全有或全无；`success_count == 1` 即该行 N 条全部落库 | `services/asset_service.py:126` |
+
+**结论**：`success_count` 按行计是**被测试主动锁定的既定契约**（事实 4），不是疏漏；数据未丢失（事实 5）。真实缺口在**界面未区分「行」与「条」** —— 用户看到「成功 1 条」而实际生成 3 台资产，易误判为少算。
+
+### 二、根因（真实缺口）
+
+| # | 环节 | 事实 |
+|---|---|---|
+| 1 | 后端语义正确 | `success_count` 按行、`success_items` 每行一代表元素，两者一致且有测试锚定 |
+| 2 | 界面口径单一 | 导入页全成功提示只显示行数（`success_count`），未同时给出实际生成的资产条数，用户无从区分「行」与「条」 |
+| 3 | 前端可推算 | 因单行全有或全无（`@transaction.atomic`），「该行成功」必然意味着「该行录入数量 N 条全部落库」，故前端可据成功行准确推算条数 |
+
+### 三、修复方案（前端双计数，后端零改动）
+
+| # | 变更 | 文件 |
+|---|---|---|
+| 1 | 新增 `validAssetCount` computed = Σ(有效行的录入数量)，用于提交前预览与全成功提示 | `AssetBatchImport.vue:191`（模板消费点 `:57`、按钮 `:128`） |
+| 2 | 按钮文案改为「提交有效数据（X 行 / Y 条资产）」 | `AssetBatchImport.vue:128` |
+| 3 | 全成功提示改为「成功 X 行，生成 Y 条资产」 | `AssetBatchImport.vue:356` |
+| 4 | 部分失败提示给出成功/失败**行数**，且 Y **仅累加成功行**的录入数量 | `AssetBatchImport.vue:362`（排除逻辑 `:347-351`，设计注释 `:344-346`） |
+| 5 | 400 校验失败分支明确「未创建任何资产」 | `AssetBatchImport.vue:314` |
+| 6 | 表头/校验文案统一「录入数量」 | `AssetBatchImport.vue:77` / `:111-112` |
+
+### 四、验证记录
+
+```text
+① 前端受影响 11 个 spec：222 passed ✅
+② AssetBatchImport.spec.ts：7 passed（原有 3 + 新增 4：1/2/3→6 条、失败行排除、
+   提交前双计数、非法 N 兜底）✅
+③ 变异敏感性实测：删除「排除失败行」逻辑后，部分失败用例如期转红；恢复后全绿；
+   无 MUTATION_SENTINEL_W5 残留 ✅
+④ 前端 type-check / format:check 通过；本次涉及文件定向 ESLint 通过 ✅
+⑤ 四项护栏 EXIT=0 ✅
+```
+
+**验证边界（据实标注）**：全量 `npm run lint` 仍被遗留 `.stryker-tmp/sandbox-*` 目录污染（约 1994 条 parser/tsconfigRootDir 错误），属**环境基线问题**而非本次代码失败，故以定向 lint 为准；且全部为**本地**执行，**未经 CI 直证**。
+
+### 五、对抗审核
+
+1. **为何登记非缺陷**：不登记则改判结论无留痕，同一「少算」质疑会被重复上报。登记为【已关闭】并附反证，既保留审计链又不污染缺陷计数。
+2. **是否掩盖了真丢数据**：否。`@transaction.atomic` + `test_batch_create_asset.py:233/234` 双断言（`success_count == 1` 且 `count == 3`）证明数据完整。
+3. **前端推算是否可靠**：可靠但**依赖单行原子性**。若未来去掉 `@transaction.atomic` 允许行内部分成功，前端推算即失效。故在 `AssetBatchImport.vue:182-185` 以注释固化该前提；此依赖是**已知耦合**，非隐式假设。
+4. **partial 分支的 M 值**：必须排除失败行，否则把未创建行的录入数量计入总数，产生**误导性虚高**。已由变异测试锁定。
+
+### 六、遗留与关联事项
+
+- 耦合前提：`create_asset` 的 `@transaction.atomic` 是前端条数推算成立的基础。移除该装饰器须同步改本条推算逻辑（已留注释锚点）。
+- 关联 **BF-068**（同批落值修复）、**BF-070**、**BF-071**。
+- 快照护栏 G-1~G-5 未受扰。
+
+*登记人：big-pickle ｜ 状态：已关闭（改判为非缺陷，结论由 W-5 界面口径消歧落地；本地验证通过，CI 未直证），2026-10-03*
+
+## BF-070 【已关闭】asset_purchase_number 缺 min_value：N<1 的客户端错误被渲染为 500 而非 400（登记来源：v2.3 阶段1 R-11 / W-4）
+
+### 〇、元信息
+
+- **登记日期**：2026-10-03
+- **来源**：`docs/资产分组展开表格-实施方案-v2.3.md` 阶段1；修复项 W-4，回归 T3
+- **关键程度**：P2（错误分类错误 + 掩盖真实原因，无数据损坏）
+- **影响范围**：`apps/assetmanagement/serializers/asset_crud_serializers.py`
+- **契约影响**：无（错误响应由 500 前移为 400，属**纠正**而非变更；`code`/`message`/`data` 根结构不变）
+- **跨端契约**：未变更
+
+### 一、现象
+
+创建请求传 `asset_purchase_number=0`（或负数），客户端收到 **HTTP 500**，而非语义正确的 400。排障时 500 指向「服务端异常」，掩盖了真实原因（入参非法）。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|---|---|
+| 1 | 服务层守卫存在 | `AssetCodeGenerator.generate` 抛 `ValueError("purchase_number 必须 >= 1")` —— `services/asset_service.py:94-95` |
+| 2 | 生成器不包装 | `generate_with_unique_check`（`:108`）在 `:110` 原样调用 `generate`，**无 try/except**，异常原样上抛 |
+| 3 | **序列化层缺校验** | 创建序列化器 `serializers/asset_crud_serializers.py` 的 `extra_kwargs` 对该字段**原无 `min_value`**（`:305` 注释处即本次补入位置） |
+| 4 | **View 未捕获** | `views/asset_view.py:135 def create` 全文件**无 `except ValueError`**（`rg` 确认零命中） |
+
+**缺陷机制**：非法入参穿透序列化层 → 服务层守卫抛 `ValueError` → View 未捕获 → DRF 全局处理器按未处理异常渲染为 **500**。
+
+> **口径纠错（对齐 v2.3 Q-7）**：本文档初稿曾写「建 0 行仍返 201」，**不成立** —— 服务层守卫本就存在，真实表现是未捕获异常导致的 500。W-4 的作用是**把 500 前移为 400**，**不是**新增校验。
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|---|---|
+| 1 | 创建序列化器 `extra_kwargs` 补 `"asset_purchase_number": {"required": False, "default": 1, "min_value": 1}` | `serializers/asset_crud_serializers.py:306` |
+| 2 | T3 补 API 用例：N=0 → 400，且 `Asset.objects.count() == 0`（零落库） | `tests/test_asset_view_api.py:166`（`test_create_asset_rejects_zero_purchase_number`） |
+
+**刻意不改（防误改）**：`CombinedAssetSerializer`（`asset_crud_serializers.py:321`，该字段声明在 `:326`）是**纯输出用**序列化器（`get_asset_details_data` 返回 `AssetDetailSerializer(...).data`），`min_value` 只在输入校验生效，加了无效且误导。批量序列化器 `asset_batch_serializers.py:62` 原本已有 `min_value`，无需改。
+
+### 四、对抗审核
+
+1. **是否该在 View 加 `except ValueError`**：不加。View 兜底会把所有 `ValueError` 一律转 400，反而掩盖真正的服务端编程错误；在序列化层拦下入参更精准，且错误信息能直达字段。
+2. **是否影响已有合法请求**：`min_value=1` 与服务层守卫 `:94-95` 同阈值，不存在「序列化层放行但服务层拒绝」的缝隙；`default=1` 与 `required=False` 保持不变，未传该字段的既有行为不变。
+3. **500 路径是否仍在**：结构上仍在（`asset_view.py` 仍无 `except ValueError`），但**该字段**的非法入参已在序列化层被拦下，不再走到服务层抛 `ValueError`。其他 `ValueError` 来源不在本条范围。
+4. **契约影响复核**：500→400 是把错误分类纠正到语义正确状态，非破坏性变更；响应根结构 `{"code","data","message"}` 不变，故**无需重导出 schema 基线**（亦无端点/字段增删）。
+
+### 五、验证记录
+
+```text
+① 后端全量 pytest：958 passed, 6 warnings in 494.00s（基线 955，净增 3）✅
+② T3 实测：N=0 → 400 且 Asset.objects.count() == 0 ✅
+③ ruff check .：All checks passed ✅
+④ 四项护栏 EXIT=0 ✅
+```
+
+**验证边界（据实标注）**：均为**本地**执行，**未经 CI 直证**（改动未提交，无 run ID）；本地数字不代表 CI 水平（CT-7）。
+
+### 六、遗留与关联事项
+
+- 遗留：`asset_view.py` 仍无 `except ValueError` 兜底，其他未预期 `ValueError` 仍会渲染 500。是否加全局兜底属**独立议题**，本条不扩范围。
+- 关联 **BF-068**、**BF-069**、**BF-071**（同字段）。
+- 快照护栏 G-1~G-5 未受扰。
+
+*登记人：big-pickle ｜ 状态：已关闭（W-4 + T3；本地验证通过，CI 未直证），2026-10-03*
+
+## BF-071 【已关闭】asset_purchase_number 未列入不可变集：PATCH 可任意改写实物台数（登记来源：v2.3 阶段1 R-11③ / W-3 / W-3a）
+
+> **本条为 v2.3 缺陷台账的补漏登记**：v2.3 的 BF 规划（BF-068/069/070）**未为 R-11③ 分配编号**，而该项是已定位、已修复、已补测试的真实缺陷，故按 `rg` 实测末位 **BF-067** 之后顺序补登为 BF-071。
+
+### 〇、元信息
+
+- **登记日期**：2026-10-03
+- **来源**：`docs/资产分组展开表格-实施方案-v2.3.md` 阶段1 缺陷 R-11③、Q-7；修复项 W-3 + W-3a，回归 T2/T4
+- **关键程度**：P1（客户端可任意篡改资产实物数量，属台账数据完整性缺口）
+- **影响范围**：`services/asset_service.py`（`ASSET_UPDATE_IMMUTABLE_FIELDS` / `update_asset`）；前端 `AssetForm.vue`、`AssetBasicInfo.vue`
+- **契约影响**：PATCH 该字段由 **200 静默写入** 变为 **400 `FIELD_NOT_ALLOWED`** —— 属**收紧非法写入**，合法请求不受影响
+- **跨端契约**：未变更（合法 PATCH 载荷形状不变）
+
+### 一、现象
+
+对既有资产发 PATCH，请求体带 `asset_purchase_number=3` 即被静默接受并落库为 3 —— 该字段本应是不可变的**实物台数**，任何客户端都能改写它。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|---|---|
+| 1 | 不可变集缺项 | `asset_purchase_number` 原不在 `ASSET_UPDATE_IMMUTABLE_FIELDS`（修复前该集合 `:29-39` 仅含 code / recordcode / qr_code / version / is_deleted / 时间 / status） |
+| 2 | Service 不拦截 | `update_asset`（`:167`，`@transaction.atomic` 在 `:166`）按传入 `validated_data` 直接写库，无该字段的任何校验 |
+| 3 | 序列化层放行 | Update 序列化器字段集含该字段，故 `validated_data` 携带它进入 Service |
+| 4 | **前端亦会主动提交** | 编辑表单复用 create 的构造器，原样携带该字段 → **不修前端则每次编辑提交都会被新拦截打回 400** |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|---|---|
+| 1 | `"asset_purchase_number"` 加入 `ASSET_UPDATE_IMMUTABLE_FIELDS`（集合 `:29`，新增项 `:41`，结束 `:42`）→ PATCH 命中即抛 `FIELD_NOT_ALLOWED` | `services/asset_service.py:41` |
+| 2 | W-3a 前端配套：新增 `getAssetUpdateForm` computed（`{...getAssetCreateForm.value}` 后 `delete` 该字段） | `AssetForm.vue:177-181`（consume 点 `:312-315`；create 构造器 `:149-170`，该字段在 `:157`） |
+| 3 | W-3a 前端配套：编辑态数量字段置灰只读 + 显示「录入数量」 | `AssetBasicInfo.vue:52-60` |
+| 4 | T2 补双层用例：service 层 + API 层均断言 400 `FIELD_NOT_ALLOWED` | `tests/test_asset_service.py:51` / `tests/test_asset_view_api.py:153`（均名 `test_update_asset_rejects_purchase_number_change`） |
+| 5 | T4 修正既有整表单 PATCH 用例：`test_asset_view_api.py::test_update_asset` 载荷**移除**该字段（否则必红） | `tests/test_asset_view_api.py` |
+
+### 四、验证记录
+
+```text
+① 后端全量 pytest：958 passed, 6 warnings in 494.00s（基线 955，净增 3）✅
+② T2 实测：service 层与 API 层 PATCH 该字段均 400 FIELD_NOT_ALLOWED ✅
+③ 前端 11 个 spec：222 passed ✅；type-check / format:check 通过；定向 ESLint 通过 ✅
+④ 四项护栏 EXIT=0 ✅
+```
+
+**验证边界（据实标注）**：均为**本地**执行，**未经 CI 直证**（改动未提交）；全量 `npm run lint` 因 `.stryker-tmp/sandbox-*` 污染不可用，以定向 lint 为准。
+
+### 五、对抗审核
+
+1. **W-3 与 W-3a 为何必须同批**：缺 W-3a 则前端每次编辑提交都 400（可用性全面断裂）；缺 W-3 则不可变约束可被绕过。二者任缺即回归，已作为 W-3 行的「两半缺一即回归」记录在 v2.3。
+2. **是否影响 FSM**：否。`rg` 实测 `services/` + `state_machine/` 全树对 `asset_purchase_number` 的引用**仅 1 处**（`asset_service.py:137` 写入侧），FSM 与生命周期零引用，故该字段不可变化**不阻断任何状态流转**。
+3. **是否属越权收紧**：属。资产数量为台账核心字段，可任意改写即数据完整性缺口；收紧后合法编辑流程不受影响（前端已同步剔除）。
+4. **是否掩盖了其他可写字段问题**：不可变集与 Update 序列化器字段集**逐字段对齐**问题在本项目另有登记（见本账本既有 `FIELD_NOT_ALLOWED` 相关条目），本条只覆盖 `asset_purchase_number` 单一字段，不扩范围。
+5. **审计双计风险**：本字段的 create 侧落值缺陷独立登记为 **BF-068**；二者虽同字段但**代码路径不同**（`create_asset` 写入 vs `update_asset` 改写）、根因不同（未剥离 vs 未列入不可变集），故分立登记而非合并。
+
+### 六、遗留与关联事项
+
+- `asset_current_status` 同在不可变集内（`:41`）但仍可被 FSM 修改 —— 属 FSM 专用后门，为既有设计，非本条范围。
+- 关联 **BF-068**（create 落值）、**BF-069**、**BF-070**。
+- 快照护栏 G-1~G-5 未受扰。
+
+*登记人：big-pickle ｜ 状态：已关闭（W-3 + W-3a + T2/T4；本地验证通过，CI 未直证），2026-10-03*
+
+*登记人：big-pickle ｜ 状态：**BF-068~BF-071 登记完成**（末位由 BF-067 推进至 BF-071；BF-071 为 v2.3 台账补漏；四条均本地验证通过、**CI 未直证**，改动未提交），2026-10-03*
+
 *登记人：big-pickle ｜ 状态：**§三-6 完成**（run 106 双 audit 归零 CI 直证，axios 1.20.0 + PyJWT 2.15.1 落地；仅剩 §三-5 Docker Hub 凭据未做），2026-09-30*
 
 *登记人：big-pickle ｜ 状态：**修复批已收口**（run 101 15/15 全绿终验证，变异基线 68.6064 + M-3 判据修复 + 门禁显示精度三项均生效；ci-cd/security 两 workflow 另立，下一步 C/D 批），2026-09-30*

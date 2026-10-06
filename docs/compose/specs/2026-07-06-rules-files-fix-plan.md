@@ -206,6 +206,12 @@ findstr /N "RemoveIndex RemoveField RenameField" <新增迁移文件名>
 
 同时更新第六节和第八节变更日志中涉及此命令的所有引用。
 
+> ❌ **本节方案已于 2026-10-05 作废，勿执行**。`--coverage.threshold=80` 是 **vitest 3 的 CLI 形制，
+> 在 vitest 4 下同样失效**（本仓实测 `vitest --coverage --threshold 80` → `CACError: Unknown option '--threshold'`）。
+> 真正落地的是依赖配置文件强制：`vitest.config.ts` 的 `coverage.thresholds`，命令退化为 `npm run test:coverage`
+> （= `vitest run --coverage`），不达标即判失败。已由
+> `Rules_Fiels/frontend-testing-rules.md` v1.7 §六/§七 与 `vue-assetmanagement/AGENTS.md` v9.8.0 §1.3 取代。
+
 ---
 
 ## P2-10：T15 变异测试标注 PENDING
@@ -310,9 +316,11 @@ findstr /N "RemoveIndex RemoveField RenameField" <新增迁移文件名>
 
 ### 检查 6：命令汇总一致性
 
-- [ ] `backend-testing-rules.md` 第九节命令汇总中无旧迁移命令
-- [ ] `frontend-testing-rules.md` T13 vitest 命令为 `--coverage.threshold=80`（非 `--threshold 80`）
-- [ ] `frontend-testing-rules.md` 第八节变更日志中无旧命令引用
+- [x] `backend-testing-rules.md` 第九节命令汇总中无旧迁移命令
+- [x] `frontend-testing-rules.md` T13 vitest 命令为 `--coverage.threshold=80`（非 `--threshold 80`）
+      → **2026-10-05 改判**：本条提议的命令形制在 vitest 4 下同样失效，已作废。实际落地为
+      `npm run test:coverage` + `vitest.config.ts` 的 `coverage.thresholds` 强制，见 v1.7 §六/§七
+- [x] `frontend-testing-rules.md` 第八节变更日志中无旧命令引用
 
 ---
 

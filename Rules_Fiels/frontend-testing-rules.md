@@ -4,7 +4,7 @@
 ### 📄 文档 7：前端测试细则 `/Rules_Fiels/frontend-testing-rules.md` (v1.6)
 
 # 前端测试细则 (Frontend Testing Rules)
-> 版本：v1.6 | 最后更新：2026-09-17
+> 版本：v1.7 | 最后更新：2026-10-05
 > 适用范围：Vitest + Vue Test Utils + Vue 3.5 + @stryker-mutator/vitest-runner（变异测试）
 
 ## 一、测试文件位置 [T9]
@@ -38,13 +38,17 @@
 - 当 F1-F5 设计令牌变更时，运行快照测试可快速发现视觉回归。
 
 ## 六、整体覆盖率检查（宪法 CT-2 落地）[T14]
-- 整体红线（宪法 CT-2）：`vitest --coverage --threshold 80`
+- 整体红线（宪法 CT-2）：`npm run test:coverage`（等价于 `vitest run --coverage`）
+- 阈值由 `vitest.config.ts` 的 `coverage.thresholds` **自动强制**（statements / branches / functions / lines = 80），不达标即判失败，**无需也不应再传 `--threshold`**。
 - 若整体覆盖率 < 80%，触发 `[HALT]` 并补测。
 
+> ⚠️ **勿用 `--threshold` CLI 参数（vitest 4 已移除）**：`vitest --coverage --threshold 80` 实测报 `CACError: Unknown option '--threshold'`（exit 1）。
+> 该形制在 vitest 3 也不可靠——`docs/compose/specs/2026-07-06-rules-files-fix-plan.md:314` 曾挂待办提议改为 `--coverage.threshold=80`，该待办从未销项，且在 vitest 4 下同样失效。唯一正解是依赖配置文件强制。
+
 ## 七、核心 Store 层覆盖率专项检查（宪法 CT-2 落地）[T15]
-- 核心模块专项红线（Pinia Store 层）：需在 `vitest.config.ts` 中配置 `coverage.thresholds`，或单独运行带路径的测试：
+- 核心模块专项红线（Pinia Store 层）：需在 `vitest.config.ts` 中配置 `coverage.thresholds`（`src/stores/**` = 90），或单独运行带路径的测试：
 ```bash
-vitest --coverage --coverage.include="src/stores/**/*.ts"
+npx vitest run --coverage --coverage.include="src/stores/**/*.ts"
 ```
 （运行后人工核对 Store 覆盖率是否 ≥ 90%）
 
@@ -76,6 +80,7 @@ npm run test:mutate
 > **自动修复**：lint 可通过 `npm run lint`（含 `--fix`）自动修复部分问题；format 可通过 `npm run format`（含 `--write`）自动格式化。
 
 ## 十、变更日志
+- **v1.7 (2026-10-05)**：T14 / T15 覆盖率命令勘误——`vitest --coverage --threshold 80` → `npm run test:coverage`；T15 的 `vitest --coverage --coverage.include=...` 补 `run` 子命令。**根因**：vitest 4 已移除 `--threshold` CLI 参数，原命令实测报 `CACError: Unknown option '--threshold'`（exit 1），照抄即门禁假红；缺 `run` 则裸 `vitest` 在本地进 watch 模式、在 CI 才有一次性行为，两种环境行为不一致。**阈值效力一字未改**：`vitest.config.ts` 的 `coverage.thresholds`（整体 80 / `src/stores/**` 90）自动强制，不达标仍判失败，故不触发根级 §5.4 沙盒期。同步销项 `docs/compose/specs/2026-07-06-rules-files-fix-plan.md:314` 的历史待办（其提议的 `--coverage.threshold=80` 属 vitest 3 形制，vitest 4 下同样失效）。依据根级 §5.2，经人工审批后应用。
 - **v1.6 (2026-09-17)**：修复 T16 工具选型不可落地问题——原指定 `vitest-mutant` / `@vitest/mutate` 在 npm 均不存在（E404）且 Vitest 无 `--mutate` 旗标，经根级 §5 人工审批改用 `@stryker-mutator/vitest-runner` v10.0.0，命令改为 `npm run test:mutate`，≥ 80% 红线不变。
 
 - **v1.5 (2026-07-10)**：新增 T17 代码质量三项检查规范（type-check / lint / format:check）。
