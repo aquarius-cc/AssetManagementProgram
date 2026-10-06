@@ -1,7 +1,7 @@
 # 资产管理系统后端API接口规范
 
-**版本：V2.7**
-**日期：2026-08-12**
+**版本：V2.11**
+**日期：2026-10-05**
 **状态：草案**
 
 ---
@@ -97,6 +97,115 @@
 | 方法 | 路径 | 功能 | 说明 |
 |------|------|------|------|
 | GET | `/assets/public/scan/{recordcode}/` | 扫码查看资产详情 | 无需 JWT 认证；返回脱敏后的资产信息（价格显示"****"，联系电话前3后4脱敏） |
+
+### 2.4b 资产分组查询 `/api/v1/assets/grouped/`、`group_children/`
+
+> 支撑资产台账「分组展开表格」。**纯新增端点**，不修改任何既有端点契约。分组视图由前端开关 `enableGrouping` 控制，默认关闭，关闭时走既有 `/assets/`。
+
+| 方法 | 路径 | 功能 | 请求序列化器 | 响应序列化器 |
+|------|------|------|-------------|-------------|
+| GET | `/assets/grouped/` | 分组汇总（分页后的分组列表） | - | AssetGroupSummarySerializer |
+| GET | `/assets/group_children/` | 单个分组的资产明细（懒加载） | - | AssetDetailSerializer (list) |
+
+**响应信封**（与根级 §3 一致）：`{"code": 0, "message": "查询成功", "data": {分页信封}}`
+
+#### 2.4b.1 汇总端点 `GET /api/v1/assets/grouped/`
+
+| 参数 | 类型 | 说明 |
+|:---|:---|:---|
+| `page` / `page_size` | int | 分页（默认 20 / 上限 100，同 §3） |
+| `asset_current_status` | str | 状态精确过滤（复用既有键） |
+| `asset_type_recordcode` | str | 类型 recordcode 精确过滤（复用既有键） |
+| `asset_storage_recordcode` | str | 仓库 recordcode 精确过滤（复用既有键） |
+| `contract_code` | str | 合同编码精确过滤（新增） |
+| `no_contract` | bool | `true` 时仅返回无合同哨兵组（新增） |
+| `asset_code` | str | 资产编码**模糊**过滤（`icontains`，C 新增） |
+| `asset_name` | str | 资产名称**模糊**过滤（`icontains`，C 新增） |
+| `asset_brand` | str | 资产品牌**模糊**过滤（`icontains`，C 新增） |
+| `asset_specification` | str | 资产规格**模糊**过滤（`icontains`，C 新增） |
+| `asset_contract_name` | str | 合同名称**模糊**过滤（走 `asset_contract_recordcode__contract_name`，C 新增） |
+| `asset_type_category` | str | 类型分类**精确**过滤（值取 `AssetType.type_code`，C 新增） |
+
+> **筛选键与主列表端点同口径**（C 批，v2.3 §3.12.4）：5 个模糊键走 `_build_fuzzy_q`、分类键走 `_apply_exact_filters` 的分类展开，与 `GET /assets/combine_search` 复用同一对实现，故对同一输入两端命中集必然一致。空串一律视为未传（不把整表过滤成空集）。`asset_type_category` 分类下无类型时**返回空集而非全表**（避免「输入了条件但结果没变」的静默失效）。
+>
+> ⚠️ **C 批扩的是筛选维度，不是响应字段**：`asset_name` / `asset_brand` / `asset_specification` 既是筛选键，也早已是响应里的分组键字段；`asset_code` / `asset_contract_name` / `asset_type_category` **仅作筛选**，不出现在响应中（响应字段集仍为下方 8 项）。
+>
+> **排序不可由客户端控制**：本端点排序由契约固定（`asset_count` 降序为主键 → 合同号升序且 null 置末 → 名称 / 规格 / 品牌），**不接受 `ordering` 参数**；亦不支持 `search`（分组维度无全文检索需求）。实现侧已将 `filter_backends` 置空，故 OpenAPI 中不出现这两个参数——若日后有人为分组端点挂上 `OrderingFilter`，即破坏本契约。
+
+**响应（200）**
+
+> ✅ **实现进度：汇总端点契约已全部落地（B5 收口，v2.3 §3.5.1）** —— 本节示例即实际响应，OpenAPI 中 `AssetGroupSummary` 为 8 字段（分组键 4 + `group_key` / `asset_count` / `price_display` / `asset_codes`）。B4 的整合期断点（汇总不输出 `group_key`）已消除。
+>
+> 📌 **`price_min` / `price_max` 是内部聚合字段，刻意不出现在响应里**：`price_display` 由二者派生。若一并外泄，同一组价格就有「原始区间」与「展示串」两种表达，前端无法判断以哪个为准。
+
+```json
+{
+  "code": 0,
+  "message": "查询成功",
+  "data": {
+    "count": 120,
+    "total_pages": 6,
+    "page": 1,
+    "page_size": 20,
+    "next": null,
+    "previous": null,
+    "results": [
+      {
+        "group_key": "[\"HT00001\",\"笔记本电脑\",\"14寸/i5\",\"联想\"]",
+        "contract_code": "HT00001",
+        "asset_name": "笔记本电脑",
+        "asset_specification": "14寸/i5",
+        "asset_brand": "联想",
+        "asset_count": 3,
+        "price_display": "4500.00",
+        "asset_codes": ["ZC001", "ZC002", "ZC003"]
+      }
+    ]
+  }
+}
+```
+
+**字段说明**
+
+- `group_key`：JSON 编码四元组 `[contract_code|null, asset_name, asset_specification|null, asset_brand|null]`，供前端缓存 / 展开标识（避开分隔符撞值）。⚠️ 三个可为 null 的维度必须写 JSON `null`，**不得写空串或字符串 `"null"`** —— 空串匹配不到任何行（模型存的是 NULL），字符串 `"null"` 则会真的去查名为 `null` 的合同。中文保持原文（不转义为 `\uXXXX`），与本节示例一致。
+- `asset_count`：**组内资产条数**（COUNT 口径），≡ 录入倍数 N
+- `price_display`：`min==max` → `"4500.00"`；否则 → `"4500.00~5000.00"`（`~` 分隔，两位小数，升序）。单条资产或多条同价均为单值态。
+- `asset_codes`：该组全部资产编码，供级联全选
+- **无 `contract_name`**：`contract_code` 已是分组键，合同名属分组级纯展示冗余。若聚合该字段，等于在「汇总只展示分组键 + 数量 + 价格」的口径外引入一个**非分组键**列（组内若合同名不一致还需额外定合并规则）。前端按 `contract_code` 映射合同类型字典（与 `asset_type_recordcode` 同构）即可。
+
+⚠️ **`data.count` 是分页总记录数（分组总数），与 `data.results[i].asset_count`（组内资产条数）不是同一概念**，命名已刻意区分。
+
+#### 2.4b.2 明细端点 `GET /api/v1/assets/group_children/`
+
+| 参数 | 类型 | 说明 |
+|:---|:---|:---|
+| `group_key` | str | **必填**，`grouped` 原样回传。后端 `json.loads` 解析四元组后转精确过滤 |
+| `asset_current_status` / `asset_type_recordcode` / `asset_storage_recordcode` | str | **必须与 grouped 相同的筛选** |
+| `asset_code` / `asset_name` / `asset_brand` / `asset_specification` / `asset_contract_name` | str | 模糊过滤，**必须与 grouped 相同的筛选**（C 新增，5 键） |
+| `asset_type_category` | str | 分类精确过滤，**必须与 grouped 相同的筛选**（C 新增） |
+| `page` / `page_size` | int | 组内分页（默认 20 / 上限 100） |
+
+> **本端点不声明 `contract_code` / `no_contract`**（R-1 已取消）：合同由 `group_key` 首元素表达，null 亦无损。若保留这两个参数，前端一旦沿用 v2.2 习惯误传，就会与 `group_key` 做交集导致整组展开失败。实测：多传 `contract_code=C002`（与 `group_key` 的 `C001` 矛盾）时后端**忽略**该参数并按 `group_key` 返回，结果正确（`test_contract_code_and_no_contract_are_not_filter_params`）。
+>
+> **C 批要求两端筛选键集逐字相等（契约不变量 I-1）**：本端点除 `group_key` 外的全部筛选键 = 汇总端点键集 − {`contract_code`, `no_contract`} = **9 个**。漏扩任一端即漂移：前端把 active 筛选原样透传时，某一端少认一个键就会「多返回数据」，而 `data.count` 仍可能与汇总数巧合相等直到某组边界出现。该等式由 `test_pass_through_filters_match_summary_endpoint`（键集）+ `test_i1_holds_when_c_batch_filters_active`（全链路 I-1）双向钉住。
+
+**响应（200）**：`AssetDetailSerializer` 分页（含 `harddisk_sns`），信封同 §2.4b.1。
+
+> **明细排序固定为 `recordcode` 升序，不接受客户端指定**。原因：`group_key` 的四个维度对组内所有资产**完全相同**，故不存在有意义的组内排序维度；而组内翻页用 LIMIT/OFFSET，排序键若非唯一（哪怕只按价格排序），同一 OFFSET 在不同请求下顺序不定，前端「加载更多」必然出现重复项与漏项。`recordcode` 全局唯一（`core/models.py:93`）⇒ OFFSET 分页是全序。
+
+**错误契约**：`group_key` 形状非法（非法 JSON / 非数组 / 长度 ≠ 4 / `asset_name` 为 null / 元素非字符串）一律 **400**，不回退为空集。理由：若把非法 `group_key` 当作「不过滤」，会退化成返回整个筛选集（明细数远大于汇总数），错答方向是**多给数据**，比 400 危险得多。形状合法但无命中的 `group_key` 返回 **200 + `count: 0`**（正常业务结果，如资产被并发删除），二者刻意区分。页码越界返回 **404**（DRF `NotFound`），前端据此停止「加载更多」。
+
+**契约不变量 I-1**：同一次筛选下，`group_children` 返回总数 **===** 对应组的 `grouped.asset_count`。前端展开 / 组内翻页时**必须原样透传当前 active 筛选参数与 `group_key`**，否则汇总数与明细数会漂移。
+
+> I-1 不是靠约定保证的，而是靠实现：明细端点与汇总端点在 Selector 层复用**同一个** `_scoped_queryset`（同筛选集 + 同 RBAC 范围）与**同一个** `_build_group_q`（null-safe 组键过滤），故两端口径无法各自漂移。
+
+> **契约 bug 修正（R-1）**：本端点用 `group_key` **单参直传**，而非为每个维度设独立参数。理由：`asset_brand` / `asset_specification` 为 null 时无法用 `str` 类型参数表达；`group_key` 经 JSON 往返**无损**，null 元素得以保留，无需为「null 表达」另造参数或开 `no_contract` 特例。
+
+> **排序规则**：`asset_count` **降序（主键）** → 合同号升序（**null 置末**）→ `asset_name` → `asset_specification` → `asset_brand`，保证翻页稳定。
+>
+> ⚠️ 「合同 null 置末」是**次级排序键**：仅在 `asset_count` **相等**的分组之间生效。故无合同哨兵组**不一定排在最后** —— 当其 `asset_count` 高于其他分组时，仍按数量降序排在前面。此点前端不得假设哨兵组恒在末位。
+
+> **`api-schema-baseline.json`**：本节端点尚未实现，基线文件待实现落地后在阶段 4 重导出（提前重导出产出与现状字节一致，无意义）。
 
 ### 2.5 出库记录 `/api/v1/assets/out-assets/`
 
@@ -324,3 +433,7 @@ ws://api.example.com/ws/notifications/
 | V2.5 | 2026-07-09 | 新增 AssetType 全路径和树形接口；为所有核心模块增加 `/filter/` 多条件联合筛选端点；新增对应 FilterSerializer 序列化器 |
 | V2.6 | 2026-07-11 | 以实际实现路径为准更新所有API路径前缀；标注 `/simple/` 端点为暂不实现 |
 | V2.7 | 2026-08-12 | 状态日志接口 `/assets/{recordcode}/logs/` 序列化器由 AssetStateLogListSerializer 更正为 AssetOperationLogListSerializer（与实际实现一致） |
+| V2.8 | 2026-10-03 | 新增 §2.4b 资产分组查询（`GET /assets/grouped/`、`GET /assets/group_children/`）：汇总/明细端点参数与响应契约、`asset_count`、`price_display`、`group_key` 单参直传（R-1）、契约不变量 I-1、排序规则（合同 null 置末为**次键**，仅数量相等时生效）；`api-schema-baseline.json` 待实现落地后重导出 |
+| V2.9 | 2026-10-04 | **明细端点 B4 落地**：§2.4b.2 补「不声明 `contract_code`/`no_contract`（R-1 取消，实测忽略旧参数不影响结果）」、明细排序固定 `recordcode` 升序及其理由（组内维度恒同 + OFFSET 需全序）、**错误契约**（`group_key` 形状非法 400 / 形状合法无命中 200+count 0 / 页码越界 404，三者刻意区分）；§2.4b.1 收口注记更新，并新增**整合期断点**警示：B5 未落地前汇总端点不输出 `group_key`，前端无法构造展开参数，B5 是两端的必需桥梁 |
+| V2.10 | 2026-10-04 | **汇总端点 B5 落地，§2.4b 契约全部实现**：汇总行由 6 字段扩为 **8 字段**（新增 `group_key` / `price_display`），§2.4b.1 示例即实际响应，B4 的整合期断点消除；补 `price_min`/`price_max` 为内部字段不外泄的理由、`group_key` null 位须写 JSON `null`（空串/字符串 `"null"` 均错）与中文不转义约定。⚠️ 本次为**新增字段**（向后兼容），但**已存在的** `AssetGroupSummary` 若被前端按固定字段集消费需同步（前端 F1/F2 尚未开工，无存量消费方） |
+| V2.11 | 2026-10-05 | **筛选键 C 批落地（9 键）**：§2.4b.1 参数表由 6 键扩为 **12 键**（新增 `asset_code` / `asset_name` / `asset_brand` / `asset_specification` / `asset_contract_name` 五个**模糊**键 + `asset_type_category` 分类**精确**键）；§2.4b.2 同步扩为 **9 个非组键筛选**，并写明「两端键集逐字相等」为 I-1 的硬要求。补三条口径：① 筛选链与主列表 `combine_search` 复用同一对实现（`_build_fuzzy_q` / `_apply_exact_filters`），同输入必然同命中集；② 空串视为未传；③ 分类无类型时**返回空集而非全表**。⚠️ 明确 **C 扩的是筛选维度、不是响应字段**——`asset_code` / `asset_contract_name` / `asset_type_category` 仅作筛选，响应字段集仍为 8 项（`asset_name` / `asset_brand` / `asset_specification` 因早已是分组键字段而"看似重复"，实为一键两用）。⚠️ 契约变更属跨端：前端分组 UI（B 批）**必须在本版本之后**才可启用 9 键，否则新键被 DRF 静默丢弃、筛选无声失效 |
