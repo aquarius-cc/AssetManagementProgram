@@ -4818,6 +4818,53 @@ args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**�
 - 关联 **BF-068**（create 落值）、**BF-069**、**BF-070**。
 - 快照护栏 G-1~G-5 未受扰。
 
+## BF-072 【追踪中】GroupedAssetTable.vue side-tab accent border（impeccable 引入后首跑实证产出）
+
+> **登记来源**：impeccable v4.5.0（opencode 发行版）引入计划 Step6 首跑实证——`impeccable detect --json` 输出。
+> **性质说明**：此为**设计质量告警（非功能缺陷）**，依用户拍板"接受该告警并录入追踪（不豁免）"。不改代码。
+
+### 〇、元信息
+
+- **登记日期**：2026-10-07
+- **来源**：`impeccable detect --json src/components/GroupedAssetTable.vue`（detector 退出码 2）；critique/audit 首跑快照 `.impeccable/critique/2026-10-07T03-56-29Z__ment-src-components-groupedassettable-vue-1c377064.md`
+- **关键程度**：P3（设计 polish，无功能影响；detector 归类为 `slop` 类 warning）
+- **影响范围**：`vue-assetmanagement/src/components/GroupedAssetTable.vue:285`
+- **跨端契约**：无影响（CSS 层视觉声明）
+
+### 一、现象
+
+detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指向 `GroupedAssetTable.vue:285` 的 `border-left: 4px solid var(--color-primary-light)`，属于 `.group-children` 展开区卡片样式的活声明（选 `@`.group-children` 命中模板 L37，scoped 样式真实生效，非注释/非死代码/非字符串）。
+
+### 二、核验
+
+- 全文 `border[a-z-]*` 声明仅此 1 条（其余为 `border-radius` L286/L303），无误报。
+- Assessment A（设计审查）曾把该左竖条评为"层级语言亮点"，Assessment B / detector 判其为 "最明显的 AI 生成 UI tell"，二者结论不一致且均有据——故**接受记录而不豁免**是稳妥口径。
+- critique 得分 24/40（Acceptable），audit 得分 15/20（Good）；本告警无贡献于两份总分的失分项（side-tab 未被计入任一评分维度，属确定性扫描佐证项）。
+
+### 三、处置方案（待用户决策，登记为"追踪中"）
+
+| 选项 | 动作 | 命令 |
+|---|---|---|
+| A（推荐） | 保留竖条但弱化：4px→2px 或改 `--color-primary-lighter`，维持层次语言同时规避 tell | /impeccable layout |
+| B | 完全移除竖条，仅靠背景色与间距区分展开区 | /impeccable distill |
+| C | 暂不改动，保持现状（既有拍板"接受，不豁免"即指向此态，但登记为待核查） | 无 |
+
+### 四、验证记录
+
+```text
+① detector：impeccable detect --json → exit 2，单条 side-tab:285（完整 JSON 见 critique 快照）✅
+② 双 agent 核验：Assessment B 附文件:行号与引文，确认真实命中 ✅
+③ 行数：template+script 逻辑行 ≈197 < FR-5 500 上限，文件 322 物理行 ✅
+④ 跨代理结论冲突已记录（A 评亮点 vs B 评 tell）✅
+```
+
+### 五、关联事项
+
+- impeccable v4.5.0 安装落位 `D:\CodeDemo\AssetManagementProgram\.opencode\skills\impeccable\`（58 文件），引擎二进制 v0.1.11 缓存于 `%USERPROFILE%\.impeccable\bin\0.1.11`，`~/.impeccable` 运行时数据目录承载 critique 快照。
+- 引入计划全部 7 步已执行（SL 基础→安装→校验→清理→.gitignore→首跑→审计票）。
+
+*登记人：big-pickle ｜ 状态：追踪中（首跑实证产出，待用户选择处置项 A/B/C），2026-10-07*
+
 *登记人：big-pickle ｜ 状态：已关闭（W-3 + W-3a + T2/T4；本地验证通过，CI 未直证），2026-10-03*
 
 *登记人：big-pickle ｜ 状态：**BF-068~BF-071 登记完成**（末位由 BF-067 推进至 BF-071；BF-071 为 v2.3 台账补漏；四条均本地验证通过、**CI 未直证**，改动未提交），2026-10-03*

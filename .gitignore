@@ -47,3 +47,6 @@ snippicture/
 # Python 运行时缓存
 __pycache__/
 *.pyc
+
+# impeccable 运行时数据（critique/audit 快照，不入库）
+.impeccable/
