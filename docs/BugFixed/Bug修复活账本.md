@@ -4878,3 +4878,131 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 *登记人：big-pickle ｜ 状态：**修复批收口中**（run 98 后端测试首绿；变异基线已切 CI 环境 `b0aec84`、M-3 漂移 warning 判空缺陷已修、待 run 99 双验证；ci-cd/security 两 workflow 另立），2026-09-30*
 
 *登记人：big-pickle ｜ 状态：**待修复→修复批已落地**（①②④ 提交，③ 待日志；②④ 已 CI 直证，①经 run 91 直证后 ruff 回归已修 `16687a4`；ci-cd/security 两 workflow 另立），2026-09-30*
+
+
+## BF-073 【已关闭】分组展开页 21~100 条组后续数据不可达：分页条判据固定 `>100` 与实际页长 20 脱钩（登记来源：impeccable audit 2026-10-07 P1 / 方案 v2.3 决策 6 修正）
+
+> **登记来源**：impeccable audit 报告 `.impeccable/audit/2026-10-07T04-00Z__GroupedAssetTable.md` P1（原文引 `useGroupedAssetColumns.ts:50-52`，修复后实测 `:51-52`）。
+> **性质说明**：**功能缺陷**（数据可达性缺口），非设计告警。经用户拍板「本批修复 + 同步改验收标准 AC-67d」。
+
+### 〇、元信息
+
+- **登记日期**：2026-10-07
+- **来源**：audit P1（critique 32/40 / audit 15/20 同一目标文件两份报告）
+- **关键程度**：P1（用户基于不完整数据决策；种子场景 5 的验证链路被整体阻断）
+- **影响范围**：`src/composables/useGroupedAssetColumns.ts:51-52`（判据）、`src/components/GroupedAssetTable.vue:61`（模板传参）、3 个 spec 文件、`AC-67d`、方案书 8 处锚点
+- **跨端契约**：**无影响**（纯前端显示判据；后端分页参数 `page`/`page_size` 与响应结构未动）
+
+### 一、问题现象
+
+1. `shouldShowChildPagination` 旧判据为 `asset_count > CHILD_PAGINATION_THRESHOLD`（常量 =100），而组内 `page_size` 默认 20（可切 50/100）——**21~100 条组只显首页 20 条，无「加载下一页」按钮**，后续数据 UI 不可达（后端翻页能力实测在：25 条组 page2 返回 5 条、total_pages=2）。
+2. 方案书场景 5 专设 **25 条**种子组验证组内分页（后端实测直证通过），被旧阈值挡住 → 该场景的 UI 链路从未真正可达。
+3. 判据与页长脱钩的双向错判：页长切 50 时 51~100 条组需分页却无条（缺口）、页长 100 时 101 条组恒显条但首屏 100 条本就快满（语义仍对，属运气对齐而非设计对齐）。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|---|---|
+| 1 | 决策落码 | 决策 6 原文以「超长组才分页」定性表达，实现落为固定阈值常量 `CHILD_PAGINATION_THRESHOLD = 100`（旧 `useGroupedAssetColumns.ts:21-22`），未与 `childPageSize` 建立联动 |
+| 2 | 页长可变 | `CHILD_PAGE_SIZE_OPTIONS = [20,50,100]`（现 `:22`）支持切页长，阈值仍写死 100 → 页长 20 下 21~100 档全部静默 |
+| 3 | 测试固化错误规格 | 原用例 12 只断言「120 显示 / ≤100 不显示」，把错误判据当规格测，缺口被双向钉死；种子 25 条组无 UI 层断言 |
+| 4 | 文档同误 | AC-67d Given 写 `asset_count > 100`、方案书 8 处沿用（`:420/:438/:458/:466/:498/:924/:937/:42`），规格层与实现层同错 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|---|---|
+| 1 | 判据改双参 `shouldShowChildPagination(row, pageSize)` = `row.asset_count > pageSize`；删除 `CHILD_PAGINATION_THRESHOLD` 定义与导出 | `useGroupedAssetColumns.ts:51-52`（常量原 `:21-22` 已删，导出原 `:74` 已删） |
+| 2 | 模板传入 `childPageSize`（`el-pagination` v-model:page-size 同源解包） | `GroupedAssetTable.vue:61` |
+| 3 | spec 先红后绿：单元边界改双参断言（20/21/100/101/99/50/0），组件侧用例 12 改题 + 新增 `asset_count=50` 回归用例 | `useGroupedAssetColumns.spec.ts`、`GroupedAssetTable.spec.ts:348` |
+| 4 | 文档同步：AC-67d Given 改 `> page_size（默认 20）` 并注明修正缘由；方案书 8 处锚点标注 BF-073 修正；新增 §3.12.11 | `07-功能需求与验收标准.md:281`、`docs/资产分组展开表格-实施方案-v2.3.md` |
+
+### 四、对抗审核
+
+- **行号漂移**：本条所有 `文件:行号` 为修复后 `rg` 实测（见五-①），非沿用 audit 旧行号。
+- **越权/红线**：改 AC 文本属验收标准修订，**已获用户显式拍板**（「本批修复 + 同步改验收标准」）；非跨端契约、非状态机路径。
+- **audit P1 附带引用 `useGroupChildrenCache.ts:154-155` 核验**：实为 `ensureChildren` 缓存命中早返 + 拉首页（`rg` 实测见五-②），与阈值判据**无耦合**，无需改动——audit 引用它是在说明「翻页数据并入缓存」的链路位置，非指其含缺陷。
+- **是否掩盖更深 bug**：反向确认无第二处阈值依赖——`rg CHILD_PAGINATION_THRESHOLD` 全仓 0 命中（三处消费点：定义、判据、其 spec 断言，均在本批清理）。
+- **先红后绿**：改 spec 先跑红（3 failed：2 单元边界 + 1 组件 50 条缺口用例），改实现后 20/20 绿，缺口用例真实复现过失败。
+- **契约影响**：请求/响应形状、分页参数名、状态机零变化；schema 无需重导出（纯前端）。
+
+### 五、验证记录
+
+```text
+① 行号实测（rg）：shouldShowChildPagination 定义 :51、判据 :52、模板调用 :61、回归用例 spec :348、CHILD_PAGE_SIZE_OPTIONS :22 ✅
+② useGroupChildrenCache.ts:154-155 实读 = ensureChildren 缓存早返/拉首页，与分页判据无关 ✅
+③ 残留扫描：rg CHILD_PAGINATION_THRESHOLD（src/，*.ts,*.vue）= 0 命中；AC 文件 asset_count > 100 = 0 命中；方案书残留 3 处均为「原述→BF-073 改为」的刻意修正表述 ✅
+④ 先红：npx vitest run <两 spec> → 3 failed / 17 passed（缺口真实复现）✅
+⑤ 后绿：同命令 → 20 passed；全量 npx vitest run → 147 files / 2033 tests passed ✅
+⑥ 门禁：type-check exit 0；eslint . exit 0；format:check exit 0；complexity 改动文件 0 命中（全仓 52 = CI 既有存量）；coverage 整体 92.99% / Stores 97.82%；check_frontend_invariants.py PASS ✅
+⑦ 变异（定向）：npx stryker run --mutate src/composables/useGroupedAssetColumns.ts → Mutation score 100.00 ≥ break 80，4 个 `>` 边界突变全部被新用例击杀 ✅
+（全量 test:mutate 本地 30min 超时未出分；按方案书 §6.1「全量 CI 跑 + 本地不跑」口径处置，ci.yml frontend-mutation 仍 continue-on-error）
+```
+
+### 六、遗留与关联事项
+
+- audit 的 P2×2（全选「仅本页」提示、勾选无出口）与 P3×3（aria-label/aria-live/title 可达性）、width 55→56 **本批未执行**，待用户点单；side-tab 10 处处置 A/B/C 亦待批（见 BF-072 追踪中）。
+- 方案书决策 6 表、D-2 行、场景 5 表与偏差注记、修订清单行均已加 BF-073 修正标注；AC-67d 为规格层同步修订。
+- 同组件既有追踪条目：BF-072（side-tab，待用户选 A/B/C）。
+
+*登记人：big-pickle ｜ 状态：已关闭（先红后绿 + 7 项门禁 + 定向变异 100.00 实证，改动未提交），2026-10-07*
+
+
+## BF-074 【已关闭】分组展开表两处 WCAG AA 对比度失败：删除按钮常态灰 3.08:1、数量胶囊白字 2.78:1（登记来源：impeccable critique 2026-10-07 P2）
+
+> **登记来源**：impeccable critique 报告 `.impeccable/critique/2026-10-07T04-55-19Z__ment-src-components-groupedassettable-vue-1c377064.md` 「缺口」P2 行（原文 #909399 2.84:1 / #409eff 3.05:1，为估算值；本条记录实算值）。
+> **性质说明**：**无障碍缺陷**（WCAG 2.1 AA 正文文本 4.5:1 未达），代码修复，经用户拍板随美化欠账批执行（A1/A2）。
+
+### 〇、元信息
+
+- **登记日期**：2026-10-07
+- **来源**：critique P2（方案审查缺口清单第 2 项）
+- **关键程度**：P2（可读性/无障碍，非功能断裂）
+- **影响范围**：`src/components/GroupedAssetTable.vue`（`:329` `.group-delete-btn`、`:318/:322` `.asset-count-tag` 双主题）
+- **跨端契约**：无影响（CSS 变量声明层）
+
+### 一、问题现象
+
+1. 删除按钮常态文字色 `--text-secondary`（亮 #909399）白底 **3.08:1**，低于 AA 4.5:1。
+2. 数量胶囊 `el-tag effect=dark` 用 EP 默认 `--el-color-primary`（#409eff）配白字 **2.78:1**；暗色下 `--color-primary` #4a90e2 白字 **3.29:1**——两主题均不达 AA。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|---|---|
+| 1 | 按钮色选型 | `.group-delete-btn` 取 `--text-secondary`（设计初衷「常态低调、hover 才危险色」），未验算对比度 |
+| 2 | EP 默认色直用 | `el-tag type="primary" effect="dark"` 背景走 EP 内建 `--el-color-primary` #409eff，项目令牌 `--color-primary` #2b5fd7 未接入 el-tag |
+| 3 | 暗色更暗 | `variables.css:129` 暗色 `--color-primary` #4a90e2 比亮色更浅，白字对比进一步劣化至 3.29:1 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|---|---|
+| A1 | 删除按钮常态色 `--text-secondary` → `--text-regular`（亮 #606266），注释记录实算对比 | `GroupedAssetTable.vue:329-333` |
+| A2 | 胶囊加 `.asset-count-tag` class：亮 `--el-tag-bg-color: var(--color-primary)`（#2b5fd7）；`:global(html.dark)` 覆盖 `var(--color-primary-dark)`（暗色块实为 #2b5fd7，`variables.css:132`） | `GroupedAssetTable.vue:318-324` |
+
+### 四、对抗审核
+
+- **行号漂移**：`:318/:322/:329` 为格式化回修后 `rg` 实测。
+- **取值陷阱核验**：`--color-primary-dark` 在**亮**主题是 `#1e429f`（`variables.css:7`）、**暗**主题才是 `#2b5fd7`（`:132`）——故暗覆盖必须写在 `html.dark` 作用域内取值，不能在亮色规则里引用，当前选择器结构正确。
+- **暗底方向未劣化**：删除按钮暗色经 `--text-regular` 解析为 #cfd3dc（`variables.css:157`），对暗底 #141414/#1d1e1f 为 12.29:1 / 11.13:1；旧值 #a3a6ad 亦达 AA，修复在两主题下均不回退。
+- **验证边界（诚实标注）**：对比度为 **WCAG 公式算术实算**（node 实算，见五-③），**未跑浏览器暗色态截图实测**——`:global` 选择器编译形态与 el-tag 变量继承链由 vitest 无法覆盖，属 `[推测]→已算术验证，浏览器渲染待目验`。
+- **是否同类重复登记**：`rg "对比度|409eff|text-secondary"` 活账本 0 命中，无既有条目。
+
+### 五、验证记录
+
+```text
+① 行号实测（rg）：.asset-count-tag :318、html.dark 覆盖 :322、.group-delete-btn :329 ✅
+② 方案书/AC 影响：无（纯视觉层，未涉规格文本）✅
+③ WCAG 实算（node）：亮按钮 #606266/#fff = 6.11（旧 #909399 = 3.08）；胶囊亮 #fff/#2b5fd7 = 5.64（旧 #fff/#409eff = 2.78）；胶囊暗 #fff/#2b5fd7 = 5.64（旧 #fff/#4a90e2 = 3.29）；按钮暗 #cfd3dc/#141414 = 12.29 ✅ 全部 ≥4.5
+④ 回归：npx vitest run GroupedAssetTable.spec.ts → 通过；format:check / eslint exit 0 ✅
+⑤ 浏览器暗色态目验：未执行（无浏览器工具），见四-「验证边界」
+```
+
+### 六、遗留与关联事项
+
+- critique 同批 P2 中「方案三处自相矛盾」「2 文件 vs 7 文件」两项属**文档缺陷**，在方案书 §3.12.11 修复（非代码，不另立 BF）；critique P1「验证清单漏 mutate/complexity」同在 §3.12.11 完整验证清单补齐。
+- 暗色态浏览器目验列为待办，若有偏差回开本条。
+- 关联 BF-073（同批 A/B 批次产出）。
+
+*登记人：big-pickle ｜ 状态：已关闭（算术实算达标 + 单测/门禁绿；浏览器暗色目验未做，已如实标注），2026-10-07*
