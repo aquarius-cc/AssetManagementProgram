@@ -5217,3 +5217,150 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 - **观察项② 陈旧注释缺 `v1`**：JSDoc 中 `/api/assets/`（应为 `/api/v1/assets/`）**48 处、跨 13 文件**（`asset.ts` 15、`contract.ts` 6、`lostAsset.ts` 5、`repairAsset.ts` 5、`outAsset.ts` 4、`harddiskSn.ts` 3、`recycleAsset.ts` 3、`assetType.ts` 2、`damagedAsset.ts` / `storage.ts` / `wasteAsset.ts` / `types/operationlog.ts` / `types/recycleasset.ts` 各 1）——纯注释不改行为，不属本票范围，待批后统一刷新（用户最初提示 `:97/:118` 两处，实测全量 48 处）。
 
 *登记人：opencode ｜ 状态：已关闭（自动化门禁全绿 + 手工验收已回执 2026-10-08），2026-10-08*
+
+---
+
+## BF-078 【已关闭】分组表四需求批：汇总列序勾选前置（需求1）+ onExpandChange 归一化不连带展开（需求2）+ 分组页返回状态恢复（需求3）+ 单条组取消自动展开（需求4）（登记来源：用户四需求点单，方案经批准后分四阶段执行）
+
+> **登记来源**：用户对分组展开表格的四需求点单（跨 2026-10-07/08 两轮会话）。其中需求2 用户裁定为 Bug（「不应连带展开」），需求3 的验收条目 AC-67j 用户拍板「补」，需求4 对既有 AC-67e 做反向修订。方案批准后按阶段1（需求4）→ 阶段2（需求1）→ 阶段3（需求2）→ 阶段4（需求3）执行，本条为整批收口登记。
+> **性质说明**：纯前端改动（组件 / composable / 新增 Pinia store / 路由守卫一行），后端零改动 → 不触碰 API 响应根结构、状态枚举、分页参数名、日期格式四契约，schema 基线无需重导出。
+
+### 〇、元信息
+
+- **登记日期**：2026-10-08
+- **来源**：用户四需求点单 + 批准方案（含用户裁定：需求2=Bug、AC-67j=补）
+- **关键程度**：P2（分组视图交互一致性与导航往返体验；资产主数据流与后端 API 不受影响）
+- **影响范围**：vue 子仓 10 文件修改（408+ / 57−）+ 4 新文件；根仓文档 A 档四处（本条 + 方案书 §3.12.12 + AC-67e/67j + complete-patterns A-49）
+- **跨端契约**：无破坏——纯前端；`git status` 后端目录为空 → 无需重导出 schema 基线
+
+### 一、问题现象
+
+1. **需求1（列序）**：汇总表列序为 展开 → 勾选 → 序号，勾选列不在最左，与平铺列表（勾选列最左）的操作起点不一致。
+2. **需求2（连带展开）**：折叠分组 A 后展开分组 B，A 被连带复活。用户裁定：不应连带展开，属 Bug。
+3. **需求3（返回恢复）**：分组视图进入资产详情 / 编辑表单 / 批量导入子路由再返回，筛选、页码、展开态、组内子页、勾选、滚动位置全部丢失（grouped 子路由不在 keep-alive 覆盖内，返回即重挂载重新首载）。
+4. **需求4（单条组自动展开）**：`asset_count === 1` 的组首载自动展开（F2 设计），用户点单取消该行为。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 模板列序 | 勾选列（`width=55 fixed=left`）排在展开列（`type=expand`）之后（HEAD 实测 `GAT` 旧模板：展开块在前、勾选块随后） |
+| 2 | `expand-change` 载荷未归一化 | 处理器直接消费 EP 回调 `(row, expandedRows)`，`expandedRows` 集合在「用户点击 vs 受控回放」两场景语义不一致，折叠态被重新写入；且两 spec 的 `expandGroup` helper 共载与真实 element-plus@2.13.7 不符的 `true` 载荷（真实为 `[row]`），桩宽容掩盖了缺陷（测试侧重复登记 A-49） |
+| 3 | 路由重挂载无状态保持 | `/main/assetdetails/grouped` 无 keep-alive，状态只存于组件内存，返回即重建首载 |
+| 4 | F2 自动展开 | `useGroupedAssetList` 的 `autoExpandSingletons()` 在 `fetchSummaries` 成功后对 `asset_count === 1` 的组逐个 `setExpanded(k, true)` |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| R1 | 勾选列模板块移至展开列之前（列序 = 勾选 → 展开 → 序号），`GAT:41` 注释留痕 | `GroupedAssetTable.vue:41-60` |
+| R2 | `onExpandChange` 载荷归一化（仅目标行翻转，不连带）；两 spec `expandGroup` helper 统一为真实载荷 `(row, [row])` 并注释实证 | `GroupedAssetTable.vue`、两 spec |
+| R3 | 会话快照三件套：新增 `groupedAssetSession` store（save / clearPending / clear + `GroupedPageSnapshot`）；新增 `useGroupedSessionRestore` 恢复编排（顺序契约 ①搜索→②页码→③展开→④子页→⑤勾选 + DOM 滚动存取）；`AssetContentDetails` 分组模式 `onBeforeRouteLeave` 存档 + setup 期读取传 `initialSnapshot`；`guards.ts` afterEach 导航出 `/main/assetdetails` 前缀时失效会话 | 2 新文件 + `AssetContentDetails.vue` + `guards.ts` + `GroupedAssetTable.vue`（prop/expose/水合） |
+| R4 | 删除 `autoExpandSingletons()` 及其 `fetchSummaries` 调用，单条组一律默认折叠；`useGroupChildrenCache` 注释同步摘除「自动展开」字样 | `useGroupedAssetList.ts`、`useGroupChildrenCache.ts` |
+| R5 | 两 spec 头部覆盖清单同步（GAT 补用例 15~19，enableGrouping 补 BF-078 会话 ×4） | 两 spec 头注释 |
+
+### 四、对抗审核
+
+- **先红后绿实证**：① 需求4——`git stash push` 暂存修复后的 `useGroupedAssetList.ts`（还原 HEAD 自动展开实现）跑反向锁，**2 failed / 32 passed**（`does not auto-expand groups with asset_count === 1` / `> 1` 双双转红）→ `stash pop` 恢复后全量 2075 全绿。② 需求2——阶段3 先做 helper 归一化（红）再改 `onExpandChange`（绿）。③ 需求3——`useGroupedSessionRestore.spec` 以调用顺序断言 + `changePageSpy` 屏障锁死恢复次序。
+- **变异测试（本轮复跑，2026-10-08）**：`npm run test:mutate` 总分 **82.29 ≥ break 80**（37 文件 / 2002 mutants / 18m11s）。新文件全在 `stryker.config.json` 射程（`src/stores/**` + `src/composables/useGroup*.ts`）：`groupedAssetSession.ts` **9 killed / 0 survived**（1 Ignored，与前轮一致）；`useGroupedSessionRestore.ts` **18 killed / 0 survived**——前轮 2 个幸存突变（`if snapshot.page > 1` 的等价变形 `"true"` / `>= 1`）经 `changePageSpy` 断言（页码 1 时不得调 changePage、页码 2 时须 `toHaveBeenCalledWith(2)`）**全部击杀**，新文件幸存清零。
+- **行号漂移**：本条全部 `file:line` 为 2026-10-08 当日实测；根因侧 HEAD 旧行为经 `git show HEAD` 取证（GAT 旧模板列序、两 spec 旧载荷 `row, true`、`autoExpandSingletons` 函数体）。
+- **残留扫描**：`autoExpandSingletons` / `自动展开` 语义在 `src/` 残留仅 AC 无关的注释同步处（`useGroupedAssetList.ts` docstring 已改为「同样默认折叠」）；`(row, true)` 旧载荷 0 处。
+- **重复登记**：测试侧双份 `expandGroup` helper 收敛入 **complete-patterns A-49**（v2.9.58）；本条缺陷本身非重复模式，不单列。
+- **规模与护栏**：`check_frontend_invariants.py` PASS（composables 53 文件 / stores 31 文件 0 违规，FR-6/FR-8 达标）；`check_duplicate_invariants.py` PASS（G-1~G-5 未受扰）。
+- **契约影响**：无——不触碰 §3 四项跨端契约；后端零改动。
+
+### 五、验证记录
+
+```text
+① 前端三项：type-check exit 0 / lint exit 0 / format:check exit 0 ✅
+② 全量 vitest run：152/152 files、2075/2075 tests，exit 0（较 BF-077 同日基线 2052 净增 23）✅
+③ 全量 test:coverage：exit 0；statements 93.01% / branches 87.66% / functions 87.69% / lines 93.81%
+   （≥80 ✓）；src/stores/** 97.84 / 92.39 / 94.37 / 98.22（≥90 ✓）✅
+④ 前端双护栏：check_frontend_invariants.py PASS（composables 53 / stores 31 文件 0 违规）；
+   check_duplicate_invariants.py PASS（G-1~G-5）✅
+⑤ 变异复跑：npm run test:mutate → 82.29 ≥ 80（37 文件 / 2002 mutants / 18m11s）；
+   groupedAssetSession.ts 9 killed / 0 survived（1 Ignored）、useGroupedSessionRestore.ts 18 killed /
+   0 survived（前轮 2 幸存经 changePageSpy 断言击杀）✅
+⑥ 先红后绿：需求4 stash 还原 HEAD 实现 → 反向锁 2 failed；恢复后绿。
+   需求2 阶段3 helper 归一化红 → onExpandChange 归一化绿 ✅
+⑦ 浏览器目验：一轮（2026-10-08）需求2 ✓ 需求4 ✓、需求1 ✗ 需求3 ✗（详见 §七）；二轮修复后复验
+   需求1 ✓ 需求3 ✓（用户回执 2026-10-08，硬刷新实测）——四需求全部通过 ✅
+```
+
+### 六、遗留与关联事项
+
+- **手工目验**：已闭环——一轮 需求2/4 ✓、需求1/3 ✗；二轮修复后复验需求1 ✓ 需求3 ✓（用户回执 2026-10-08），本条翻转【已关闭】。
+- **观察项① 滚动恢复走 DOM 直读**：element-plus 表格只暴露 `setScrollTop()` 无 getter，存档只能读 `.el-scrollbar__wrap.scrollTop`；EP 后续若提供 getter 应收敛（当前注释留痕）。
+- **观察项② 分组/平铺两套状态保持机制并存**：设计意图上平铺视图靠 keep-alive、分组视图靠会话快照（组件无缓存）。注意：平铺侧 keep-alive 配置**实为死配置**（include 名永不匹配，从未生效，见 **BF-079**）——平铺当前实际无缓存，状态保持只有分组快照在工作。两机制的边界（`/main/assetdetails` 前缀失效规则）由 `guards afterEach` 统一裁决，后续若第三种视图引入需复用该裁决而非自设。
+- **关联**：**A-49**（测试侧 helper 收敛）、**AC-67e 反向修订 + AC-67j 新增**（`07-功能需求与验收标准.md:287/:317`）、方案书 **§3.12.12** 落地证据。
+
+### 七、目验一轮失败与二轮修正（2026-10-08）
+
+**一轮目验结果（用户浏览器实测）**：需求2 ✅ 折叠 A 展开 B 不连带；需求4 ✅ 单条组默认折叠；需求1 ✗ 列序实测仍为 勾选→序号→展开（模板搬移无可见效果）；需求3 ✗ 返回分组页 = 初始状态（展开全收起）。
+
+**二轮根因（读源码核验，非推测）**：
+
+| # | 现象 | 根因事实 |
+|---|------|---------|
+| 需求1 | 模板搬移无效 | Element Plus 固定列渲染序 ≠ 声明序：`element-plus/es/components/table/src/store/watcher.mjs` `updateColumns` 按 `[fixed-left 组（声明序）] + [非 fixed 组] + [fixed-right 组]` 重排（`fixedColumns = filter(fixed∈[true,'left'])` → `originColumns = concat(fixed, notFixed, right)`，实测该文件 86-88 行区域）。展开列无 `fixed` → 沉入非固定组 → 可见序 = [勾选, 序号] + [展开…]，与用户实测逐字吻合。用例15 断言的是桩的声明序 → 假绿（桩/EP 语义漂移，A-49 同族问题） |
+| 需求3 | 「无 keep-alive 即重挂」假设错误 | `AssetDetails.vue:12` 的 `<router-view>` 无 `:key`；vue-router `h(ViewComponent, …)` 亦不带 key（`dist/vue-router.js:1107`）→ grouped 与 `:asset_code?` 两条子路由同组件、同 router-view 位置 → Vue patch 复用实例、setup 永不重跑 → `initialSnapshot` const 冻结为首挂时的 `null` → GAT 重挂走常规 `search()` 首载。此前把复用风险归因 keep-alive 的注释（`routes-main-core`）与真实机制不符；且 MainView keep-alive include 名与实渲染 vnode 名不匹配（死配置，登记 **BF-079**） |
+
+**二轮修复（R6/R7）**：
+
+| # | 变更 | 文件 |
+|---|------|------|
+| R6 | 展开列补 `fixed="left"`（左冻结栈 55+48+80=183px）；`GAT:41` 注释订正为「声明序仅在 fixed-left 组内生效，三列必须全为 left-fixed」；用例15 重写为 EP 重排口径断言 | `GroupedAssetTable.vue:41/60`、`GroupedAssetTable.spec.ts` |
+| R7 | 方案 A″：`AssetDetails` 的 `<router-view :key="childViewKey">`，`childViewKey = matched[findIndex('AssetDetails')+1].name`——grouped/详情互换必重挂，孙路由 assetform 不变 key（扁平→表单既有复用保留）；消费守卫 `props.enableGrouping && session.pendingRestore && session.snapshot`（分组→表单直跳时平铺挂载不摘旗）；`routes-main-core:44-49` 归因注释订正 | `AssetDetails.vue`、`AssetContentDetails.vue:200`、`routes-main-core.ts`（仅注释） |
+
+**二轮红绿取证（先证红后证绿）**：
+
+- **T-R1**：用例15 改为「按 EP 重排规则计算可见序后断言」→ 红（`expected '' to be 'left'`，333 行）→ R6 → 绿（GAT spec 18/18）。
+- **T-R2**：预置恢复旗 + `enableGrouping:false` 挂载 → 红（`expected false to be true`，现码提前摘旗）→ 消费守卫 → 绿（enableGrouping spec 21/21）。
+- **T-R3a**：真 router（`createMemoryHistory`，路径镜像真路由）grouped→详情→grouped 断言 setup 计数 =3 → 红（`expected 1 to be 2`，实例复用实证）→ key → 绿（AssetDetails spec 3/3）。
+- **T-R3b/c**（用户拍板要求的两条不变量锁，双侧绿）：b 扁平→assetform→扁平 ACD 层 setup 计数不变（防 key 误伤孙路由）；c 真 `setupAuthGuard` + 真 session store——分组→表单直跳与返回分组均保留恢复旗、出 `/main` 子树清除（guards.spec:278-291 为 mock 级同断言，此为真接线收口）。
+
+**二轮门禁（2026-10-08）**：前端三项 type-check / lint / format:check 全 exit 0；全量 vitest **153/153 files、2079/2079 tests** exit 0（较一轮 +4 用例 +1 文件）；coverage exit 0（statements 93.01 / branches 87.66 / functions 87.69 / lines 93.81，`src/stores` 97.85 / 92.39 / 94.37）；双护栏 PASS。变异：本轮改动（3 `.vue` + `routes-main-core.ts` 注释）均在 `stryker.config.json` mutate 射程（`src/stores/**` + `src/composables/useGroup*.ts`）**之外** → 82.29 基线沿用（CT-7 同工具链声明）。
+
+**T-R1 语义边界声明（用户拍板要求，如实标注）**：用例15 把 EP 重排规则镜像进测试，防的是「改回声明序 / 去掉 fixed」这类回归；**EP 升级若改变重排语义，本用例防不住**——最终裁决以浏览器目验为准，本节即为该层留痕。
+
+**二轮目验**：✅ 通过——用户浏览器实测（硬刷新）需求1 列序与左冻结三列、需求3 返回状态恢复均符合预期（回执 2026-10-08）；需求2/4 一轮已验 ✓ 且二轮改动不触及其路径。
+
+*登记人：opencode ｜ 状态：已关闭（门禁全绿 + 两轮浏览器目验闭环），2026-10-08*
+
+---
+
+## BF-079 【观察项·未修复】detail 路由 keepAlive + componentName 死配置：MainView keep-alive 的 include 名永不匹配实渲染 vnode，「扁平详情列表缓存」意图从未生效（登记来源：BF-078 需求3 二轮诊断附带发现，用户拍板「立账本条目、本次不动代码」）
+
+> **登记来源**：BF-078 二轮诊断中核验「返回分组页为何不重挂」时发现——当时旧注释把实例复用归因于 keep-alive，读码后确认真实机制是 router-view 无 key（已随 BF-078 §七 修复），而 keep-alive 侧则根本不匹配、从未缓存。用户拍板（2026-10-08）：**立账本条目登记观察，本次不改代码**——删 include 或删 keep-alive 涉及 MainView 缓存策略意图考证（波及 Contract/AssetType/Storage/User 等同构路由），与 BF-078 范围无关，登记观察项成本最低。
+
+### 〇、元信息
+
+- **登记日期**：2026-10-08
+- **来源**：BF-078 需求3 二轮诊断（读码核验）
+- **关键程度**：P3（当前零功能损伤——死配置等价于「不缓存」，行为可预期；风险在于未来依赖误解）
+- **影响范围**：零代码变更（纯登记）
+- **跨端契约**：无涉（纯前端路由配置层）
+
+### 一、事实（全部 file:line 可静态查证）
+
+| # | 事实 | 证据 |
+|---|------|------|
+| 1 | MainView 的 keep-alive include 列表 = 当前路由 matched 中 `meta.keepAlive` 记录的 `meta.componentName` | `MainView.vue:105-112` |
+| 2 | detail 路由声明 `keepAlive: true` + `componentName: 'AssetContentDetails'` | `routes-main-core.ts:68-69` |
+| 3 | keep-alive 按被缓存 vnode 的组件 `name`/`__name` 匹配 include；MainView 层 router-view 实渲染的 vnode 是容器 `AssetDetails`（`<script setup>` SFC 推导 `__name='AssetDetails'`，无显式 name） | `AssetDetails.vue`（无 name 选项）、Vue keep-alive include 匹配规则 |
+| 4 | `'AssetDetails' ≠ 'AssetContentDetails'` → **永不匹配 → 该子树从未被缓存**；grouped 路由无 keepAlive（include 空）时同样零缓存 | 1+2+3 推论 |
+| 5 | 连带影响：`routes-main-core` 旧注释曾把分组/扁平复用风险归因 keep-alive——所依赖的机制不存在；真实复用机制（router-view 无 key）已随 BF-078 R7 修复，注释已订正 | `routes-main-core.ts:44-52`（订正后）、`vue-router.js:1107` |
+
+**证据强度声明**：以上为静态读码 + 框架规则推论，**未做运行时断点/DevTools 缓存命中取证**（观察项级别，不值得为登记单独起运行时验证；若立项修复则修复前后各取一次运行时证据）。
+
+### 二、影响
+
+- 原始意图「平铺详情列表 keep-alive 缓存」从未生效：详情/子路由切换始终全新挂载。当前与 BF-078 分组会话快照机制无冲突（快照机制本就不依赖缓存）。
+- 隐藏坑：后续开发者若看到 `keepAlive: true` 而以为该子树有缓存并依赖之（如往组件实例塞状态期待跨路由存活），会踩空。
+
+### 三、处置（用户拍板）
+
+- **本次不动代码**：修复方向二选一——① 修匹配（为 AssetDetails 设显式 `name` 或改 componentName 对齐）② 删死配置（MainView include 与各路由 meta 同步清理）。两者都需先考证 MainView 缓存策略的原始意图及其对 Contract/AssetType/Storage/User 四条同构路由的影响，属独立小立项。
+- 关联：**BF-078 §七**（复用真相与注释订正）、BF-078 观察项②（已标注 keep-alive 实为死配置）。
+
+*登记人：opencode ｜ 状态：观察项（未修复，待立项考证后决定修匹配或删配置），2026-10-08*
