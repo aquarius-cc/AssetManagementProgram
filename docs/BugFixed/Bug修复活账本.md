@@ -5006,3 +5006,214 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 - 关联 BF-073（同批 A/B 批次产出）。
 
 *登记人：big-pickle ｜ 状态：已关闭（算术实算达标 + 单测/门禁绿；浏览器暗色目验未做，已如实标注），2026-10-07*
+
+---
+
+## BF-075 【已关闭】列表页 el-table 横向滚动条埋底 + 详情页 min-height:100vh 双滚动条——四模块同批布局修复（登记来源：style-optimization-proposal §4.7 新增 / §6.3 重写，执行 2026-10-08）
+
+> **登记来源**：`vue-assetmanagement/docs/style-optimization-proposal.md` §6.3（原建议条，本次按实际改动重写为修复记录）与 §4.7（本次新增记录）；起因为用户 UI bug 任务「列表页横向滚动条埋底」，方案经三轮迭代定为 v3（四模块 + 门禁 + 文档收尾）。
+> **性质说明**：**布局缺陷**（可用性受损，非功能断裂），纯前端模板/样式层修复，无 API 与枚举变更。
+
+### 〇、元信息
+
+- **登记日期**：2026-10-08
+- **来源**：style-optimization-proposal §6.3/§4.7 + EP 2.13.7 源码取证
+- **关键程度**：P1（16 个 CommonList 列表页 + 分组汇总/子表 + 8 个详情页站点 + 2 个系统页，合计 ~27 页受影响）
+- **影响范围**：`CommonList.vue`、`GroupedAssetTable.vue`、`GroupedAssetChildTable.vue`、`common-forms.scss`、6 个详情 .vue、`UnregisteredAssetBasicDetails.scss`、`BasicAssetDetails.scss`、`RoleManage.vue`、`AuthUserManage.vue` 及 4 个 spec（含新建 `asset/__tests__/GroupedAssetChildTable.spec.ts`）+ 孤儿 spec 修复
+- **跨端契约**：无影响（纯前端；无端点/字段/枚举变更 → **无需重导出 schema 基线**）
+
+### 一、问题现象
+
+1. 16 个列表页 el-table 横向滚动条锚在页面内容最底端，须先纵向滚到底才能拖动（本条主诉）。
+2. 资产分组汇总表与其展开子表同型：横条埋在展开区内容底部。
+3. 8 个详情页站点双滚动条：父容器 `AssetDetails.vue` 已 `height:100% + overflow-y:auto`，页面自身仍 `min-height:100vh`。
+4. `RoleManage` / `AuthUserManage` 视口级 `100vh` 与 `.common-main{overflow:hidden}` 冲突：内容在主区外溢而非主区内自滚。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 列表页横条埋底 | el-table 未钉 height → EP 根 `height: fit-content`（EP `theme-chalk/src/table.scss:15`），body-wrapper = 内容全高；横条 `position:absolute; bottom:2px`（`scrollbar.scss:58/:60`），而纵向滚动发生在祖先容器 → 横条随内容沉底 |
+| 2 | 修复路径约束 | EP `style-helper.mjs:191` `props.height` 分支直接返回 `{height:"100%"}` 无扣减；`:192` 数值 maxHeight 走减法；`:193` 字符串 maxHeight 走 `calc(值 - 表头)` —— 百分比入 calc 无参照系 = 双重扣减死带，故**弃用百分比 max-height、子表取数值 500** |
+| 3 | CSS-only 不可行 | 无 height/max-height prop 时 EP `updateScrollY` 因 `layout.height=null` 直接返回（前置会话取证 `table-layout.mjs:29-35`）→ 必须用 EP prop，不能纯样式钉 |
+| 4 | 详情页双滚 | mixin `common-forms.scss:127` `min-height:100vh` + 7 处本地同值冗余覆盖，均与父容器自滚叠加 |
+| 5 | 系统页偏差（执行中发现） | `routes-main-system.ts:156/:168` 两页 `showPageHeader:true` → `.common-main` 内页头/面包屑为先行 flex 兄弟，`height:100%` 会把页面顶出被 `overflow:hidden` 裁掉（原计划字面写法有缺陷） |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| M1 | el-table 钉 `height="100%"`（单一咽喉点，覆盖 16 页）；spec stub 补 `height` prop + 新增回归断言 | `CommonList.vue:20`、`CommonList.spec.ts:109-113`、`CommonList.selection.spec.ts` |
+| M2 | 分组汇总方案 A：根盒 flex/overflow（`:284/:286`）+ `__body` 包裹层 `flex:1;min-height:0;overflow:auto`（`:25/:291-292`）+ 表 `height="100%"`（`:34`）+ 分页 `flex-shrink:0`（`:350-351`）；子表 `max-height="500"`（`:36`）；汇总 spec 新增 3 断言，新建子表 spec | `GroupedAssetTable.vue`、`GroupedAssetChildTable.vue`、`GroupedAssetTable.spec.ts`、**新** `asset/__tests__/GroupedAssetChildTable.spec.ts` |
+| M3 | mixin `:127` → `min-height:100%`（8 处 include 统一生效）；删 7 处本地冗余 `100vh`；无 mixin 的 `BasicAssetDetails.scss:7` → `100%` | `common-forms.scss`、6 详情 .vue、`UnregisteredAssetBasicDetails.scss`、`BasicAssetDetails.scss` |
+| M4 | `min-height:100vh` → `flex:1; min-height:0; overflow-y:auto`（对根因 5 的修正形，占页头下剩余空间、自滚、横条可达） | `RoleManage.vue:279`、`AuthUserManage.vue:345` |
+| M5 | 门禁阶段发现的孤儿 spec 修复（方案 A，用户拍板）：按同目录 EP stub 模式重写，4 条占位/崩溃用例全部转真断言 | **新** `__tests__/GroupedAssetTable.statusTag.spec.ts`（untracked，从未入库） |
+
+### 四、对抗审核
+
+- **行号漂移**：上表全部 `file:line` 为本日 `rg` 实测（CommonList:20、GAT:25/34/284/286/291-292/350-351、child:36、common-forms:127、RoleManage:279、AuthUserManage:345、routes-main-system:156/168、EP table.scss:15、scrollbar.scss:58/60、style-helper.mjs:191/192/193、defaults.mjs:77、CommonList.spec:109-113）。
+- **计划偏差两处（均已向用户显式报告）**：① M4 原计划 `height:100%`，实测 `showPageHeader:true` 兄弟节点事实后改 flex 等价形；② 孤儿 spec 经 `git stash` HEAD 对照证明**非本批回归**、`git log --all` 无记录、创建时间 13:23:55 落在 coverage 窗口但全仓无写文件测试代码 → **创建者无法确认（Fact-1）**，未臆断。
+- **同类重复登记**：`rg "滚动条|min-height: 100vh|100vh" 活账本` 0 命中，无既有条目。
+- **契约影响**：无请求/响应形状变更；schema 基线无需重导出（纯前端样式/模板）。
+- **变异测试豁免**：经用户拍板（2026-10-08）——本批仅 template/styles/specs，与 stryker 范围（`src/stores/**`、`src/composables/useGroup*.ts`）零交集。
+- **验证边界（诚实标注）**：全部自动化门禁已执行（见五）；**浏览器视觉目验未执行**，`min-height:100%` 在 auto-height 父级的退化、固定列表格 tooltip 定位 `[推测]` 两项依赖目验，见六。
+
+### 五、验证记录
+
+```text
+① 模块级 vitest：M1=24 passed、M2=15 passed、M3 相关 74 passed、孤儿 spec 修复后 4/4 passed ✅
+② 前端三项：type-check exit 0 / lint exit 0（--fix 无额外改动）/ format:check exit 0 ✅
+③ build（SCSS 真编译，含 M3 mixin 修改）：成功 ✅
+④ 全量 test:coverage：exit 0，150/150 files、2049/2049 tests；
+   statements 92.97% / branches 87.62% / functions 87.64% / lines 93.78%（整体≥80 ✓，stores 90 glob 无 threshold error）✅
+⑤ 残留 grep：detils/ 下 min-height:100vh = 0；RoleManage/AuthUserManage 100vh = 0 ✅
+⑥ 浏览器视觉验收：未执行（无浏览器工具），清单见六
+```
+
+### 六、遗留与关联事项
+
+- **[待确认] 视觉验收清单**（需浏览器执行）：≥2 个代表页长短表格各一（短表格背景变化波及全部 16 页）；分组汇总+子表横条位于可视底边、固定列、三态复选、分页完好；详情页无双滚动条；RoleManage/AuthUserManage 矮页填满/高页可达/窄窗内滚可达；固定列 + show-overflow-tooltip 表格内滚时 tooltip 定位 `[推测]`；`min-height:100%` 在 auto-height 父级是否退化。**2026-10-08 尝试执行受阻**：computer-use 运行时（PowerShell `Add-Type`）被 Machine 级 `LIB` 失效路径（`C:\Program Files\MySQL\MySQL Server 8.0\lib`，目录不存在）打断，且该环境固化于 8:37 启动的 Orca 常驻进程组——修复需重启 Orca（会终止当次会话），经用户裁定改期人工目验，继续挂账。
+- **暂缓项 1（本次刻意不动）**：`common-forms.scss:23` form-container 的 `min-height:100vh`（约 5 站点），需逐父级审计后另立任务。
+- **暂缓项 2**：RoleManage/AuthUserManage 表格 fit-content 不吃满根高的同权优化（与列表页 CommonList 形态对齐）。
+- 孤儿 spec `GroupedAssetTable.statusTag.spec.ts` 创建者无法确认（见四）；文件为 untracked，本次方案 A 修复后随批提交入库。
+- 关联登记：`style-optimization-proposal.md` §4.7 新增 / §6.3 重写 / 优先级表 P1 布局缺陷行标注；`complete-patterns.md` **A-48**（v2.9.57，「详情页样式块重复 mixin」值级重复已关闭）。
+
+*登记人：opencode ｜ 状态：已关闭（四模块落地 + 门禁全绿；浏览器目验与两项暂缓未做，已如实标注），2026-10-08*
+
+---
+
+## BF-076 【已关闭】详情页状态列缺值 StatusTag 告警 + 分组子表 el-pagination 弃用属性 small——同一展开验收会话双修复（EP 渲染告警域，用户裁定合并登记）
+
+> **登记来源**：BF-075 手工验收会话衍生（用户先回执「告警消失」，随后展开分组发现 el-pagination 弃用告警；两条同属「EP 渲染告警」根因域、同一验收会话，经用户裁定合并为本条）。
+> **性质说明**：纯前端模板层防御/兼容修复，无 API、枚举、样式视觉变更（`size="small"` 与布尔 `small` 在 EP 内部产出同一 `_size` 值）。
+
+### 〇、元信息
+
+- **登记日期**：2026-10-08
+- **来源**：用户手工验收 Console 输出 + EP 2.13.7 实装源码取证（声明 `^2.10.5` / 实装 `2.13.7`）
+- **关键程度**：P2（①防御性消噪 + 契约金丝雀保留；②第三方弃用告警，EP 3.0.0 将移除）
+- **影响范围**：`AssetContentDetails.vue`（2 插槽）、`GroupedAssetChildTable.vue`（1 属性）、2 个 spec；受影响页面 = 资产详情页平铺/分组两态 + 全部分组展开场景
+- **跨端契约**：无影响（纯前端模板；无端点/字段/枚举变更 → 无需重导出 schema 基线）
+
+### 一、问题现象
+
+1. 展开资产分组时 Console 出现 `[StatusTag] Invalid status "undefined"` 告警（BF-075 验收会话中发现，证据回顾确认后端 `group_children` 全部行含 `asset_current_status: "in_store"`，数据链路无缺失）。
+2. 同一会话点击展开图标后新增：`[el-pagination] [API] small is about to be deprecated in version 3.0.0, please use size instead`（堆栈落在 `useDeprecated → watch.immediate → debugWarn`）。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | StatusTag 缺值告警 | `AssetContentDetails.vue` 两处 `#asset_current_status` 插槽将 `row.asset_current_status` 直传 `StatusTag`，缺值时 `props.status=undefined` → `StatusTag.vue:62-66` `Object.keys(map).includes(undefined)` 判否 → `logWarn`。**观测真源的证据链在修复前未钉死**（汇总行不消费该槽——`AssetGroupSummary` 无此字段且汇总列走 `summaryCell` 文本渲染；6 组 children 全有值），属防御缺口（陈旧状态/异常路径兜底） |
+| 2 | `?? 'unknown'` 方案否决 | `'unknown'` 不在 `ASSET_STATUS_MAP` 键集，传入仍触发 logWarn（仅改文案）→ 唯一零告警解是 v-if 条件渲染（不实例化），同时保留金丝雀：真值但未映射的新状态仍会 logWarn |
+| 3 | el-pagination 弃用告警 | `GroupedAssetChildTable.vue:89` 裸布尔属性 `small` → EP `pagination.mjs:120-122` `useDeprecated({...}, computed(() => !!props.small))` immediate watch 即告警；**存量代码**（真分页子表提交引入，非 BF-075 批回归——该批仅改本文件 `:36` max-height），在本批展开验收时首次被观察到 |
+| 4 | 等价性依据 | EP `pagination.mjs:115` `_size = computed(() => props.small ? "small" : props.size ?? _globalSize.value)` → `size="small"` 与布尔 `small` 产出同值 `"small"`，视觉零变化；仓内先例 `DepartmentEmployeeList.vue:183` 已用 `size="small"` |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| R1 | 两插槽加 `v-if` 守卫 + `—` 占位（缺值不实例化 StatusTag，零告警；占位与项目 NULL_DISPLAY 形制一致）；守卫收口渲染出口，链路不加映射（DR-1，避免第二状态处理点） | `AssetContentDetails.vue:35-36`（分组槽，经真实 GAT `$slots` 转发覆盖子行）、`:88-89`（平铺槽） |
+| R2 | 裸 `small` → `size="small"`（全仓裸 `small` 站点仅此一处，`^\s+small\s*$` 单命中） | `GroupedAssetChildTable.vue:89` |
+| R3 | CT-4 回归屏障：① enableGrouping.spec 补 `vi.mock('@/utils/logger')`（importOriginal 兜底，logWarn/logError 收 spy）+ 可变行源 `activeRows`/`activeChildRows` + GAT 桩 `$slots` 透传渲染 + 两条缺值用例（平铺 `:284`、分组 `:299`）；② child spec 补分页属性用例（`:70`，组件级 `findComponent` 断言 `size="small"` 且无 `small` 属性，复用 `total:120` 既有夹具） | `AssetContentDetails.enableGrouping.spec.ts`、`GroupedAssetChildTable.spec.ts` |
+
+### 四、对抗审核
+
+- **分组用例落点偏差（对批准计划的一处修正，已报告）**：原计划分组子行用例放 `statusTag.spec`——实查该文件 `:167-168` 的插槽是**复刻副本**（`?? ''` 包装），在彼处断言锁的是桩而非生产代码（CT-4「绿而无效」陷阱）。改放 enableGrouping.spec：GAT 桩以 `$slots` 透传渲染真实 AssetContentDetails 模板，语义对齐真实 `GroupedAssetTable.vue:45-47` 转发。
+- **先红后绿两轮实证**：① StatusTag——`git stash` 仅还原本组件（HEAD=修复前）→ 2 条新用例 FAIL（StatusTag 数 3≠2 / 2≠1，既有 14 条不受扰）→ pop → 16/16 绿；② 分页——先加用例跑红（`attributes('size')` 收 undefined，spec:74 FAIL）→ 改属性 → 绿。
+- **行号漂移**：全部 `file:line` 为本日实测（插槽 :35-36/:88-89、child :89、spec :70/:284/:299、EP pagination.mjs:115-122、DepartmentEmployeeList:183）；修复后裸 `small` 残留 grep `^\s+small\s*$` = **0**。
+- **影响面**：无任何 spec 断言 `small` 属性（仅 `cache.spec.ts` 含无关 "small" 词）；既有分页断言只查 `.child-pager` 存在性，不受影响——实测 4 spec 36 passed 佐证。
+- **同类重复登记**：活账本 `rg "Invalid status|about to be deprecated"` 登记前 0 命中（无既有条目）；非重复代码模式，`complete-patterns.md` 无需登记（G-1~G-5 不适用）。
+- **契约影响**：无；schema 基线无需重导出。**变异测试豁免**：沿用 2026-10-08 用户拍板口径（template/specs 与 stryker 范围零交集；门禁值 80 出处 `stryker.config.json:15-19`）。
+
+### 五、验证记录
+
+```text
+① 先红后绿×2（见四，含 stash 对照与 spec:74 红态输出）✅
+② 定向 vitest：child/GAT/statusTag/enableGrouping 4 文件 36 passed ✅
+③ 前端三项：type-check exit 0 / lint exit 0 / format:check exit 0 ✅
+④ 全量 test:coverage：exit 0，150/150 files、2052/2052 tests（2051+1 新增）；
+   statements 92.97% / branches 87.62% / functions 87.64% / lines 93.78%（≥80 ✓）✅
+⑤ 手工验收（用户 Console 回执）：① StatusTag 告警确认消失（2026-10-08 回执，
+   据此因果闭环——观测告警确系本页插槽出口之一）；② el-pagination 告警确认消失
+   （2026-10-08 用户「验收通过」同批涵盖回执，见 BF-077 §五⑦）
+```
+
+### 六、遗留与关联事项
+
+- **[✅已回执] ②号告警**：2026-10-08 用户「验收通过」同批涵盖本项（告警消失、分页条尺寸观感不变），回执记录见 BF-077 §五⑦。
+- **可疑路径留档**：若 StatusTag 告警再现，按 module 字段排查 `AssetLogsView.vue:51`（`item.status`，经 `getAssetTimeline` 映射）与 `ScanAssetView.vue:45`——本次未动（用户回执消失后主诉已闭环）。
+- **计划偏差存档**：分组用例落点由 statusTag.spec 改为 enableGrouping.spec（见四，理由充分且已报告）。
+
+*登记人：opencode ｜ 状态：已关闭（①②均已回执消失，2026-10-08 同批验收涵盖），2026-10-08*
+
+---
+
+## BF-077 【已关闭】详情页二维码恒 404：getQrCodeImageUrl 漏写 router 前缀层，单层 /assets/ 不匹配真实 /assets/assets/ 路由（登记来源：用户详情页报障 Console 404，Q-03 收敛产物后续修正）
+
+> **登记来源**：用户报障「详情页二维码不显示，Console `GET .../qr-code-image/ 404`——没生成还是生成了没取到？」；系审查报告 Q-03（2026-09-26 收敛至 API 层）产物的后续缺陷，双向交叉引用见 `docs/Review/opencode-2026-09-25-检查报告.md` 修复追踪 Q-03。
+> **性质说明**：纯前端 URL 构造修复（构造器 1 行 + 注释），后端零改动，无 API/枚举/响应结构变更。
+
+### 〇、元信息
+
+- **登记日期**：2026-10-08
+- **来源**：用户手工验收 Console 输出 + Django 路由层 curl / `reverse()` 双分实测
+- **关键程度**：P2（详情页二维码展示与下载整链路不可用；资产主数据流不受影响）
+- **影响范围**：`src/api/asset.ts:373/:375-376/:381`（构造器与注释）、`src/api/__tests__/asset.spec.ts:211`（断言）
+- **跨端契约**：无破坏——前端向后端既有 `reverse()` 真实路由对齐；后端零改动（`git status --short asset_management_backend` 为空）→ 无需重导出 schema 基线
+
+### 一、问题现象
+
+1. 详情页二维码区域空白，Console：`GET http://localhost:5173/api/v1/assets/ASSET-20261004-3D35550B/qr-code-image/ 404 (Not Found)`。
+2. 用户设问「未生成 or 已生成未取到」——实测**两者皆否**（见根因 #4：该端点按需实时生成、无存量图片；404 发生在路由层，请求未进视图、未到生成环节）。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 真实路由为双 `assets` 段 | `config/urls.py:159` `path("api/v1/assets/", include(...))` + `apps/assetmanagement/urls.py:49` `router.register(prefix="assets", ...)` 自带 `^assets/` 前缀 → `manage.py shell` 实测 `reverse('assets-qr-code-image')` = `/api/v1/assets/assets/ASSET-X/qr-code-image/` |
+| 2 | 构造器漏一层 | 修复前 `asset.ts:379` 写 `${BASE_URL}/assets/`（单层）→ 拼出 `/api/v1/assets/{code}/qr-code-image/`，Django 解析层不匹配 → DEBUG 技术 404（curl 实测 `text/html`、99355 字节、`Page not found at ...`），**未达 get_object、未达生成环节** |
+| 3 | 全站孤例 | 全仓 `/assets/assets/` 字面量 98 处、跨 9 文件（`asset.ts:92/:129/:157` 等），唯原 QR 构造器为单层；且 `<img src>` 不经 request 实例（原注释 `:374`），request 层路径校验覆盖不到该 raw 拼串 |
+| 4 | 二维码按需生成 | PNG 由 `asset_service.py:380-407 generate_qr_code_image` 请求时实时生成，无落库无存量 → 「生成了没取到」不成立；`qr_code` 字段（`models/asset.py:208`）存扫码内容 JSON，与本端点无关 |
+| 5 | 认证非因 | 登录设 `asset_access_token` Cookie（`cookie_utils.py:38`，SameSite=Lax `config/settings/base.py:250`）同域自动携带；双前缀探测返回 401 JSON（已达视图认证层）佐证 404 属路由层而非鉴权层 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| R1 | CT-4 先红：断言期望改双层 `https://api.test/api/v1/assets/assets/RC001/qr-code-image/` | `asset.spec.ts:211` |
+| R2 | 构造器 `${BASE_URL}/assets/` → `${BASE_URL}/assets/assets/`；同步修正 JSDoc 端点 URL 并加双段来历注释（config 挂载点 + router 前缀） | `asset.ts:373/:375-376/:381` |
+| R3 | 调用点全量 grep `getQrCodeImageUrl` = 5 处（实现 1、store 代理 1、消费 1、断言 1、接口声明 1），单一出口确认，改断言一处即覆盖 | — |
+
+### 四、对抗审核
+
+- **先红后绿实证**：改期望 → targeted vitest **1 failed**（红态原文 `Expected: .../assets/assets/RC001/...` / `Received: .../assets/RC001/...`，`asset.spec.ts:211`）→ 修构造器 → **22/22 passed**。
+- **行号漂移**：全部 `file:line` 为修复后/当日实测（`asset.ts:381` return、`:373` 注释、`asset.spec.ts:211`；根因侧 `config/urls.py:159`、`assetmanagement/urls.py:49`、`asset_service.py:380-407`、`models/asset.py:208`、`cookie_utils.py:38`、`base.py:250`）。
+- **残留扫描**：raw `BASE_URL}` 构造器全仓 4 处复核——`asset.ts:381` ✓ 双层；`tokenRefresh.ts:79/:116` `/auth/token/refresh/` 实测 `GET → 405`（路由存在、POST-only，正确）；`useNotificationConnection.ts:80` 为 WS 非 HTTP。修复后单层 `/assets/` raw 拼串 **0 处**。
+- **同类重复登记**：活账本 `rg "qr-code-image|二维码"` 登记前 0 命中；URL 缺层是缺陷而非重复模式，`complete-patterns.md` 不登记（G-1~G-5 不适用，同 BF-076 口径）。
+- **交叉引用**：审查报告「修复追踪 Q-03」已追加后续修正行 + 修正段，与本条互指；Q-03 收敛本身成立，缺陷在收敛产物的路径字面值。
+- **变异测试**：stryker 范围（`src/stores/**` + `src/composables/useGroup*.ts`，`stryker.config.json:8-19`）与本次文件零交集 → 沿用 2026-10-08 用户拍板豁免口径。
+- **契约影响**：无；schema 基线无需重导出（后端零改动）。
+
+### 五、验证记录
+
+```text
+① 先红后绿：targeted vitest 改期望后 1 failed（Received 单层 / Expected 双层）→ 修构造器后 22/22 passed ✅
+② 前端三项：type-check exit 0 / lint exit 0 / format:check exit 0 ✅
+③ 全量 vitest run：150/150 files、2052/2052 tests，exit 0 ✅
+④ 全量 test:coverage：exit 0；statements 92.97% / branches 87.62% / functions 87.64% / lines 93.78%（≥80 ✓）✅
+⑤ 路由双分实测（修复前取证）：单前缀 /api/v1/assets/{code}/qr-code-image/ → 404 HTML；
+   双前缀 /api/v1/assets/assets/{code}/qr-code-image/ → 401 JSON；
+   reverse('assets-qr-code-image') = /api/v1/assets/assets/{code}/qr-code-image/ ✅
+⑥ 残留 grep：raw BASE_URL 单层 /assets/ 拼串 0 处 ✅
+⑦ 手工验收：✅ 已回执（2026-10-08 用户验收通过——二维码显示、下载可用、Console 无 404；
+   同批验收涵盖 BF-076② 分页告警项）
+```
+
+### 六、遗留与关联事项
+
+- **[✅已回执] 手工验收**：2026-10-08 用户验收通过（二维码显示、下载可用、Console 无 404）；同批验收涵盖 BF-076②。
+- **观察项① 双 `assets/assets/` URL 形态**：系 config 挂载点与 router 注册前缀叠加的历史 wart（`config/urls.py:159` + `apps/assetmanagement/urls.py:49`）；修正需动任一侧挂载 = **§3 跨端契约变更（HALT）**，且全仓 98 处字面量与后端 reverse 测试均依赖现状 → 本次不动，留档待架构决策。
+- **观察项② 陈旧注释缺 `v1`**：JSDoc 中 `/api/assets/`（应为 `/api/v1/assets/`）**48 处、跨 13 文件**（`asset.ts` 15、`contract.ts` 6、`lostAsset.ts` 5、`repairAsset.ts` 5、`outAsset.ts` 4、`harddiskSn.ts` 3、`recycleAsset.ts` 3、`assetType.ts` 2、`damagedAsset.ts` / `storage.ts` / `wasteAsset.ts` / `types/operationlog.ts` / `types/recycleasset.ts` 各 1）——纯注释不改行为，不属本票范围，待批后统一刷新（用户最初提示 `:97/:118` 两处，实测全量 48 处）。
+
+*登记人：opencode ｜ 状态：已关闭（自动化门禁全绿 + 手工验收已回执 2026-10-08），2026-10-08*
