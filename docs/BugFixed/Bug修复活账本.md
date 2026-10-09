@@ -5364,3 +5364,103 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 - 关联：**BF-078 §七**（复用真相与注释订正）、BF-078 观察项②（已标注 keep-alive 实为死配置）。
 
 *登记人：opencode ｜ 状态：观察项（未修复，待立项考证后决定修匹配或删配置），2026-10-08*
+
+---
+
+## BF-080 【已关闭】分组子区固定操作列缩窗遮挡：父汇总表横滚裁掉展开行右段，子表 sticky 钉在屏幕外的子滚动口（登记来源：用户目验报障，根因读源码核验）
+
+> **登记来源**：用户目验报障（2026-10-09）——窗口缩小到一定量后，group-children 子区的固定操作列（fixed=right）被遮挡，左右滑动**子表**滚动条也不出现；父汇总表的固定操作列却始终贴屏幕右缘。
+> **性质**：纯前端布局缺陷；后端零改动 → 四项跨端契约无涉，schema 基线无需重导出。
+
+### 〇、元信息
+
+- **登记日期**：2026-10-09
+- **来源**：用户浏览器目验
+- **关键程度**：P2（组内操作入口可达性；不触资产主数据流）
+- **影响范围**：vue 子仓 3 文件（`useGroupedAssetColumns.ts`、`GroupedAssetTable.vue`、其 spec）
+- **跨端契约**：无破坏——纯前端列宽数值与测试
+
+### 一、现象
+
+窗口缩至约 1400px 以下时，子区操作列被裁出屏幕；子表横滚条滑到底也救不回来；同窗口下父汇总表操作列正常贴右。
+
+### 二、根因（嵌套滚动口裁剪，读源码核验非推测）
+
+| # | 事实 | 证据 |
+|---|------|------|
+| 1 | EP 固定列 = `position: sticky` + 内联 `right:0`——sticky 只对**最近的滚动口**生效 | `element-plus/theme-chalk/src/table.scss:338`；`table/src/util.mjs:318 getFixedColumnOffset` |
+| 2 | 父汇总表 Σ 列宽 = 1193 + 页面开销 ≈233px（侧栏200+主区16+滚动条17）→ 窗口 ≲1426px 时父表内容超宽、自身出横滚 | 列宽实测；`GroupedAssetTable.vue:358-361` `.grouped-asset-table__body { overflow:auto }` |
+| 3 | 展开行 td colspan = 全表内容宽 → 父横滚时其右段被父滚动口裁出屏幕，子表滚动口右缘随之在屏幕外 | EP 展开行结构 |
+| 4 | 子表 sticky 操作列钉在**子滚动口右缘**（屏幕外）；子表自己的滚动条只移内容、移不动滚动口本身 → 怎么滑都不出现 | sticky 规范 + 1~3 推论，与用户实测吻合 |
+| 5 | 父表操作列正常，因父滚动口右缘 = 屏幕右缘 | 对照现象 |
+
+### 三、修复（列宽预算，Σ 1193 → 1031）
+
+| # | 变更 | 文件 |
+|---|------|------|
+| R1 | 汇总数据列压缩：contract 150→128、name 180→144、spec 180→144、brand 120→96、price 140→112；**asset_count 100 不动**（数量胶囊）；汇总表 tooltip 保持（扫描面不换行，与前轮口径一致） | `useGroupedAssetColumns.ts` |
+| R2 | 汇总序号 80→64（与子表同款），模板注释留痕 | `GroupedAssetTable.vue:91` |
+| R3 | **预算回归锁（CT-4）**：GAT spec 新用例 `mountTable()`（默认空汇总，子表列零渲染污染）→ 读**模板真实渲染 props** `Σ(width || minWidth) ≤ 1031`——composable 列集与模板硬编码结构列（55/48/64/140）同口径计数，加列/加宽/序号回改即红；`ElTableColumnStub` props 补 `minWidth`（1 行） | `GroupedAssetTable.spec.ts` |
+
+**预算物理式**：`Σ1031 + 开销≈233 → 父横滚阈值 ≈1264px`——1280/1366 常规窗口父表不出横滚 → 展开行恒在屏内 → 子表 sticky 行为与父一致；折叠侧栏再 +136px。富余宽度由 fit 摊回长文本列，全屏观感更宽。
+
+**否决留痕**：① 子区整体 sticky 右移——整块子区会相对汇总列左移错位、与父固定左列叠放语义冲突；② 重构 EP 展开结构（子表抽离展开行）——改动面过大。
+
+### 四、对抗审核（先红后绿）
+
+- **红①（结构列计数证明，用户补充关切点）**：序号临时回 80 → 预算用例红 `expected 1047 to be ≤ 1031` → 恢复 64。
+- **红②（composable 计数）**：name 临时回 180 → 红 `expected 1067 to be ≤ 1031` → 恢复 144。
+- **绿**：恢复后 GAT spec 19/19、全量 2081 全绿。
+- **测试面**：`useGroupedAssetColumns.spec` 只锁 label、GAT spec 原无宽度断言（grep 实证）→ 改宽度零回归冲突。
+- **断言口径**：读渲染 props 而非常量——不为测试重构模板字面量为共享常量，且更贴现实（模板被改回即红）。
+
+### 五、验证记录
+
+```text
+① 前端三项：type-check 0 / lint 0 / format 0（首轮 format 红 → prettier --write 修复复绿）✅
+② 全量 vitest：153/153 files、2081/2081 tests，exit 0（+1 预算用例）✅
+③ 复杂度：eslint complexity ≤ 10 → 0（三改动文件）✅
+④ 变异（CT-7 全量补跑，2026-10-09）：`npm run test:mutate` → **82.35 ≥ 80**，24min10s，exit 0（基线 82.29 → +0.06，新预算用例增杀 mutant）✅
+⑤ 浏览器目验：一审回执 2026-10-09——1366/1280 全屏第 1/2 项通过；≲1264（侧栏展开）第 3 项**否决**（要求子操作列与父组同机制常驻贴右）→ 见 §七 二轮
+```
+
+**CT-7 变异声明**：`useGroupedAssetColumns.ts` **匹配** `stryker.config.json` mutate 模式 `src/composables/useGroup*.ts`（非射程外），故本轮已按 `package.json` 声明工具链**全量复跑** `npm run test:mutate`：**82.35 ≥ 80**，exit 0（2026-10-09 实测）。
+
+### 六、遗留与边界
+
+- **~~物理下限~~（一轮结论，已被二轮推翻，2026-10-09 留痕）**：原判「≲1264px 遮挡复现为列集总宽所限、无法压到 0，1024 级需另行点单」——**一审目验否决**（用户拍板：任意宽度下子区操作列必须与父组操作列同机制常驻贴右），二轮以面板锚定消除，见 §七；「1024 另行点单」边界同步作废。
+- **[✅已闭环] 目验**：一审 1/2 通过、3 否决 → 二轮面板锚定修复后用户回执**通过**（2026-10-09，清单①-④见 §七），本条翻转【已关闭】。
+- **关联**：**BF-078 §七**（同表格嵌套链路的上一轮根因）、B1 轻压（子表阈值）、方案书 **§3.12.12 补三行/补四行**。
+
+### 七、二轮修复（2026-10-09：目验否决物理下限 → 面板锚定，任意宽度子操作列常驻）
+
+**根因再定位（读源码复核，非推测）**：
+
+| # | 事实 | 证据 |
+|---|------|------|
+| 1 | EP 固定列 `position: sticky !important` + `z-index: calc(var(--el-table-index)+1)`，钉**最近滚动口** | `element-plus/theme-chalk/src/table.scss:330-340` |
+| 2 | 展开格 `td.el-table__expanded-cell` 无 overflow 裁剪（仅背景） | `table.scss:104-105` |
+| 3 | 父横滚发生在 **EP 内部滚动口**（el-table 盒宽恒 100%，Σ1031 溢出在 EP wrap 内）；`.grouped-asset-table__body` 自身不横滚 | `GroupedAssetTable.vue` 样式段 + 一审红态实证 |
+| 4 | 子操作列钉**子表自滚动口**（`max-height=500` 的 body-wrapper）右缘——该口随面板被裁出屏即失守 | `GroupedAssetChildTable.vue:36,80` |
+
+**结论**：子表滚动口右缘 ≡ `.group-children` 面板右缘 → 只要面板恒 ≤ 可视宽，子表 sticky 即与父列同机制贴屏右。**修面板，不动子表、不动列宽，一轮预算锁零触碰。**
+
+**修复（方案甲，纯 CSS 2 行）**：
+
+1. `.grouped-asset-table__body` += `container-type: inline-size`——cqw 值恒等于该容器内容盒宽 = EP 滚动口可视宽；`inline-size` 不含 block 轴，`flex:1/min-height:0`/分页链路不受影响（containment 理论核验 + 目验③回归）。
+2. `.group-children` += `position: sticky; left: 0; width: min(100cqw, 100%)`——宽屏（未横滚）取 `100%` = td 内容宽，与一审通过项**逐像素一致**；窄屏取 `100cqw` 收为可视宽 → 子表滚动口全在屏内，子操作列、子左列同步免遮挡。
+
+**补充核验（用户三点补充落位）**：
+- **右缘溢出**：`global-reset.scss:9-13` 对 `*` 全局 `box-sizing: border-box`，面板 padding16 + border4 含于宽度、无 margin（`.child-wrap` 亦无）→ 右缘**零像素溢出**；残余 ≤32px 缝仅在 `visible∈(999,1031)` 且已滚动时出现，露 `expanded-cell` 不透明底（非内容渗漏），归目验①观察。
+- **containment 安全**：`inline-size` 仅行内轴，`flex:1/min-height:0` 高度链与分页条无涉（目验③覆盖）。
+- **锁口径**：jsdom 无布局 → `?raw` 读 SFC 源断言三关键串 + 目验兜底，诚实组合。
+
+**CT-4 源码锁（先红后绿）**：红证 = 临时删 `width: min(100cqw, 100%)` 行 → `AssertionError: expected '<!--...' to contain 'min(100cqw, 100%)'` → 恢复后 20/20 绿。首版 `import.meta.url` 路径方案因 vitest 下非 file scheme 报 `TypeError: The URL must be of scheme file`，改 `?raw` 导入修复（机制红亦留痕）。
+
+**二轮门禁（2026-10-09 实测）**：前端三项 type-check / lint / format **0/0/0**；complexity ≤10 → 0；全量 vitest **153/153 files、2082/2082 tests** exit 0（+1 源码锁）；变异：改动为 `.vue` 样式 + spec，在 `stryker` 射程（`src/stores/** + src/composables/useGroup*.ts`）**之外** → **82.35 基线沿用**（CT-7 声明）。
+
+**[✅] 二轮目验：通过**——用户浏览器实测回执「通过」（2026-10-09）：① 侧栏展开 1280/1024 子操作列贴屏右可点；② 全屏与一审通过态一致；③ 父横滚/分页/子表横滚/勾选/编辑正常；④ 暗色模式正常。
+
+**回退预案**：目验若发现 cq 异常 → 方案乙 `ResizeObserver → --gat-visible-w`，宽度改 `min(var(--gat-visible-w), 100%)`，其余不变。
+
+*登记人：opencode ｜ 状态：已关闭（两轮门禁全绿 + 双红/源码锁取证 + 两轮浏览器目验闭环），2026-10-09*
