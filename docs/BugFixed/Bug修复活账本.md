@@ -3839,22 +3839,24 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 *登记人：opencode ｜ 状态：0a 已落地并本地验收通过，0b 待 CI 首跑（31 store 全量得分与耗时），2026-09-29*
 
 
-## BF-061 【待修复】ci-summary 漏判两个 mutation job——红灯不阻断，存在假绿通道 2026-09-29
+## BF-061 【已关闭】ci-summary 漏判两个 mutation job——红灯不阻断，存在假绿通道 2026-09-29
 
 ### 〇、元信息
 
 - **登记日期**：2026-09-29
 - **来源**：CI 门禁失效排查（方案见 `Bug待修复计划-20260929.md` §1-A③、§3.4）
 - **关键程度**：P1（合并闸门存在缺口）
-- **影响范围**：`.github/workflows/ci.yml:367-383`（job `ci-summary`）
+- **影响范围**：`.github/workflows/ci.yml`（job `ci-summary`）
 - **契约影响**：无
 - **跨端契约**：未变更
-- **当前阶段**：**0a 阶段有意不实施**（2026-09-29，用户拍板）——门禁补判整体延至 0b
+- **当前阶段**：**已关闭（2026-10-10）**——0b 收口条件三清单全部满足（详见 §五、§六）。
 - **状态补标（2026-09-29）**：本条**未关闭**，仍为【待修复】。原方案要求 0a 即补入阻断条件，经**用户拍板偏离**：0a 阶段 `ci-summary` 只 echo 输出两个 mutation job 的 result，**不纳入阻断条件**。理由见下方 §四第 4 条（补记）。0a 仅在 `ci-summary` 留 TODO 注释标记此处缺口。
+- **状态补标（2026-10-10 关闭）**：0b 收口落地。① `ci-summary` 阻断条件补入 `frontend-mutation.result`（`ci.yml:484-487`，与 `backend-mutation` 同构）；② `frontend-mutation` step 级 `continue-on-error: true` 移除（`ci.yml:442-449`），移除条件「score ≥ 80」已由 CI 实测达成（82.29，run 38035803775）；③ 行为实测双证（先红后绿）：正向 run 38035803775（82.29 ≥ 80，frontend-mutation success → ci-summary success）+ 反向 run 38038707562（强制 exit 1，frontend-mutation failure → ci-summary failure，临时分支已删）。三项齐备，本条转【已关闭】。
 
 > **⚠️ 假绿通道在 0a 阶段依然存在**：本条是 BF-059 / BF-060 能长期共存而不被发现的结构性成因。
 > 0a 已修好两个 job 本身（BF-059 / BF-060），但**汇总闸门仍未覆盖它们**——即 0a 结束后，
 > 变异测试若再变红，仍不会阻断合并。此为**已知且被明确接受**的临时状态，0b 必须收口。
+> *（本段保留原文留痕；0b 已于 2026-10-10 收口，见上方状态补标。）*
 
 ### 一、问题现象
 
@@ -3915,16 +3917,22 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 ④ 交叉印证：BF-060 记录的 CACError 使 frontend-mutation 恒红，而该红灯不影响合并判定
 ```
 
-**0a 落地后（2026-09-29）**：
+**0b 收口实测（2026-10-10，先红后绿双证）**：
 
 ```text
-① ci.yml YAML 解析 PASS
-② 确认阻断条件仍仅含 backend-test / frontend-test 两项（0a 未补判，符合拍板）✅
-③ 确认 echo 面仍输出全部 4 个 job result（信息面未收窄）✅
-④ 确认 ci-summary 内已留 TODO 注释标记 0b 待补判处
-⑤ 两个 test job 的既有阻断判定未被削弱 ✅
-未执行：
-⑥ 故意让某 mutation job 失败并确认 ci-summary exit 1 的行为实测 —— 门禁尚未实施，0b 才可验
+【正向·证绿】run 38035803775（commit f2000f0，master）
+① frontend-mutation step 无 continue-on-error，stryker 实跑 score=82.29 ≥ break 80
+   （MutationTestReportHelper 日志原文：Final mutation score of 82.29 is greater than or equal to break threshold 80）
+② frontend-mutation job conclusion = success（无容错吞噬）
+③ ci-summary job conclusion = success（正向不误伤）
+④ 同 run 其余 job 全绿，run conclusion = success
+⑤ 归档：docs/Review/mutation-baseline-2026-10-10.md（CI 全量得分表）
+
+【反向·证红】run 38038707562（临时分支 temp/neg-verify，commit 41d8baf，workflow_dispatch 触发）
+① 临时把 frontend-mutation step 的 run 改为 `exit 1`（强制 step 失败）
+② frontend-mutation job conclusion = failure（容错已移除，红灯如实传导）
+③ ci-summary job conclusion = failure → run conclusion = failure（阻断生效，exit 1）
+④ 验证后临时分支本地+远端已删（git branch -D + git push --delete）
 ```
 
 ### 六、遗留与关联事项
@@ -3933,7 +3941,12 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 2. 修复后需实测：故意让某 mutation job 失败，确认 `ci-summary` 确实 `exit 1`（不得只做静态核对）。
 3. **0b 验收清单（本条的唯一收口条件）**：① 阻断条件含 4 个 job；② 4 处 `continue-on-error` 依 0b 结论处理；③ 行为实测（非静态核对）确认 mutation 红 → `ci-summary` exit 1。三项齐备方可改【已关闭】。
 
-*登记人：opencode ｜ 状态：**待修复**（0a 经用户拍板有意不实施，仅留 TODO 注释；0b 必须收口），2026-09-29*
+**0b 收口核验（2026-10-10）**：
+- ① 阻断条件含 4 个 job：✅ `ci.yml:471-487`（backend-test / frontend-test 两项 + backend-mutation / frontend-mutation 两项）。
+- ② `continue-on-error` 处理：✅ `frontend-mutation` step 级已移除（`ci.yml:442-449`，移除条件 score≥80 由 CI 实测 82.29 达成）；`backend-mutation` 此前 B 批已解除。注：`frontend-complexity` 的 `continue-on-error` 属 BF-062（52 处复杂度债专项），不在本条范围。
+- ③ 行为实测：✅ 反向 run 38038707562（强制 exit 1）→ ci-summary failure → run failure（详见 §五）。
+
+*登记人：opencode ｜ 状态：**已关闭**（0b 三清单核验齐备，2026-10-10），2026-09-29*
 
 
 ## BF-062 【部分关闭】前端复杂度 error 级门禁：52 处存量失败并连带跳过后续 job 2026-09-29
@@ -4137,6 +4150,8 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 - **状态补标（2026-09-30）**：**真实全量分 70.44%（1959 mutants）已取得**（mutmut 3.8.0，16 核 WSL ~22 min，详见 BF-066），**< 80% 红线**；门禁口径决策转 B 批。本条维持【待修复】——分数到了，修复=补测或调阈值，尚未发生。
 - **状态补标（2026-09-30 B批决策）**：**门禁口径定为「相对基线不回归」**——① 判分公式改为 mutmut 官方口径 `(killed+timeout)/(total-skipped)×100`（timeout 计入杀灭，与 BF-066 登记的 70.44% 一致）；② 基线存 `asset_management_backend/mutmut-baseline.json`（首基线 70.44）；③ CI 移除两处 `continue-on-error` 并将 `backend-mutation.result` 纳入 `ci-summary` 阻断；④ 80% 绝对红线暂挂沙盒期（根级 §5.4），补测抬分后人工更新基线直至恢复绝对红线。配套改动见 `backend-testing-rules.md` T7 v1.5。本条维持【待修复】——得分缺口由 C 批盲区补测抬分。
 - **状态补标（2026-10-10 口径统一，0b 拍板 C 双端差异化）**：**转【部分关闭】**。已收口三项——① **后端基线钉死 CI 口径**：`mutmut-baseline.json` 实测 `score` = **68.6064**（run 98/99 CI 复现一致）；账面 70.44 系 **WSL 旧口径**（113 个 timeout 因跨 `/mnt/d` 慢 I/O 误计入 killed，CI 原生磁盘下 timeout=0，见 BF-067 §四），已按「补注不覆写」原则同步 `ci.yml:269-271` 与 `backend-testing-rules.md` T7 v1.6；② **前端基线标注 scope**：82.29 / 82.35 系 `src/stores/**` + `src/composables/useGroup*.ts` 射程（37 文件 / 2002 mutants）本机实跑，与本条登记的 60.00（7 store / 120 mutants 聚焦口径）**不同源、不可横比**，两数并存各标来源（CI 环境实测归档见 `docs/Review/mutation-baseline-2026-10-10.md`）；③ **0b 策略拍板 C**：后端维持相对基线（T7），前端红线 80（T16 + `stryker.config.json` `break: 80` 内置），零规则冲突。**开放区残留（维持跟进）**：后端 68.6064 < 80% 绝对红线，待 C 批盲区补测抬分后人工更新基线直至恢复绝对红线（沙盒期条款不变，T7 v1.5→v1.6 仅补注口径未改机制）。
+
+- **状态补标（2026-10-10 P1-1/P1-2 收口验收）**：**前端侧红线 80 已生效并经 CI 双证**——① 正向 run 38035803775（commit f2000f0）stryker 实跑 `Final mutation score of 82.29 ≥ break threshold 80`，`frontend-mutation` step 级 `continue-on-error: true` 已移除（`ci.yml:442-449`），job 绿不再靠容错吞噬；② 反向 run 38038707562（临时分支强制 step exit 1）`frontend-mutation=failure → ci-summary=failure → run=failure`，阻断链路行为实测成立（BF-061 同批关闭）。`ci-summary` 已补 `frontend-mutation.result` 阻断分支（`ci.yml:484-487`）。**开放区残留（维持跟进，不因本次验收关闭）**：后端 68.6064 < 80% 绝对红线，待 C 批盲区补测抬分（详见上一条 2026-10-10 口径统一补注）。本条维持【部分关闭】。
 
 > **0a 对本条的实质贡献（但不足以关闭）**：① 门禁现在**会算分了**——判分公式
 > `killed / (total - skipped) * 100` 且**有阈值断言**（< 80 即 exit 1），根因表第 1 行「门禁不产分数」已消解；
