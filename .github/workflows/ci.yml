@@ -267,8 +267,10 @@ jobs:
       - run: pip install -r requirements/dev.txt
       - name: 变异测试（相对基线不回归）
         # 门禁策略 B批（2026-09-30）：相对基线不回归，基线存于 mutmut-baseline.json
-        # （首基线 70.44%，BF-066 全量首跑）。官方口径 = (killed + timeout) /
-        # (total - skipped) * 100。80% 绝对红线暂挂沙盒期，C批补测抬分后更新基线直至恢复绝对红线。
+        # （现行 score=68.6064，CI 执行环境实测；首基线 70.44% 系 WSL 旧口径，113 timeout
+        # 因跨 /mnt/d 慢 I/O 误计入 killed，已作历史留痕，见 BF-067 §四）。
+        # 官方口径 = (killed + timeout) / (total - skipped) * 100。
+        # 80% 绝对红线暂挂沙盒期，C批补测抬分后更新基线直至恢复绝对红线。
         # 配置全部来自 setup.cfg [mutmut]，此处刻意不传任何 CLI 参数（消除 CI/本地双口径）。
         timeout-minutes: 300
         run: mutmut run

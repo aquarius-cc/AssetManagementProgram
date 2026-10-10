@@ -4122,7 +4122,7 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 *登记人：opencode ｜ 状态：0a 已落地超时/容错（2 重任务 + 判分 step），0b 待实测重标 + 评估是否补齐其余 job，2026-09-29*
 
 
-## BF-064 【待修复】变异测试口径缺口：后端 65.63% / 前端 60.00，双双未达 80% 红线 2026-09-29
+## BF-064 【部分关闭】变异测试口径缺口：后端 65.63% / 前端 60.00，双双未达 80% 红线 2026-09-29
 
 ### 〇、元信息
 
@@ -4136,6 +4136,7 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 - **状态补标（2026-09-29）**：**仍为【待修复】**。0a 只完成了本条的**前置条件**（方案第 1 项：修好工具链 BF-059/BF-060），但因本机 Windows 无法运行 mutmut 3.8.0、CI 首跑未发生，**「真实全量得分」尚未取得**。故第 1 项处于「工具链已修 / 数据未取」的中间态，第 2/3/4 项全部未动。**本条是整个 0a→0b 链路的终点，也是 0b 的核心内容。**
 - **状态补标（2026-09-30）**：**真实全量分 70.44%（1959 mutants）已取得**（mutmut 3.8.0，16 核 WSL ~22 min，详见 BF-066），**< 80% 红线**；门禁口径决策转 B 批。本条维持【待修复】——分数到了，修复=补测或调阈值，尚未发生。
 - **状态补标（2026-09-30 B批决策）**：**门禁口径定为「相对基线不回归」**——① 判分公式改为 mutmut 官方口径 `(killed+timeout)/(total-skipped)×100`（timeout 计入杀灭，与 BF-066 登记的 70.44% 一致）；② 基线存 `asset_management_backend/mutmut-baseline.json`（首基线 70.44）；③ CI 移除两处 `continue-on-error` 并将 `backend-mutation.result` 纳入 `ci-summary` 阻断；④ 80% 绝对红线暂挂沙盒期（根级 §5.4），补测抬分后人工更新基线直至恢复绝对红线。配套改动见 `backend-testing-rules.md` T7 v1.5。本条维持【待修复】——得分缺口由 C 批盲区补测抬分。
+- **状态补标（2026-10-10 口径统一，0b 拍板 C 双端差异化）**：**转【部分关闭】**。已收口三项——① **后端基线钉死 CI 口径**：`mutmut-baseline.json` 实测 `score` = **68.6064**（run 98/99 CI 复现一致）；账面 70.44 系 **WSL 旧口径**（113 个 timeout 因跨 `/mnt/d` 慢 I/O 误计入 killed，CI 原生磁盘下 timeout=0，见 BF-067 §四），已按「补注不覆写」原则同步 `ci.yml:269-271` 与 `backend-testing-rules.md` T7 v1.6；② **前端基线标注 scope**：82.29 / 82.35 系 `src/stores/**` + `src/composables/useGroup*.ts` 射程（37 文件 / 2002 mutants）本机实跑，与本条登记的 60.00（7 store / 120 mutants 聚焦口径）**不同源、不可横比**，两数并存各标来源（CI 环境实测归档见 `docs/Review/mutation-baseline-2026-10-10.md`）；③ **0b 策略拍板 C**：后端维持相对基线（T7），前端红线 80（T16 + `stryker.config.json` `break: 80` 内置），零规则冲突。**开放区残留（维持跟进）**：后端 68.6064 < 80% 绝对红线，待 C 批盲区补测抬分后人工更新基线直至恢复绝对红线（沙盒期条款不变，T7 v1.5→v1.6 仅补注口径未改机制）。
 
 > **0a 对本条的实质贡献（但不足以关闭）**：① 门禁现在**会算分了**——判分公式
 > `killed / (total - skipped) * 100` 且**有阈值断言**（< 80 即 exit 1），根因表第 1 行「门禁不产分数」已消解；
@@ -5262,7 +5263,7 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 ### 四、对抗审核
 
 - **先红后绿实证**：① 需求4——`git stash push` 暂存修复后的 `useGroupedAssetList.ts`（还原 HEAD 自动展开实现）跑反向锁，**2 failed / 32 passed**（`does not auto-expand groups with asset_count === 1` / `> 1` 双双转红）→ `stash pop` 恢复后全量 2075 全绿。② 需求2——阶段3 先做 helper 归一化（红）再改 `onExpandChange`（绿）。③ 需求3——`useGroupedSessionRestore.spec` 以调用顺序断言 + `changePageSpy` 屏障锁死恢复次序。
-- **变异测试（本轮复跑，2026-10-08）**：`npm run test:mutate` 总分 **82.29 ≥ break 80**（37 文件 / 2002 mutants / 18m11s）。新文件全在 `stryker.config.json` 射程（`src/stores/**` + `src/composables/useGroup*.ts`）：`groupedAssetSession.ts` **9 killed / 0 survived**（1 Ignored，与前轮一致）；`useGroupedSessionRestore.ts` **18 killed / 0 survived**——前轮 2 个幸存突变（`if snapshot.page > 1` 的等价变形 `"true"` / `>= 1`）经 `changePageSpy` 断言（页码 1 时不得调 changePage、页码 2 时须 `toHaveBeenCalledWith(2)`）**全部击杀**，新文件幸存清零。
+- **变异测试（本轮复跑，2026-10-08）**：`npm run test:mutate` 总分 **82.29 ≥ break 80**（37 文件 / 2002 mutants / 18m11s）。**【scope 口径补注 2026-10-10】** 该分数射程 = `src/stores/**` + `src/composables/useGroup*.ts`（本机实跑），与 BF-064 登记的 60.00（7 store / 120 mutants 聚焦口径）**不同源、不可横向比较**，两数并存各标来源；CI 环境实测分以 `docs/Review/mutation-baseline-2026-10-10.md` 归档为准。新文件全在 `stryker.config.json` 射程（`src/stores/**` + `src/composables/useGroup*.ts`）：`groupedAssetSession.ts` **9 killed / 0 survived**（1 Ignored，与前轮一致）；`useGroupedSessionRestore.ts` **18 killed / 0 survived**——前轮 2 个幸存突变（`if snapshot.page > 1` 的等价变形 `"true"` / `>= 1`）经 `changePageSpy` 断言（页码 1 时不得调 changePage、页码 2 时须 `toHaveBeenCalledWith(2)`）**全部击杀**，新文件幸存清零。
 - **行号漂移**：本条全部 `file:line` 为 2026-10-08 当日实测；根因侧 HEAD 旧行为经 `git show HEAD` 取证（GAT 旧模板列序、两 spec 旧载荷 `row, true`、`autoExpandSingletons` 函数体）。
 - **残留扫描**：`autoExpandSingletons` / `自动展开` 语义在 `src/` 残留仅 AC 无关的注释同步处（`useGroupedAssetList.ts` docstring 已改为「同样默认折叠」）；`(row, true)` 旧载荷 0 处。
 - **重复登记**：测试侧双份 `expandGroup` helper 收敛入 **complete-patterns A-49**（v2.9.58）；本条缺陷本身非重复模式，不单列。
@@ -5464,3 +5465,372 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 **回退预案**：目验若发现 cq 异常 → 方案乙 `ResizeObserver → --gat-visible-w`，宽度改 `min(var(--gat-visible-w), 100%)`，其余不变。
 
 *登记人：opencode ｜ 状态：已关闭（两轮门禁全绿 + 双红/源码锁取证 + 两轮浏览器目验闭环），2026-10-09*
+
+## BF-081 【已关闭】资产编辑链路取键双断：AssetForm 回填读平铺键恒空 + store idKey=asset_code 致更新 Missing ID——连带详情导出 6 列/列表导出 5 列恒空与详情页编辑跳转 404（登记来源：用户报障，8 项定案修复方案会话）
+
+> **登记来源**：用户报障（2026-10-09 会话）——资产编辑页关联信息无法回填、提交更新报 `Missing ID for update`。经根因核验与方案审核（8 项定案版，含 2 阻断采纳 + 5 修正项），用户批准「执行」后落地。无对应审查报告 #N 编号（来源为报障会话，非审查报告 P 级行）。
+> **性质**：纯前端取键/形态错配；后端零改动 → 四项跨端契约无涉，schema 基线无需重导出。
+
+### 〇、元信息
+
+- **登记日期**：2026-10-09
+- **来源**：用户报障 + 修复方案会话（8 项定案版）
+- **关键程度**：P1（资产编辑主流程不可用：回填空 + 提交必炸）
+- **影响范围**：vue 子仓 7 文件修改（`assetStore.ts`、`AssetForm.vue`、`BasicAssetDetails.vue`、`useAssetListConfig.ts`、`types/asset.ts` + 2 spec）+ 4 新增（`basicAssetDetailExport.ts` + `AssetForm.spec.ts`、`BasicAssetDetails.spec.ts`、`basicAssetDetailExport.spec.ts`）
+- **跨端契约**：无破坏——后端零改动；`Asset` 类型新增 5 个**可选**反规范输出字段系声明补全（沿 A-9 `asset_type_name` 先例），非契约变更
+
+### 一、现象
+
+1. 资产编辑页（列表进入）分类/合同/仓库/录入人/申请人/保管人**全部空白**。
+2. 编辑提交报错 `Missing ID for update`。
+3. 资产**详情页** Excel 导出：分类/合同/仓库/录入人工号/申请人工号/保管人工号 **6 列恒空**。
+4. 资产**列表页** Excel 导出：合同编码/仓库编码/录入人工号/申请人工号/保管人工号 **5 列恒空**（同根因第三处，方案审核时发现并经用户拍板一并修复）。
+5. 详情页「编辑」按钮跳转后提示「未找到该资产，请确认记录编码是否正确」（执行中发现的同链连带缺陷）。
+
+### 二、根因（行号为修复前实测）
+
+| # | 环节 | 事实 |
+|---|------|------|
+| A1 | 回填 | `AssetDetailSerializer` 仅输出嵌套对象 `asset_type/asset_contract/asset_storage/asset_*_person`（`asset_crud_serializers.py:93-98`，Meta.fields `:118-123`），**无**平铺 `asset_type_code/*_contract_code/*_storage_code/*_jobcode`；修复前 `AssetForm.vue:257-262` 读 `detail.asset_type_code` 等 → 恒 `undefined` → 表单 FK 字段全空 |
+| A2 | 名称 | 修复前 `AssetForm.vue:265-282` 以平铺编码喂 `Promise.all` 反查关联端点；`assetTypeStore/storageStore` 的 getById 落在 `lookup_field="recordcode"` 端点（`asset_type_view.py:43`、`storage_view.py:63`；`_mixins.py:27-38` 只认 pk/recordcode），业务码必 404；实际因平铺键本不存在，条件全 false → Promise.all 空转、名称恒空（若平铺键存在则 404 后整块置空） |
+| B1 | update | 修复前 `assetStore.ts:137` `idKey: 'asset_code'` 与自身注释声明的 recordcode 取键契约矛盾；`createEntityStore.update` 以 `data[idKey]` 取键（`createEntityStore.ts:347`），AssetForm 编辑载荷只含 `recordcode`（`AssetForm.vue:302-305`）→ `throw new Error('Missing ID for update')`（`createEntityStore.ts:348`） |
+| B2 | 防御 | `api/asset.ts:152-158` 的 `updateAsset` 已有 recordcode 守卫与剥离（`:154` 抛错、`:156` 解构剥离）——原方案步骤4「store 层再剥 recordcode」会打崩守卫，经审核复核**删除该步骤**，断言改锚 API 层既有用例（`api/__tests__/asset.spec.ts:61-73`） |
+| C1 | 详情导出 | excelExporter 平铺取值 `item[col.key]`（`excelExporter.ts:79`）；修复前 `BasicAssetDetails.vue` 导出 6 列 key 为平铺码（原 `:305/:342-345/:347`），detail 行无这些键 → Excel 对应单元格恒空（页面 InfoCard 走嵌套键展示本正常） |
+| C2 | 列表导出 | 修复前 `useAssetListConfig.ts:201-206` 5 列 key（`asset_contract_code` 等）与 `AssetListSerializer` 实际输出字段不一致（`asset_crud_serializers.py:33-53`：`contract_code/storage_code/entry_person_name/applicant_name/manager_name`）→ 恒空；列表行无任何工号数据（后端零改动前提下只能改列输出姓名） |
+| D1 | 详情页编辑跳转 | 修复前 `BasicAssetDetails.vue` `handleEdit` 传 `query.code = asset_code`（原 `:389`），而 `AssetForm.loadAssetDetail` 按 recordcode 定位（`getById` → `GET /assets/assets/{code}/`，`lookup_field="recordcode"` `asset_view.py:57`）→ 404；同文件其余跳转（标记损坏/找回/送修/日志等 `:219-249`）均已用 recordcode，仅编辑一处漏改 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| R1 | `idKey: 'asset_code'` → `'recordcode'`，取键契约注释同步（批删 asset_code 双约定 + 实体清理靠 refresh 兜底留痕） | `assetStore.ts:139`（注释 `:54-57`） |
+| R2 | 回填改**嵌套直读**（编码+名称 12 字段），**删除 Promise.all 关联反查** | `AssetForm.vue:256-272` |
+| R3 | 详情导出列抽独立模块 `basicAssetDetailExportColumns`（沿 `unregisteredAssetDetailExport` 先例），6 个嵌套关联列补 `formatter: (_v, row) => row?.xxx?.yyy ?? ''` | `basicAssetDetailExport.ts:33,75,81,87,93,100`；`BasicAssetDetails.vue:295,309` |
+| R4 | 列表导出 5 列键名/标题对齐 AssetListSerializer：`contract_code`/`storage_code` 改键名；人员 3 列改 `entry_person_name`/`applicant_name`/`manager_name`，标题同步改「录入人姓名/申请人姓名/保管人姓名」（用户拍板）；`Asset` 类型补 5 个可选反规范字段供 `keyof` 类型面 | `useAssetListConfig.ts:204-209`；`types/asset.ts:221-229` |
+| R5 | 详情页 `handleEdit` 定位键 `asset_code` → `recordcode`（守卫与文案同步） | `BasicAssetDetails.vue:329-341`（push `:337`） |
+| R6 | 原步骤4（update 载荷剥 recordcode）**取消不改**——API 层守卫已存在（B2） | `api/asset.ts` 未改动 |
+| R7 | 先红后绿测试：新建 `AssetForm.spec.ts`（回填嵌套直读+不发关联查询 / 提交 recordcode 定位+FK 回填值+剔除录入倍数 / 新增模式无 recordcode）、`basicAssetDetailExport.spec.ts`（5 用例）、`BasicAssetDetails.spec.ts`（编辑跳转取键+日志跳转回归+缺失警告）；`assetStore.spec.ts` +3（update 键契约 / 缺键 throw / 批删影响面锁）并给 3 处 mock 行补 recordcode（`getEntityId` 缺键必 throw）；`useAssetListConfig.spec.ts` +1（5 列键名/标题） | 各 spec |
+
+### 四、对抗审核
+
+- **先红后绿取证**：①修复前三文件首跑 **5 红/49 绿**，红项全部为 BF-081 新增用例（update Missing ID、批删影响面、回填空、提交 FK 空、列表导出列）；②详情导出列首跑 3 红/2 绿（缺 formatter）；③编辑跳转首跑首轮因 mock `push` 未返回 Promise 报 `TypeError` 属测试瑕疵，修正 mock 后证真红（push 实参为 asset_code）——瑕疵一并留痕。
+- **影响面锁（CT-4）**：idKey 改后 `batchDelete` 的 `success_ids`（asset_code）与实体键（recordcode）错位 → `removeBatch` 不再清内存实体，调用方以 `refresh()` 重建（`AssetContentDetails.vue:320` 批删后刷新）——以 `assetStore.spec`【BF-081 影响面】用例锁定该行为，防未来误判为回归。
+- **审核复核采纳 2 阻断**：updateAsset API 层守卫已存在（勿重复剥离）、关联 getById 必 404（删 Promise.all 改直读）——均在执行前改入方案。
+- **测试瑕疵留痕**：update 用例首版断言 `list` 长度未先 seed（`update` 只写 entities 不推 ids）→ 改为 getList seed 后断言实体落位，红态语义不变。
+- **契约影响**：后端零改动；四项跨端契约（响应根结构/状态枚举/分页参数/日期格式）无涉；schema 基线无需重导出（纯前端键名/类型可选字段）。
+- **防重复登记（强制检查项③）**：`BF-013`（外借资产编辑提交主键不匹配 payload `asset_recordcode` vs `recordcode`）为**同型不同 store**（outAsset 域）已关闭条目——本条为 asset 域同型，交叉引用不重复新建；A-9（列表分类导出空列）为前轮已修同根因条目，本次沿用其类型先例。
+
+### 五、验证记录
+
+```text
+① 先红（修复前）：assetStore+useAssetListConfig+AssetForm 三 spec → 5 failed / 49 passed（红项全为 BF-081 新增）✅
+② 步骤2/3 后：assetStore 37/37、AssetForm 3/3 绿；全量 156/156 files、2097/2097 tests exit 0 ✅
+③ 详情导出列先红：basicAssetDetailExport.spec 3 红/2 绿（缺 formatter）→ 落地后 5/5 绿 ✅
+④ 编辑跳转先红：BasicAssetDetails.spec push 实参 asset_code 实证 1 红 → 修复后 3/3 绿 ✅
+⑤ 前端三项：type-check 0 / lint 0 / format 0（首轮 format 红 2 文件 → prettier --write 修复复绿）✅
+⑥ 覆盖率（CT-2）：npm run test:coverage exit 0（vitest.config 阈值 整体≥80 / src/stores≥90 强制通过）；整体 Statements 92.96% / Lines 93.76% ✅
+⑦ 变异（T16/CT-7）：assetStore.ts 匹配 stryker mutate 模式 src/stores/** → npm run test:mutate 实跑：**82.29 ≥ 80**，exit 0，27min3s ✅
+⑧ 护栏：scripts/check_duplicate_invariants.py PASS；scripts/check_frontend_invariants.py PASS（FR-8 stores 31 文件 0 超限）✅
+⑨ prettier 修正后 BF-081 五 spec 复跑：5 文件 62/62 绿 ✅
+```
+
+### 六、遗留与关联事项
+
+- **[✅已闭环] 浏览器目验**：清单五项（列表编辑回显提交 / 详情页编辑跳转回显提交 / 详情导出 6 列 / 列表导出 5 列+新标题 / Console 无错）用户回执**全部通过**（2026-10-09）。
+- **UI 文案变更（用户拍板）**：列表导出人员 3 列标题由「工号」改「姓名」（列表行无工号数据，后端零改动前提下唯一可行口径）。
+- **关联条目**：BF-013（同型取键不匹配，outAsset 域，已关闭）、A-9（列表分类导出空列，前轮已修，`asset_type_name` 类型先例本次沿用）。
+- **类型面说明**：`Asset` 新增 5 个可选字段（`types/asset.ts:221-229`）仅声明列表行反规范输出的存在性，用于 `ColumnConfig` 的 `keyof` 约束；detail 行不含这些键，运行时由嵌套对象兜底——不构成跨端契约变更。
+
+*登记人：opencode ｜ 状态：已关闭（代码级门禁全绿 + 先红后绿取证 + 影响面锁定 + 浏览器目验五项全过回执），2026-10-09*
+
+## BF-082 【已关闭】资产分组两需求批：组内子区排序键 recordcode→asset_code（编码升序）+ 汇总列名「单价区间」→「单价」（登记来源：用户两需求点单，审核定案 v2 方案经批准后先红后绿执行）
+
+> **登记来源**：用户两需求点单（2026-10-09）——①分组展开子区按资产编码排序；②父区「单价区间」列改「单价」。原「审核定案版」方案经核验发现 3 处缺陷（测试文件定位错、stryker scope 判定反、注释口径与需求冲突），修正为 v2 方案后用户批准执行。
+> **性质**：①后端 Selector 行序变更（无字段/结构变动）；②纯前端 label 字符串。无 DB 迁移、无 API 响应结构变动、跨端契约无涉。
+
+### 〇、元信息
+
+- **登记日期**：2026-10-09
+- **来源**：用户需求点单 + v2 方案审核批准（非审查报告 P 级行，故无审查报告侧「修复追踪」联动）
+- **关键程度**：P2（体验/语义优化，非功能故障）
+- **影响范围**：后端 2 文件（`asset_grouped_selector.py`、`test_asset_group_children_view.py`）；前端 2 文件（`useGroupedAssetColumns.ts`、`useGroupedAssetColumns.spec.ts`）；需求文档 2 文件措辞同步（07:266 / 08:121）
+- **跨端契约**：无破坏——仅明细行**顺序**变化（字段集不变）；OpenAPI schema 不编码行序，**无需重导出**
+
+### 一、需求/问题现象
+
+1. 分组展开页面 `group-children` 子行顺序为 UUID 序，无业务含义，用户要求按资产编码升序（编码按序生成，更符合实际阅读需求）。
+2. 父区汇总列头显示「单价区间」，但业务上该收敛组所有行单价应一致，列名应收敛为「单价」。
+
+### 二、根因（行号为修复前实测）
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 子区排序 | `asset_grouped_selector.py:340` `build_children_queryset` 以 `order_by("recordcode")` 排序；recordcode 为 UUID 派生（`core/models.py`），唯一但无业务序。asset_code 满足排序键要求：`unique_asset_code_not_deleted`（`models/asset.py:258`，condition `is_deleted=False`）+ `SoftDeleteManager` 默认排除软删行 → 查询范围内唯一（分页稳定），且编码升序有业务含义 |
+| 2 | 列名 | `useGroupedAssetColumns.ts:49` `label: '单价区间'`；而需求基线 `08-前端页面与交互设计.md:115` 汇总区列名本就叫「单价」——实现偏离需求在先，本次为回归基线 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| R1 | `order_by("recordcode")` → `order_by("asset_code")`；`:338-342` 注释重写（组内四键同质 / asset_code 条件唯一作稳定排序键 / 业务有序替代 UUID 序） | `asset_grouped_selector.py:343` |
+| R2 | 静态断言用例 `test_ordering_is_by_recordcode` 改名 `test_ordering_is_by_asset_code`（断言 `["asset_code"]`）+ 新增 `test_children_rows_sorted_by_asset_code_ascending`（7 条乱序创建 → 断言 `got == sorted(codes)`）；`:626` docstring、`:661` 唯一性注释同步改 asset_code | `test_asset_group_children_view.py:671`、`:694` |
+| R3 | `label: '单价区间'` → `'单价'`；`:43-47` 注释按**业务承诺口径**（同组同价为业务约定，组内不一致按验收标准降级显示 `a~b` 区间兜底，格式化仍由后端 `format_price` 唯一实现 DR-1，双态保留） | `useGroupedAssetColumns.ts:54`、`:43-47` |
+| R4 | spec `:78` 断言改 `toBe('单价')`、`:74` 标题、`:7` 文件头注释同步 | `useGroupedAssetColumns.spec.ts` |
+| R5 | 需求文档区间措辞补业务前提（用户拍板「业务承诺口径」）：同组同价为业务约定，区间为异常兜底 | `07-功能需求与验收标准.md:266`、`08-前端页面与交互设计.md:121` |
+
+### 四、对抗审核
+
+- **v2 方案对「审核定案版」的三处执行前修正**（本条目核心留痕）：
+  1. **测试文件定位**：原方案指定 `test_asset_grouped_selector.py`，实测该文件头 `:4` 明言 group_children 用例不在本文件，真正护栏在 `test_asset_group_children_view.py`，且其中既有 `test_ordering_is_by_recordcode:687` 断言 `order_by == ["recordcode"]` **改排序键必红**——原方案未列此改写步骤，照抄必卡。
+  2. **stryker scope 判定反转**：原方案称「`useGroupedAssetColumns.ts` 不在 `useGroup*.ts` 通配内 → 豁免留痕」，picomatch 实测 `src/composables/useGroup*.ts` **匹配**该文件（`true`）→ 实跑 `npm run test:mutate`，结果 **82.70 ≥ 80** 且该文件变异 **100%（9/9 杀）**，豁免不成立、变异绿。
+  3. **注释口径**：原方案「区间=数据异常防御性显示」与需求 07/08 原文（区间为合法设计）冲突（Fact-1）；经用户拍板改**业务承诺口径**并同步修订 07:266/08:121 措辞，消除注释-需求矛盾。
+- **先红后绿取证**：①前端先改 spec 断言 → 首跑红 `expected '单价' Received '单价区间'`（spec:78）→ 改 label 转绿 8/8；②后端先改/增用例 → 首跑红 **2 failed**（静态断言 `order_by` 非 asset_code + 升序断言 got `['B06','B01','B05',...]` ≠ sorted）→ 改排序键转绿 75/75。
+- **行号漂移实测**：label 49→54、order_by 340→343、children 测试文件 +2 行位移，本登记行号均为修复后 `rg` 实测值。
+- **契约影响**：行序变化不影响响应字段集/信封/分页参数；`asset_codes`（级联勾选源）由 `attach_asset_codes` 独立查询（`order_by()` 清序），不受影响；schema 基线无需重导出。
+- **防重复登记**：`rg "单价区间|排序键|order_by" 活账本` → 0 命中；BF-078/080 为分组表其他缺陷，非同题。
+- **历史快照豁免**：`docs/资产分组展开表格-实施方案-v2.2.md:55/:153` 仍写「单价区间」——历史方案文档按台账强制检查项④不改写。
+
+### 五、验证记录
+
+```text
+① 红绿取证：前端 spec 首跑 1 failed（:78）→ 8 passed；后端 children 首跑 2 failed → 75 passed ✅
+② 后端 ruff：python -m ruff check . → All checks passed! ✅
+③ 后端 mypy（CT-7 已核：本地 mypy 2.1.0 / django-stubs 6.1.0 / drf-stubs 3.18.0 / types-channels == dev.txt 声明）：
+   python -m mypy . --strict → Success: no issues found in 226 source files ✅
+④ 后端全量（CT-2/CT-5）：pytest --cov=. --cov-fail-under=80 → 1808 passed，TOTAL 86.89%（≥80），26min01s ✅
+   Service 层专项：apps/assetmanagement/services/* 14 文件全部 ≥93%（最低 out_asset_service 93%，≥90）✅
+⑤ 护栏：check_file_length_guard PASS（BR-6，最大 asset_view.py 471/500）；check_function_length_guard PASS（BR-4 0 超限）；
+   check_duplicate_invariants PASS；check_frontend_invariants PASS（FR-6 53 文件 0 / FR-8 31 文件 0）✅
+⑥ 前端三项：type-check 0 / lint 0 / format:check All matched files use Prettier code style ✅
+⑦ 前端覆盖（CT-2）：npm run test:coverage → 156 test files passed，Statements 92.96% / src/stores 97.93%（≥90），exit 0 ✅
+⑧ 变异（T16）：npm run test:mutate → 82.70 ≥ break 80，exit 0，29min47s；
+   useGroupedAssetColumns.ts 100.00%（9 mutants / 0 survived）——证明其确在 stryker scope 内 ✅
+```
+
+### 六、遗留与关联事项
+
+- **[✅已闭环] 浏览器目验**（四项用户回执**全部通过** 2026-10-09）：①展开分组子行按 DEMO-A004、DEMO-A005… 升序；②翻页后子行跨页连贯无重复/漏行；③汇总表头显示「单价」，同组同价单值、区间串 `a~b` 仍可读；④汇总表其余列序/横滚/展开不回归（BF-080 不回退）。
+- **双仓提交**：后端 `145a035`（2 文件，selector+children 测试）、前端 `209c348`（2 文件，composable+spec）；BF-081 存量改动未卷入。
+- **关联条目**：BF-080（分组表横滚，列宽预算锁本次未触）、BF-078（分组表需求批，同页面不同缺陷）。
+
+*登记人：opencode ｜ 状态：已关闭（代码级门禁全绿 + 双侧先红后绿 + 变异实跑 + 浏览器目验四项回执通过 + 双仓提交 145a035/209c348），2026-10-09*
+
+## BF-083 【待验证】分组子表左固定四列（勾选/序号/唯一记录码/编码）+ 极窄 <673px 全列回退整表滑动（登记来源：用户新需求点单，方案经实证复核 + 两问定案后先红后绿执行）
+
+> **登记来源**：用户新需求（2026-10-09）——①子表前三内容列（序号/唯一记录码/编码）固定左侧不随滚动；②缩窗至只剩这几列+操作列可显示时才全滑动。方案经用户实证复核（列宽/阈值/重排四处锚点全过）+ 两问定案（勾选一并固定；阈值 673px 含操作列回退）。
+> **性质**：纯前端子表列固定行为变更；后端零改动、无契约无涉、无迁移。列宽总和 1173px 不变，BF-080 父表列宽预算锁（1031）不受扰。
+
+### 〇、元信息
+
+- **登记日期**：2026-10-09
+- **来源**：用户需求点单 + 实证复核定案（非审查报告 P 级行，无审查报告侧联动）
+- **关键程度**：P2（交互体验增强，非功能故障）
+- **影响范围**：前端 2 文件——`GroupedAssetChildTable.vue`（列 fixed 绑定 + ResizeObserver 两态 + 透底样式修复）、`GroupedAssetChildTable.spec.ts`（+3 行为用例 + 2 断言源码锁，stub 扩 props）
+- **跨端契约**：无破坏——仅列固定样式行为，无 prop/类型/API 变动
+
+### 一、需求现象
+
+1. 子表横滚时序号/唯一记录码/编码随内容滚走，核对行身份不便——要求恒定可见。
+2. 极窄容器下若固定列占满全宽即退化——要求缩到「只剩这几列+操作列可显示」时全列一起滑动。
+
+### 二、根因（现状事实，实测）
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 列结构 | `GroupedAssetChildTable.vue:39-93`：勾选55 → 序号64 → 数据列 v-for（`:min-width`，recordcode/asset_code 定宽 150/180 经 `detailColumns>childColumns` 白名单透传自 `AssetContentDetails.vue:231`）→ 数量64 → 操作 fixed=right 160；左三内容列均未固定 |
+| 2 | EP 重排约束 | EP `updateColumns` 按 [fixed-left]+[非fixed]+[fixed-right] 分组重排（BF-078 于 `GroupedAssetTable.vue:41-44` 实证）——勾选列若不同固定会沉到编码右侧，故四列须同组 |
+| 3 | 阈值 | 449(55+64+150+180) + 160(操作) + 64(数量=最小中间列) = 673px；低于此值中间列连保底都放不下 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| R1 | 勾选（`:50`）/序号（`:56`）结构列直接 `:fixed="fixedGroupLeft"`；操作（`:93`）`:fixed="fixedGroupRight"` | `GroupedAssetChildTable.vue` |
+| R2 | 数据列 v-for（`:71`）`:fixed="dataColFixed(col)"`——白名单 `LEFT_FIXED_DATA_PROPS={recordcode,asset_code}` 条件绑定（用户实证复核指定写法） | 同上 `:205-210` |
+| R3 | `ResizeObserver` 观察 `.child-wrap`（`:216`，`onBeforeUnmount` disconnect `:223`）→ `containerWidth` ref（初值 +∞=RO 缺失/未回调保持常态）→ `fixedGroupLeft/Right` computed（`<673 → undefined`，`:197-203`）；阈值常量集中 + 算式注释 + 「改列宽须同步、spec 边界锁死」警示（`:177-186`） | 同上 |
+| R4 | spec stub 扩 `fixed/type/width/minWidth` props；新增三用例：常态四列 left+操作 right+中间列不固定 / 672 全列 undefined / 673 边界保持固定（mock FakeResizeObserver 注入 contentRect.width） | `GroupedAssetChildTable.spec.ts:98-189` |
+| R5 | **透底重影修复（目验项③实证后追加）**：删行底色 `transparent` 覆盖整条 + 表头透明行（原 `:281-288`），行/头回落 EP 不透明令牌（tr → `--el-table-tr-bg-color`，派生自 `--el-fill-color-blank` 双主题；表头 → 全局 `table-container` mixin 的 `--table-header-bg`）；留防回归注释（`:281-285`）；spec 追加 fs 源码锁 2 断言：行/头透明禁回 + `font-weight:600` 保留（`spec:191-203`） | 两文件 |
+
+### 四、对抗审核
+
+- **先红后绿取证**：首跑新 3 用例全红（常态 fixed 断言 undefined≠left ×2 + RO 未注册 ×2，存量 4 绿）→ 实现后 7/7 绿。
+- **回退判据**：严格 `< 673`（672 回退 / 673 保持），spec 两态边界用例锁死——改模板列宽（55/64/160）或码列宽（150/180）而不同步阈值时，行为断言即红。
+- **EP 响应式 fixed**：`undefined` 视为非固定，EP 重排回声明序（非 fixed 组保持原相对序）——极窄回退后列序 = 勾选→序号→记录码→编码→…→数量→操作，与声明序一致，无 BF-078 型乱序。
+- **透底实证与修复（目验项③回执，2026-10-09）**：目验确认固定格透字重影，根因链闭环——组件行/头 `background: transparent`（原 `:281-288`）× EP 固定格 `background:inherit` 自 tr/th（`element-plus/theme-chalk/el-table.css` 实测；源 `table.scss:336-338` 用户核验）→ tr 透明则固定格透底。**处置从根因侧**：不给固定格打补丁色，删除行/头透明覆盖、回落 EP 默认不透明令牌（与父表同路径——父表无此覆盖故 BF-080 无重影，同因佐证）；修复前经用户核验 6/6 通过（`--el-table-tr-bg-color` 派生 `var.scss:995`、`--table-header-bg` 定义 `variables.css:118`）。改法先红后绿：源码锁 2 断言首跑 2 failed → 删透明 → 9/9 绿。
+- **变异门禁结论**：stryker mutate 范围 = `src/stores/**` + `src/composables/useGroup*.ts`（实测），本组件 `.vue` 与 spec 均不在内 → 不产生新变异面；仍全量实跑核基线：**82.29 ≥ 80**，exit 0（24min58s）。
+- **BF-080 回归**：列宽总和 1173 不变；全量 vitest 含「列宽预算 1031」「展开面板锚定锁」两用例随 exit 0 通过。
+- **防重复登记**：`rg "^## BF-"` 最大号 082 → 本条 083，无同题条目。
+
+### 五、验证记录
+
+```text
+① 红绿取证：spec 新 3 用例首跑 3 failed（常态 fixed/RO 注册）→ 实现后 7 passed ✅
+② 前端三项：type-check 0 / lint 0 / format:check 首轮红 1 文件（GroupedAssetChildTable.vue）
+   → prettier --write 修复 → 复跑三项全绿（终态 final=0）✅
+③ 全量（CT-2/CT-5）：npm run test:coverage → exit 0，整体 Statements 92.96% / Lines 93.76%
+   （阈值 整体80 / stores90 由 vitest.config 强制通过）✅
+④ 变异（T16）：npm run test:mutate → 82.29 ≥ break 80，exit 0，24min58s ✅
+⑤ 护栏：check_frontend_invariants PASS（FR-6 53 文件 0 / FR-8 31 文件 0，FR-5 组件规模随套件过）；
+   check_file_length_guard PASS（BR-6）；check_duplicate_invariants PASS ✅
+⑥ 透底修复轮（目验项③回执后，2026-10-09）：fs 源码锁先红 2 failed（行/表头 transparent 断言）
+   → 删透明覆盖转绿 9/9 → 前端三项 three=0 → 全量 test:coverage exit 0（92.96% / 93.76%）
+   → 三护栏 PASS；stryker 跳过复跑——改动仅 .vue 样式块 + spec，与 mutate 范围
+   （stores/** + useGroup*.ts）零交集，引用 ④ 的 82.29 留痕（经用户核定）✅
+```
+
+### 六、遗留与关联事项
+
+- **[已回执] 浏览器目验第一轮（2026-10-09）**：① 1920/1366/1280 三档横滚左四列钉左、操作钉右 **通过**；② <673 整体滑动、回扩恢复固定 **通过**；④ 跨页勾选、编辑/删除/详细、组内翻页、BF-080 不回退 **通过**；③ **未通过——固定格透底重影** → 已按 R5 从根因修复（源码锁先红后绿）。
+- **[待验证] 修复后复验回执**（通过后翻【已关闭】+ 提交，子仓组件+spec / 根仓账本）：
+  1. 亮/暗双主题：横滚时左四列 + 右操作列不再透字重影；
+  2. 表头固定四列底色正常（预期回落 app 标准表头色 `--table-header-bg`；不接受则一行钉回 `--el-table-header-bg-color`）；
+  3. 行 hover 横扫：固定格 hover 底色连续跟随；
+  4. 展开区底色层次清晰（`.child-wrap` 浅灰面板底 `:274-279` 未动，确认层次未混）；
+  5. 回归抽查：BF-080 两锁、BF-082 单价列/组内排序不回退。
+- **关联条目**：BF-078（EP fixed 组重排先例）、BF-080（子表 sticky 操作列与父表横滚机制）。
+
+*登记人：opencode ｜ 状态：待验证（代码级门禁全绿 + 两轮先红后绿 + 变异基线核验；目验首轮 3/4 通过，透底修复 R5 已完成待复验回执），2026-10-09*
+
+## BF-084 【已关闭】平铺列表搜索态刷新/翻页错路由：响应新而显示旧（searchParams 盲区，需求1 功能缺陷修复）（登记来源：用户报障+抓包实证，根因定位后经用户批准路由优先级与入口清参方案执行）
+
+> **登记来源**：用户实机报障（2026-10-09 会话）——编辑资产后列表响应已含新值但界面仍显示旧值（抓包实证：`ASSET-20261004-CCC70279` 单价 12000→15000，响应 count=38 无筛选参数，`/assets/?page=2&page_size=20` 签名=loadList）。根因定位后方案经用户两轮拍板（路由优先级 params-first；入口清参落 performSearch 而非路由函数），先红后绿执行。
+> **性质**：纯前端编排层缺陷修复；后端零改动、无契约无涉。资产页 8 字段多搜索（无 keyword 键）恒走 loadList 错路由是唯一根因；分组页不走本 composable，与本缺陷无关。
+
+### 〇、元信息
+
+- **登记日期**：2026-10-10
+- **来源**：用户报障 + 抓包证据 + 评审定案（非审查报告 P 级行）
+- **关键程度**：P1（功能缺陷：修改信息不实时同步）
+- **影响范围**：前端 3 文件——`usePaginationSearch.ts`（单一路由函数接入三分流）、`usePaginationSearchState.ts`（performSearch 入口清参 +1 行）、`usePaginationSearch.routing.spec.ts`（新增 6 用例）
+- **跨端契约**：无破坏——仅前端搜索态路由，无 prop/类型/API 变动
+
+### 一、问题现象
+
+1. 平铺列表（资产页）多字段筛选后翻页/刷新：后端响应返回新数据，界面仍显示旧数据（"响应新、显示旧"）。
+2. 修改资产信息后列表不实时同步（用户报障原文指向 main/assetdetails，实为平铺刷新错路由的表征）。
+3. 筛选态翻页/改页长同样错路由（筛选视图显示冻结），仅无筛选列表正常。
+
+### 二、根因（实测）
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 三分流盲区 | `usePaginationSearch.ts` refresh/翻页/改页长三分流只认单关键词 `search`——`search.value.trim()` 为空即走 `loadList`，`searchParams`（多字段搜索态）完全不参与路由 |
+| 2 | 错路由链 | 资产页 SearchBar 8 字段多搜索（`useAssetListConfig.ts:50-86`，无 `keyword` 键）→ `performSearchWithParams` → `searchParams` 有值但 `search` 恒空 → refresh 走 `loadList`（无筛选参数，抓包实证）→ 新数据落 `store.list` |
+| 3 | 显示旧因 | `tableData` 渲染判据：搜索态非空 → `searchResults`（冻结的旧搜索结果）；`store.list` 更新了也不渲染 |
+| 4 | 残留时序 | `performSearch`（关键词入口）不清 `searchParams`；D1 回落（`fallbackSearchWithoutMultiParam`）提前 return 不经 `resetSearchState`——两态非空时 refresh 会把关键词搜索冲回旧多字段结果 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| R1 | 单一路由函数 `runActiveSearch`（`:129-138`）：params 非空（`hasParamsSearch` `:127`）→ `performSearchWithParams({...searchParams})` > 关键词+config → `performSearch(search.value)` > 否则 `loadList`；接入 `refreshCurrentPage`（`:182-183`）/`handleCurrentChange`（`:161-175`，invalidPage 钳制统一用 `useSearchResults ? searchTotal : total`）/`handleSizeChange`（`:149-158`） | `usePaginationSearch.ts` |
+| R2 | 入口清参 +1 行（`:79`）：`performSearch` config 守卫后 `searchParams.value = {}`——关键词模式接管即销毁 params 判据，保证两态互斥（路由判据唯一性）。刻意不在路由函数清（永远走不到 params 分支）也不在 `performSearchWithParams` 清（:159 全量覆写即模式接管） | `usePaginationSearchState.ts` |
+| R3 | 红灯 spec 6 用例（先红后绿）：参数态 refresh/翻页/改页长走 withParams 非 loadList（首跑 3 红）+ 混合时序入口清参且 refresh 走关键词（首跑 1 红）+ 关键词/双空回归锁 2 绿 | `usePaginationSearch.routing.spec.ts` |
+
+### 四、对抗审核
+
+- **先红后绿取证**：新 spec 首跑 4 failed | 2 passed（失败断言=withParams 0 calls / searchParams 残留 `{status:'in_store'}`）→ 实现后 routing+既有 spec 46/46 绿。
+- **清参落点对抗**：若清在路由函数——params 态 refresh 时清参后自身走不到 params 分支（自毁判据）；若清在 `performSearchWithParams`——空参清理路径会误清；两失败边界（params 存后搜索抛错→refresh 重发 params 正确；performSearch 抛错→params 已清→refresh 走关键词正确）行为均正确。
+- **不选 `lastSearchMode` 标志**：第二真相源（多一份状态同步面）、+5~7 行、测试面扩大；入口清参一行达成同一互斥不变量。
+- **行为守恒**：既有 `usePaginationSearch.spec.ts:340-398` searchParams 用例、D1 回落 3 用例、invalidPage 钳制 2 用例全量保持绿；全量 vitest 157 文件 2108 用例 exit 0。
+- **分组页不回归**：分组路径走 `GroupedAssetTable` 快照恢复，不经过本 composable 三分流；子表 672/673 锁随全量绿。
+
+### 五、验证记录
+
+```text
+① 红绿取证：routing spec 首跑 4 failed | 2 passed（参数态路由×3 + 入口清参×1 红；回归锁×2 绿）
+   → 实现后 routing+既有 spec 46/46 passed ✅
+② 全量（CT-2/CT-5）：npm run test → 157 files / 2108 tests passed；
+   终态 npm run test:coverage exit 0，Statements 92.98% / Branches 87.52% / Lines 93.79%
+   （阈值 整体80 / stores90 由 vitest.config 强制通过）✅
+③ 前端三项（T17）：type-check 0 / lint 0 / format:check 首轮红 3 文件（本次改动文件）
+   → npm run format 修复 → All matched files use Prettier code style ✅
+④ 护栏：check_frontend_invariants PASS（FR-6 composables 54 文件 / 0 台账，权威计数
+   usePaginationSearch.ts 183 / usePaginationSearchState.ts 147 ≤200）；
+   check_file_length_guard PASS；check_duplicate_invariants PASS ✅
+⑤ 变异（T16）：stryker mutate 范围 = src/stores/** + src/composables/useGroup*.ts（实测 stryker.config.json:8-10），
+   本次改动文件零交集 → 不重跑，引用 BF-083 验证记录 ④ 的 82.29 基线留痕 ✅
+```
+
+### 六、遗留与关联事项
+
+- **[✅已回执] 浏览器目验（全部通过，2026-10-10）**：①平铺多字段筛选 → 翻页/改页长/编辑后刷新，界面与响应一致 **通过**；②混合时序（多字段→改关键词）refresh 走关键词结果 **通过**；③分组页展开/翻页不回归 **通过**。
+- **关联条目**：BF-083（同会话子表左固定，页面不同、机制不同）；BF-081（资产编辑链路，本条为其"修改不同步"表征的编排层根因收口）。
+
+*登记人：opencode ｜ 状态：已关闭（代码级门禁全绿 + 先红后绿 + 全量回归 + 三护栏 + 浏览器目验三项回执通过），2026-10-10*
+
+## BF-085 【已关闭】平铺列表列固定（勾选+序号+记录码+编码左固定、操作右固定，全局生效）+ 极窄动态阈值全列回退 + 表格密度 token 8px 12px（需求2+3 体验增强）（登记来源：用户需求点单，固定集/密度两项拍板后分 2a/2b/3 三步执行）
+
+> **登记来源**：用户需求点单（2026-10-09 会话，与 BF-084 需求1 同批）——①平铺列表关键列固定（需求2）②表格行高紧凑（需求3）。两项决策经用户拍板：固定集=勾选+序号+唯一记录码+编码（不含名称）；密度=全局 token 8px 12px。2a 固定本体与 2b 极窄降级分步落地。
+> **性质**：纯前端列表组件行为/样式变更；后端零改动、无契约无涉。全局影响 17 个 CommonList 页面（勾选列固定 left、操作列固定 right；各页数据列无 fixed → 可见序不变）。
+
+### 〇、元信息
+
+- **登记日期**：2026-10-10
+- **来源**：用户需求点单 + 两问拍板（固定集、密度值；非审查报告 P 级行）
+- **关键程度**：P2（交互体验增强，非功能故障）
+- **影响范围**：前端 8 文件——`types/list.ts`（TableColumn +fixed）、`AssetContentDetails.vue`（平铺列配置三列 fixed:left）、`CommonListColumn.vue`（三分支透传 :fixed）、`CommonList.vue`（勾选 fixed:left + 降级逻辑）、`CommonListActions.vue`（+fixed prop）、`useContainerWidth.ts`（新增 RO composable）、`GroupedAssetChildTable.vue`（RO 内联块改调 composable，DR-1）、`variables.css`（密度 token）；新增 spec `CommonList.fixedDegrade.spec.ts`（3 用例）
+- **跨端契约**：无破坏——仅列固定与间距样式，无 prop/类型/API 变动（TableColumn 新增可选字段，向后兼容）
+
+### 一、需求现象
+
+1. 平铺列表横滚时序号/唯一记录码/编码随内容滚走，核对行身份不便——要求固定左侧。
+2. 操作列（详情/编辑/删除）随内容滚走——要求固定右侧。
+3. 极窄容器下若固定列占满全宽即退化——要求缩到放不下时全列一起滑动。
+4. 表格行高偏松——密度收紧至 8px 12px（上下 8 / 左右 12）。
+
+### 二、根因（现状事实，实测）
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 列类型缺 fixed | `types/list.ts:6-14` TableColumn 无 fixed 字段；`CommonListColumn.vue` 三分支（index/custom/default）均未透传 fixed |
+| 2 | EP 重排约束 | EP 按 [fixed-left]+[非fixed]+[fixed-right] 分组重排（BF-078/083 实证）——左固定集必须是声明序前缀，序号必须进组否则可见序错乱 |
+| 3 | 无极窄保护 | 平铺 CommonList 无 ResizeObserver 判据（子表 GroupedAssetChildTable 已有 673 阈值模式可复用） |
+| 4 | 密度源 | `variables.css:114-115` `--table-header-padding/--table-body-padding: 12px 12px`（CommonList.vue:320/328 与 common-forms.scss:339/349 引用；6 页局部 16px 覆盖不动） |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| R1 | TableColumn +`fixed?: 'left' \| 'right'`（`:15`，注释锚 EP 前缀约束） | `types/list.ts` |
+| R2 | 平铺列配置序号/recordcode/asset_code 加 `fixed:'left'`（`:230-232`，声明序前缀=勾选→序号→记录码→编码） | `AssetContentDetails.vue` |
+| R3 | 三分支（index `:17`/custom `:32`/default `:50`）透传 `:fixed="column.fixed"` | `CommonListColumn.vue` |
+| R4 | 勾选列 `:fixed="fixedDegraded ? undefined : 'left'"`（`:34`）+ `:width="SELECTION_COLUMN_WIDTH"` 同源常量（`:32`/`:182`）；操作列透传 `:fixed="..."`（`:53`）；动态阈值 `fixedDegradeThreshold`（`:198-211`）=勾选55+左固定Σ声明宽+操作宽(数值或估算180)+最小非固定列宽(数值或保底60)，`fixedDegraded`（`:216`）、`effectiveColumns` 剥离 fixed（`:219-221`）；RO 经 `useContainerWidth(tableWrapRef)`（`:188-189`）观察 `.table-container`（`:14`） | `CommonList.vue` |
+| R5 | +`fixed` prop（`:84-87`，**无 default**——显式传 undefined 会回落 default 致降级失效，Vue prop 语义陷阱，754 用例实证后定案）；模板 `:fixed="fixed"`（`:15`） | `CommonListActions.vue` |
+| R6 | 新增 `useContainerWidth` RO composable（18 逻辑行，初值 +∞=RO 缺失保持常态）；`GroupedAssetChildTable.vue` RO 内联块（原 `:212-226`）改调 composable（import `:120`，调用 `:194`）——DR-1 单一实现，子表 672/673 spec 验证重构零回归 | 两文件 |
+| R7 | 密度 token：`--table-header-padding/--table-body-padding: 12px 12px → 8px 12px`（`:114-115`，F4 4 倍数合规）；6 页局部覆盖、子表 6px 8px、一切列宽均不动 | `variables.css` |
+| R8 | 降级 spec 3 用例：常态固定锁 / 754 解固定（<755）/ 755 边界保持——fixture 镜像 AssetContentDetails 列配置钉死 755=55+80+150+180+180+110（min=实物数量110），FakeResizeObserver 注入 contentRect.width | `CommonList.fixedDegrade.spec.ts` |
+
+### 四、对抗审核
+
+- **Vue prop-default 陷阱（754 首跑红抓获）**：`CommonListActions` fixed prop 原设 `default:'right'`，父传 `:fixed="undefined"` 时 Vue 回落 default → 754 降级断言红（操作列仍 right）。修复=删 default（唯一挂载点 CommonList 恒显式传值，grep 实证 SmartListContainer/AssetContentDetails 仅注释引用）。
+- **DR-1 主动消重**：若 CommonList 内联第二份 RO 块即与子表构成重复模式——抽取 `useContainerWidth.ts` 单一实现，子表既有 672/673 spec 验证重构零回归（36/36 绿）；无新增重复 → complete-patterns 无需登记。
+- **阈值动态化**：数值全部取自 columns prop 声明宽（列宽调整自动跟随），仅 actionColumnWidth='auto' 用估算 180；spec fixture 钉死两态，改列宽不同步 fixture 即红（漂移可见）。
+- **全局影响面**：17 个 CommonList 页面勾选列固定 left、操作列固定 right；各页数据列无 fixed → EP 重排后可见序不变；6 页局部 padding 覆盖（16px 12px/12px 8px）优先级高于全局 token，不受密度变更影响（grep 实证 6 处覆盖仍在）。
+- **BF-080/083 不回归**：子表列宽预算锁 1031、672/673 阈值行为随全量 vitest 绿；`GroupedAssetChildTable` 仅 RO 块换调用方式，阈值常量/判定逻辑零改动。
+- **对齐既有先例**：降级语义（`<阈值` 全列含勾选/操作解固定整表滑动、`undefined` 重排回声明序）与子表 BF-083 完全同构。
+
+### 五、验证记录
+
+```text
+① 红绿取证：CommonList.fixedDegrade.spec 首跑 1 failed | 2 passed（754 操作列 fixed='right'≠undefined，
+   即 prop-default 陷阱）→ 删 default 后 3/3 绿；同批 4 文件 36/36 passed（含子表 672/673 重构回归）✅
+② 全量（CT-2/CT-5）：npm run test:coverage → exit 0，Statements 92.98% / Branches 87.52%
+   / Functions 87.64% / Lines 93.79%（阈值 整体80 / stores90 强制通过）✅
+③ 前端三项（T17）：type-check 0 / lint 0 / format:check 首轮红 3 文件 → npm run format →
+   All matched files use Prettier code style ✅
+④ 护栏：check_frontend_invariants PASS（FR-6 54 文件 0 / FR-8 31 文件 0；权威计数
+   useContainerWidth.ts 18 ≤200；FR-5 人工核验：CommonList.vue 物理 440 / CommonListActions 314
+   / AssetContentDetails 450 / GroupedAssetChildTable 256，均 <500）；
+   check_file_length_guard PASS；check_duplicate_invariants PASS ✅
+⑤ 变异（T16）：本次改动文件与 stryker mutate 范围（stores/** + useGroup*.ts）零交集 → 不重跑，
+   引用 BF-083 验证记录 ④ 的 82.29 基线留痕 ✅
+```
+
+### 六、遗留与关联事项
+
+- **[✅已回执] 浏览器目验（全部通过，2026-10-10）**：①资产页 1920/1366 横滚左三列+勾选钉左、操作钉右 **通过**；②1100 以下极窄（754/755 两态）整表滑动/回扩恢复 **通过**；③密度 8px 观感 + 6 页局部覆盖页不回归 **通过**；④非资产页全局固定 sanity 抽查 **通过**；⑤分组页子表 673 两态不回归 **通过**。
+- **2a 中间态说明**：2a 落地至 2b 完成前的窗口期极窄无保护（<1100px），本次会话已连续完成 2b，无暴露窗口。
+- **关联条目**：BF-083（子表同型降级先例，本次 CommonList 侧同构复刻）、BF-078（EP fixed 组重排先例）、BF-084（同批需求1，同一会话执行）。
+
+*登记人：opencode ｜ 状态：已关闭（代码级门禁全绿 + 先红后绿 + 全量回归 + 三护栏 + DR-1 消重 + 浏览器目验五项回执通过），2026-10-10*

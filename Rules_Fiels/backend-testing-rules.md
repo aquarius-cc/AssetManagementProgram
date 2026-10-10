@@ -1,5 +1,5 @@
 # 后端测试细则 (Backend Testing Rules)
-> 版本：v1.5 | 最后更新：2026-09-30
+> 版本：v1.6 | 最后更新：2026-10-10
 > 适用范围：pytest + pytest-django + factory_boy + mutmut（变异测试）
 
 ## 一、测试目录与命名 [T1]
@@ -52,7 +52,7 @@ pytest --cov=apps.assetmanagement.services --cov-fail-under=90
 
 **门禁策略修订（B批，2026-09-30）**：
 - **判分口径 = mutmut 官方公式** `(killed + timeout) / (total - skipped) × 100`（timeout 计入杀灭）。
-- **绝对红线 80% 暂挂沙盒期（根级 §5.4）**：首基线 70.44%（BF-066 全量首跑，1959 mutants）低于 80%，若立刻用绝对红线会让 CI 恒红且无法补测推进。改为**相对基线不回归**：每轮只拦「跌破基线」的回归，补测抬分后**人工更新 `mutmut-baseline.json`** 抬高基线，直至达 80% 后恢复绝对红线并解除沙盒。
+- **绝对红线 80% 暂挂沙盒期（根级 §5.4）**：首基线 70.44%（BF-066 全量首跑，1959 mutants，**WSL 旧口径**）低于 80%，若立刻用绝对红线会让 CI 恒红且无法补测推进。**基线口径已于 2026-09-30 切换为 CI 执行环境：现行 `mutmut-baseline.json` 实测 `score` = 68.6064**（WSL 113 个 timeout 系跨 `/mnt/d` 慢 I/O 的环境伪象，CI 原生磁盘下 timeout=0；详见 BF-067 §四），门禁一律以 JSON 现值为准，70.44 仅作历史留痕。改为**相对基线不回归**：每轮只拦「跌破基线」的回归，补测抬分后**人工更新 `mutmut-baseline.json`** 抬高基线，直至达 80% 后恢复绝对红线并解除沙盒。
 - 沙盒期留痕：本变动登记于 `docs/BugFixed/Bug修复活账本.md` BF-064/BF-066；期满（14 自然日）人工复核后转为绝对红线硬门禁。
 
 **执行命令**（配置唯一事实源为 `asset_management_backend/setup.cfg` 的 `[mutmut]` 段，命令不传任何参数）：
@@ -117,6 +117,8 @@ findstr /N "RemoveIndex RemoveField RenameField" <迁移文件名>
 ```
 
 ## 十、变更日志
+- **v1.6 (2026-10-10)**：T7 基线口径补注（P1-2 口径统一，人工拍板 C 双端差异化）——现行基线为 `mutmut-baseline.json` 实测 **68.6064**（CI 执行环境），v1.5 所载「首基线 70.44%」系 WSL 旧口径（113 timeout 因跨 `/mnt/d` 慢 I/O 误计入 killed），仅作历史留痕。门禁机制不变（相对基线不回归），80% 绝对红线仍处沙盒期。配套：`ci.yml:269-271` 注释同步、后端 `AGENTS.md` §1.3 变异测试条目改为 T7 相对基线口径。
+
 - **v1.5 (2026-09-30)**：T7 门禁口径修订（B批决策，人工审批）——判分公式改为 mutmut 官方公式 `(killed+timeout)/(total-skipped)×100`（timeout 计入杀灭）；绝对红线 80% 暂挂沙盒期（根级 §5.4），改为**相对基线不回归**（基线存 `asset_management_backend/mutmut-baseline.json`，首基线 70.44% 取自 BF-066 全量首跑），补测抬分后人工更新基线直至恢复 80% 绝对红线。同步修订 §九 变异命令为官方口径。配套改动：`.github/workflows/ci.yml` backend-mutation 门禁（移两处 `continue-on-error`、ci-summary 纳入 result 判定）。
 - **v1.4 (2026-09-29)**：T7 与 §九 命令汇总改写为 mutmut 3.8.0 口径——删除 2.x 的 `pip install mutmut`、`--paths-to-mutate`（3.x 已弃用并发 DeprecationWarning）、`mutmut results`（只列非 killed 且无 total 行，无法算比率）；改为 `mutmut run`（配置唯一事实源改为 `setup.cfg` 的 `[mutmut]` 段，命令不传参，消除 CI/本地双口径）+ `mutmut export-cicd-stats` 判分。补充得分口径公式（`killed/(total-skipped)`，与 CI 门禁一致）与三条易错点（Windows 拒绝运行、变异范围扩评耗时、不可手工传旗标）。依据后端 AGENTS §4.2，经人工审批后应用；配套改动见 `docs/BugFixed/Bug待修复计划-20260929.md` §3.10。
 
