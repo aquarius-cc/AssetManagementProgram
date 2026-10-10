@@ -432,7 +432,10 @@ jobs:
           submodules: true
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          # 本 job 例外用 Node 22：@stryker-mutator/core engines.node=">=22.0.0" 为硬守卫，
+          # Node 20 下启动即抛错 exit 1（run 114 实证，被 continue-on-error 吞成 job 绿）。
+          # 项目自身 engines 为 ^20.19.0 || >=22.12.0，其余 Node job 保持 NODE_VERSION=20 不动。
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: vue-assetmanagement/package-lock.json
       - run: npm ci
