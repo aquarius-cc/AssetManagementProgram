@@ -440,12 +440,19 @@ jobs:
           cache-dependency-path: vue-assetmanagement/package-lock.json
       - run: npm ci
       - name: 变异测试（红线 80% Killed）
-        # 临时：0b 移除 continue-on-error，移除条件为 score ≥ 80
         # 命令与 frontend-testing-rules.md T16 v1.6 / 前端 AGENTS v9.6.0 对齐；
-        # 旧写法 `npx vitest --mutate` 的 --mutate 旗标在 Vitest 4.1.10 不存在（实跑 CACError）
-        continue-on-error: true
+        # 旧写法 `npx vitest --mutate` 的 --mutate 旗标在 Vitest 4.1.10 不存在（实跑 CACError）。
+        # 2026-10-10 移除 step 级 continue-on-error：CI 首次实测 score=82.29 ≥ 80（run 38034281446），
+        # 门槛达成，变异失败即 job 失败 → ci-summary 判定阻断。stryker 配置内置 thresholds.break=80，
+        # 分数不足时 exit 1 直接使本 step 失败，无需额外脚本。
         timeout-minutes: 90
         run: npm run test:mutate
+      - name: 上传变异测试报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-mutation-report
+          path: vue-assetmanagement/reports/mutation/
 
   # ==================== 汇总 ====================
   ci-summary:
@@ -468,9 +475,13 @@ jobs:
           fi
           # B批（2026-09-30）：backend-mutation 已解除 continue-on-error 并切相对基线门禁，
           # 结果纳入阻断——得分低于基线（mutmut-baseline.json）即阻止合并。
-          # frontend-mutation 仍为 step 级 continue-on-error（D批 stryker 基线未取，
-          # 红线 80% 未达成），故此处暂不做判定，待 D 批后再补入。
+          # frontend-mutation：2026-10-10 移除 continue-on-error，score=82.29 ≥ 80 实测达成，
+          # 结果纳入阻断——stryker thresholds.break=80 使分数不足时 step 失败。
           if [ "${{ needs.backend-mutation.result }}" != "success" ]; then
             echo "后端变异门禁未通过，阻止合并"
+            exit 1
+          fi
+          if [ "${{ needs.frontend-mutation.result }}" != "success" ]; then
+            echo "前端变异门禁未通过，阻止合并"
             exit 1
           fi
