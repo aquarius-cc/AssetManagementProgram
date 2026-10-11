@@ -5555,6 +5555,7 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 - **UI 文案变更（用户拍板）**：列表导出人员 3 列标题由「工号」改「姓名」（列表行无工号数据，后端零改动前提下唯一可行口径）。
 - **关联条目**：BF-013（同型取键不匹配，outAsset 域，已关闭）、A-9（列表分类导出空列，前轮已修，`asset_type_name` 类型先例本次沿用）。
 - **类型面说明**：`Asset` 新增 5 个可选字段（`types/asset.ts:221-229`）仅声明列表行反规范输出的存在性，用于 `ColumnConfig` 的 `keyof` 约束；detail 行不含这些键，运行时由嵌套对象兜底——不构成跨端契约变更。
+- **收尾提交（2026-10-11）**：共享层与编辑链路分两笔落库——`d464ddd`（idKey=recordcode + 导出列对齐 serializer + Asset 5 可选字段，5 文件）、`52c796d`（AssetForm/BasicAssetDetails 收口 + basicAssetDetailExport 模块化 + 4 新 spec，6 文件）。全量门禁复验：type-check 0 / lint 0（complexity 47 warn 属 P1-4 沙盒，不阻断）/ format 0 / test:coverage exit 0（Statements 92.98%）/ FR-6+FR-8 护栏 PASS。
 
 *登记人：opencode ｜ 状态：已关闭（代码级门禁全绿 + 先红后绿取证 + 影响面锁定 + 浏览器目验五项全过回执），2026-10-09*
 
@@ -5626,6 +5627,7 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 
 - **[✅已闭环] 浏览器目验**（四项用户回执**全部通过** 2026-10-09）：①展开分组子行按 DEMO-A004、DEMO-A005… 升序；②翻页后子行跨页连贯无重复/漏行；③汇总表头显示「单价」，同组同价单值、区间串 `a~b` 仍可读；④汇总表其余列序/横滚/展开不回归（BF-080 不回退）。
 - **双仓提交**：后端 `145a035`（2 文件，selector+children 测试）、前端 `209c348`（2 文件，composable+spec）；BF-081 存量改动未卷入。
+- **需求文档澄清补提（2026-10-11）**：根仓 `89a7f01`——07/08 需求文档单价列语义同步（同组同价约定 + 不一致为异常兜底，随 BF-082 收尾会话落库）。
 - **关联条目**：BF-080（分组表横滚，列宽预算锁本次未触）、BF-078（分组表需求批，同页面不同缺陷）。
 
 *登记人：opencode ｜ 状态：已关闭（代码级门禁全绿 + 双侧先红后绿 + 变异实跑 + 浏览器目验四项回执通过 + 双仓提交 145a035/209c348），2026-10-09*
@@ -5703,6 +5705,11 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
   4. 展开区底色层次清晰（`.child-wrap` 浅灰面板底 `:274-279` 未动，确认层次未混）；
   5. 回归抽查：BF-080 两锁、BF-082 单价列/组内排序不回退。
 - **关联条目**：BF-078（EP fixed 组重排先例）、BF-080（子表 sticky 操作列与父表横滚机制）。
+- **收尾提交（2026-10-11，`e7e1fc3`）**：BF-083 与 BF-085 文件交叠（GroupedAssetChildTable 同文件含左固定 + RO 块改调 useContainerWidth；AssetContentDetails 同文件含 refreshFlag watch + 平铺列 fixed:left），故两笔合为一笔落库（11 文件），账本两条例外说明。本笔额外包含：
+  1. **refreshFlag 分组接驳**：AssetContentDetails 新增分组路径 refreshFlag watch（平铺路径经 usePaginationSearch 已接通，分组模式 SmartListContainer 不挂载故需显式接驳）；**含复位修复**——初版 WIP 漏 `setRefreshFlag?.(false)`，第二次保存同值赋值不触发 watch、分组表不再刷新（潜伏缺陷，与 type error 同批修复，与 usePaginationSearch:203 finally 对称，CT-4）。
+  2. **enableGrouping.spec mock 修正**：既有 spec `storeConfig: {}` 空对象未随 BF-083 watch 契约更新，运行时 `storeConfig.store` undefined 红——补嵌套结构（store.refreshFlag ref + setRefreshFlag vi.fn），21/21 绿。
+  3. **watch 读取形态定稿**：`() => readStoreValue<boolean>(storeConfig.store.refreshFlag!)`（复用 `@/utils/reactiveAccess` 共享工具，与 usePaginationSearch 既有读取同源，DR-1/DR-4）。
+  全量门禁复验：type-check 0 / lint 0 / format 0 / test:coverage exit 0（Statements 92.98%）/ FR-6+FR-8 护栏 PASS。**状态维持【待验证】**——第六节「修复后复验回执」5 项仍待浏览器目验。
 
 *登记人：opencode ｜ 状态：待验证（代码级门禁全绿 + 两轮先红后绿 + 变异基线核验；目验首轮 3/4 通过，透底修复 R5 已完成待复验回执），2026-10-09*
 
@@ -5847,5 +5854,6 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 - **[✅已回执] 浏览器目验（全部通过，2026-10-10）**：①资产页 1920/1366 横滚左三列+勾选钉左、操作钉右 **通过**；②1100 以下极窄（754/755 两态）整表滑动/回扩恢复 **通过**；③密度 8px 观感 + 6 页局部覆盖页不回归 **通过**；④非资产页全局固定 sanity 抽查 **通过**；⑤分组页子表 673 两态不回归 **通过**。
 - **2a 中间态说明**：2a 落地至 2b 完成前的窗口期极窄无保护（<1100px），本次会话已连续完成 2b，无暴露窗口。
 - **关联条目**：BF-083（子表同型降级先例，本次 CommonList 侧同构复刻）、BF-078（EP fixed 组重排先例）、BF-084（同批需求1，同一会话执行）。
+- **收尾提交（2026-10-11）**：与 BF-083 文件交叠合为一笔 `e7e1fc3` 落库（详见 BF-083 收尾提交说明）——CommonList 三件套 + useContainerWidth + fixedDegrade.spec + variables.css 密度 token + types/list.ts fixed 字段 + AssetContentDetails 平铺列 fixed:left 均在本笔。全量门禁复验 exit 0。
 
 *登记人：opencode ｜ 状态：已关闭（代码级门禁全绿 + 先红后绿 + 全量回归 + 三护栏 + DR-1 消重 + 浏览器目验五项回执通过），2026-10-10*
