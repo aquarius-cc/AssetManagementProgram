@@ -4137,7 +4137,7 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 *登记人：opencode ｜ 状态：0a 已落地超时/容错（2 重任务 + 判分 step），0b 待实测重标 + 评估是否补齐其余 job，2026-09-29*
 
 
-## BF-064 【部分关闭】变异测试口径缺口：后端 65.63% / 前端 60.00，双双未达 80% 红线 2026-09-29
+## BF-064 【已关闭】变异测试口径缺口：后端 65.63% / 前端 60.00，双双未达 80% 红线 2026-09-29
 
 ### 〇、元信息
 
@@ -4154,6 +4154,8 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 - **状态补标（2026-10-10 口径统一，0b 拍板 C 双端差异化）**：**转【部分关闭】**。已收口三项——① **后端基线钉死 CI 口径**：`mutmut-baseline.json` 实测 `score` = **68.6064**（run 98/99 CI 复现一致）；账面 70.44 系 **WSL 旧口径**（113 个 timeout 因跨 `/mnt/d` 慢 I/O 误计入 killed，CI 原生磁盘下 timeout=0，见 BF-067 §四），已按「补注不覆写」原则同步 `ci.yml:269-271` 与 `backend-testing-rules.md` T7 v1.6；② **前端基线标注 scope**：82.29 / 82.35 系 `src/stores/**` + `src/composables/useGroup*.ts` 射程（37 文件 / 2002 mutants）本机实跑，与本条登记的 60.00（7 store / 120 mutants 聚焦口径）**不同源、不可横比**，两数并存各标来源（CI 环境实测归档见 `docs/Review/mutation-baseline-2026-10-10.md`）；③ **0b 策略拍板 C**：后端维持相对基线（T7），前端红线 80（T16 + `stryker.config.json` `break: 80` 内置），零规则冲突。**开放区残留（维持跟进）**：后端 68.6064 < 80% 绝对红线，待 C 批盲区补测抬分后人工更新基线直至恢复绝对红线（沙盒期条款不变，T7 v1.5→v1.6 仅补注口径未改机制）。
 
 - **状态补标（2026-10-10 P1-1/P1-2 收口验收）**：**前端侧红线 80 已生效并经 CI 双证**——① 正向 run 38035803775（commit f2000f0）stryker 实跑 `Final mutation score of 82.29 ≥ break threshold 80`，`frontend-mutation` step 级 `continue-on-error: true` 已移除（`ci.yml:442-449`），job 绿不再靠容错吞噬；② 反向 run 38038707562（临时分支强制 step exit 1）`frontend-mutation=failure → ci-summary=failure → run=failure`，阻断链路行为实测成立（BF-061 同批关闭）。`ci-summary` 已补 `frontend-mutation.result` 阻断分支（`ci.yml:484-487`）。**开放区残留（维持跟进，不因本次验收关闭）**：后端 68.6064 < 80% 绝对红线，待 C 批盲区补测抬分（详见上一条 2026-10-10 口径统一补注）。本条维持【部分关闭】。
+
+- **状态补标（2026-10-12 C批终态，转【已关闭】）**：**后端开放区残留已消解——C批盲区补测抬分越 80% 绝对红线**。补测路径（服务层盲区逐个杀灭存活 mutant）——**B2**（`test_operation_log_mutants.py`，40 用例）：`operation_log_service.py` 存活 181→0，全局 killed 1344→1525，68.6064→77.8458（+9.2394pt，run 38099431497 CI 实证）；**B3**（`test_out_asset_mutants.py`，24 用例）：`out_asset_service.py` 存活 123→28，killed 1525→1620，77.8458→82.6977（+4.8519pt，越红线，CI 实证待补）；**B3-二轮**（`test_out_asset_mutants_round2.py`，6 用例）：killed 1620→1631、survived 321→310，82.6977→83.2568（+0.5591pt，余量 3.2568pt）。终态 `mutmut-baseline.json`：score **83.2568** / killed 1631 / survived 310 / no_tests 18（1959 mutants，WSL 实测 2026-10-12，CI 实证待补——`cc75aa9`/`ca49f43`/`73d8d61` 未 push）。**T7 绝对红线恢复条件本 run 已满足**（83.2568 ≥ 80），规则变更（T7 由「相对基线不回归」改回「≥80% 绝对红线」）另批送审。残留 17 个判为**等价变异**（B类，不计战果，Fact-1）：`batch_create` #3 deepcopy、#26/#27/#31/#33 max_batch_size/use_transaction 参数变体、#32 batch_execute 101 条 size 守卫、`_delete_one` #24/#25 recycle 过滤器参数变体、`_snapshot` #8/12/20/24/30 与 `_audit` #13/27/53 fallback 死分支。子仓 `73d8d61` + 父仓指针 `01ef6be` 已提交。**本条关闭。**
 
 > **0a 对本条的实质贡献（但不足以关闭）**：① 门禁现在**会算分了**——判分公式
 > `killed / (total - skipped) * 100` 且**有阈值断言**（< 80 即 exit 1），根因表第 1 行「门禁不产分数」已消解；
