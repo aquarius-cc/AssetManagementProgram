@@ -5634,7 +5634,7 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 
 *登记人：opencode ｜ 状态：已关闭（代码级门禁全绿 + 双侧先红后绿 + 变异实跑 + 浏览器目验四项回执通过 + 双仓提交 145a035/209c348），2026-10-09*
 
-## BF-083 【待验证】分组子表左固定四列（勾选/序号/唯一记录码/编码）+ 极窄 <673px 全列回退整表滑动（登记来源：用户新需求点单，方案经实证复核 + 两问定案后先红后绿执行）
+## BF-083 【已关闭】分组子表左固定四列（勾选/序号/唯一记录码/编码）+ 极窄 <673px 全列回退整表滑动（登记来源：用户新需求点单，方案经实证复核 + 两问定案后先红后绿执行）
 
 > **登记来源**：用户新需求（2026-10-09）——①子表前三内容列（序号/唯一记录码/编码）固定左侧不随滚动；②缩窗至只剩这几列+操作列可显示时才全滑动。方案经用户实证复核（列宽/阈值/重排四处锚点全过）+ 两问定案（勾选一并固定；阈值 673px 含操作列回退）。
 > **性质**：纯前端子表列固定行为变更；后端零改动、无契约无涉、无迁移。列宽总和 1173px 不变，BF-080 父表列宽预算锁（1031）不受扰。
@@ -5700,20 +5700,15 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 ### 六、遗留与关联事项
 
 - **[已回执] 浏览器目验第一轮（2026-10-09）**：① 1920/1366/1280 三档横滚左四列钉左、操作钉右 **通过**；② <673 整体滑动、回扩恢复固定 **通过**；④ 跨页勾选、编辑/删除/详细、组内翻页、BF-080 不回退 **通过**；③ **未通过——固定格透底重影** → 已按 R5 从根因修复（源码锁先红后绿）。
-- **[待验证] 修复后复验回执**（通过后翻【已关闭】+ 提交，子仓组件+spec / 根仓账本）：
-  1. 亮/暗双主题：横滚时左四列 + 右操作列不再透字重影；
-  2. 表头固定四列底色正常（预期回落 app 标准表头色 `--table-header-bg`；不接受则一行钉回 `--el-table-header-bg-color`）；
-  3. 行 hover 横扫：固定格 hover 底色连续跟随；
-  4. 展开区底色层次清晰（`.child-wrap` 浅灰面板底 `:274-279` 未动，确认层次未混）；
-  5. 回归抽查：BF-080 两锁、BF-082 单价列/组内排序不回退。
+- **[✅已关闭·2026-10-12] 修复后复验回执**：用户人工复验**通过**——§六-1 五项全部通过（① 亮/暗双主题不透字重影 ② 表头固定四列底色 ③ 行 hover 横扫连续跟随 ④ 展开区底色层次清晰 ⑤ BF-080/082 不回退）。本条由【待验证】翻【已关闭】。
 - **关联条目**：BF-078（EP fixed 组重排先例）、BF-080（子表 sticky 操作列与父表横滚机制）。
 - **收尾提交（2026-10-11，`e7e1fc3`）**：BF-083 与 BF-085 文件交叠（GroupedAssetChildTable 同文件含左固定 + RO 块改调 useContainerWidth；AssetContentDetails 同文件含 refreshFlag watch + 平铺列 fixed:left），故两笔合为一笔落库（11 文件），账本两条例外说明。本笔额外包含：
   1. **refreshFlag 分组接驳**：AssetContentDetails 新增分组路径 refreshFlag watch（平铺路径经 usePaginationSearch 已接通，分组模式 SmartListContainer 不挂载故需显式接驳）；**含复位修复**——初版 WIP 漏 `setRefreshFlag?.(false)`，第二次保存同值赋值不触发 watch、分组表不再刷新（潜伏缺陷，与 type error 同批修复，与 usePaginationSearch:203 finally 对称，CT-4）。
   2. **enableGrouping.spec mock 修正**：既有 spec `storeConfig: {}` 空对象未随 BF-083 watch 契约更新，运行时 `storeConfig.store` undefined 红——补嵌套结构（store.refreshFlag ref + setRefreshFlag vi.fn），21/21 绿。
   3. **watch 读取形态定稿**：`() => readStoreValue<boolean>(storeConfig.store.refreshFlag!)`（复用 `@/utils/reactiveAccess` 共享工具，与 usePaginationSearch 既有读取同源，DR-1/DR-4）。
-  全量门禁复验：type-check 0 / lint 0 / format 0 / test:coverage exit 0（Statements 92.98%）/ FR-6+FR-8 护栏 PASS。**状态维持【待验证】**——第六节「修复后复验回执」5 项仍待浏览器目验。
+   全量门禁复验：type-check 0 / lint 0 / format 0 / test:coverage exit 0（Statements 92.98%）/ FR-6+FR-8 护栏 PASS。**已翻【已关闭】**——第六节「修复后复验回执」5 项已于 2026-10-12 经用户人工复验全部通过。
 
-*登记人：opencode ｜ 状态：待验证（代码级门禁全绿 + 两轮先红后绿 + 变异基线核验；目验首轮 3/4 通过，透底修复 R5 已完成待复验回执），2026-10-09*
+*登记人：opencode ｜ 状态：已关闭（代码级门禁全绿 + 两轮先红后绿 + 变异基线核验；目验首轮 3/4 通过，透底修复 R5 修复后 5 项复验于 2026-10-12 经用户人工复验全部通过），2026-10-09*
 
 ## BF-084 【已关闭】平铺列表搜索态刷新/翻页错路由：响应新而显示旧（searchParams 盲区，需求1 功能缺陷修复）（登记来源：用户报障+抓包实证，根因定位后经用户批准路由优先级与入口清参方案执行）
 
