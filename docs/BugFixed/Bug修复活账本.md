@@ -5910,7 +5910,7 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 - **CT-4 结构红线**：32 个文件**只改结构不删分支**，错误消息**逐字不变**，语义逐行等价；helper 消息一律参数化传入，不内联中文文案（避免与既有文案漂移）。
 - **DR-1 消重**：三个 `*BatchImport.vue` 原三处内联校验链同构 → 收敛为 `validation.ts` 单一实现，未新增重复模式，`complete-patterns.md` 无需登记。
 - **`.vue` 棘轮余量**：四项均**向下取整到 0.1 粒度**（如 lines 13.11→13.0），避免浮点噪声在 CI 触发假红。
-- **门禁自洽**：`npm run lint` 仍为 `eslint . --fix` 无 `--max-warnings`，批0 的 `warn` 档位不阻断本地提交；批5（未做）拟在清零后升 `error` 并撤 `ci.yml` 的 `continue-on-error` 与 CLI `--rule` 覆盖。
+- **门禁自洽**：`npm run lint` 为 `eslint . --fix` 无 `--max-warnings`；批0 时 `warn` 档位不阻断本地提交。批5（已落地，见 §五 ⑦）后 `complexity` 升 `error` 级，本地与 CI 同权阻断。
 - **CT-7 工具链**：以下结论均在子仓 `package.json` 声明版本下取得（本地环境未漂移）。
 
 ### 五、验证记录
@@ -5926,15 +5926,20 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 ⑤ 护栏：check_frontend_invariants PASS / check_file_length_guard PASS / check_duplicate_invariants PASS ✅
 ⑥ 变异（T16）：本次改动多为 `.vue`/config/纯函数抽取，与 stryker mutate 范围（stores/** + useGroup*.ts）零交集
    → 不重跑，引用 BF-083/085 的 82.29/82.35 基线留痕 ✅
+⑦ 【批5，2026-10-12 补录】eslint.config.ts `complexity` 由 `['warn', 10]` 升 `'error'`（:37）；
+   AGENTS.md §1.3 复杂度门禁命令勘误为 `npm run lint`，版本 v9.8.0 → v9.9.0；
+   ci.yml frontend-complexity step 撤 `continue-on-error` + CLI `--rule` 覆盖，改跑 `npm run lint`
+   （ci.yml:385-393）。双向实证：走 config = 0 误报 / 走 CLI --rule = 5 误报（豁免块被绕过）。
+   终验：type-check 0 / lint 0 / format 0 / coverage exit 0 ✅
 ```
 
 ### 六、遗留与关联事项
 
 - **[已回执·本条关闭]** BF-044 §六-1「覆盖率门禁不含 `.vue`」→ 由本条 **P2-2** 关闭（已并入 `.vue` + 分层棘轮）。
 - **[已回执·本条关闭]** BF-044 §六-3「复杂度存量欠债 52 处」→ 由本条 **P1-4** 关闭（清零至 0）。
-- **[后续项·未做]** **批5 升级**：`complexity` 由 `warn` 升 `error`，并撤 `ci.yml` 的 `frontend-complexity` step `continue-on-error` 与 CLI `--rule` 覆盖，使本地 lint 与 CI 同权阻断。**须在清零态下另起会话执行**（本条已停在 0 债基线，未动 CI）。
+- **[✅已回执·批5 落地 2026-10-12]** 原「批5 升级」遗留项已完成：`complexity` 升 `error`，`ci.yml` 撤 `continue-on-error` 与 CLI `--rule` 覆盖。落地记录见 §五 ⑦；子仓 `a683f20`（eslint.config.ts + AGENTS v9.9.0）、父仓 `1e60441`（ci.yml + 子仓指针）。
 - **[后续项·未做]** `.vue` 棘轮**上移**：现阈值仅为存量锚点（≈13%），后续每补一批组件测试需**手工同步调高**该块，否则棘轮退化为「只记录不阻断」。建议与组件测试专项（`InfoCard.vue`/`NotificationBell.vue` 等 0% 存量）绑定推进。
 - **关联条目**：BF-044（本条两项挂账的原始出处）、BF-062（`frontend-complexity` 的 `continue-on-error` 起源）、BF-083/085（变异基线留痕来源）。
-- **提交状态**：子仓三笔 + 父仓文档笔均已落库，**未 push**。
+- **提交状态**：子仓四笔（`4c6fe84`/`b248900`/`100c93f`/`a683f20`）+ 父仓三笔（`69c1686`/`1e60441` + 本笔文档回填）均已落库，**未 push**。
 
 *登记人：opencode ｜ 状态：已关闭（P1-4 清零 + P2-2 分层棘轮落地，全量门禁 0 债基线 + 三护栏 + CT-4 等价 + CT-7 版本复核），2026-10-12*

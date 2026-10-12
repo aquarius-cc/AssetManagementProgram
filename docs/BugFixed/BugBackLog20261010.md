@@ -71,7 +71,8 @@
 - **影响**：门禁仅警告不阻断；债越滚越大（头部：`SubmitBatch.ts:47` 15、`excelExporter.ts:50` 17、`readExcelFile.ts:71` 11、`RoleManage.vue:220` 12）。
 - **修复**：立专项——先入 eslint 配置 + 根级 §5.4 沙盒警告期，再分批降复杂度至 ≤10。
 - **建议顺序**：第 4 步（与 P2-2 覆盖率决策同批拍板）。
-- **关闭回执（2026-10-12）**：本条建议已由 **BF-086 / P1-4** 完整执行——规则先入 `eslint.config.ts`（`complexity: ['warn', 10]` + scripts/测试豁免 override，子仓 `4c6fe84`），随后两批清零至 **remaining complexity issues = 0**（子仓 `b248900`）。32 个文件仅改结构不删分支、错误消息逐字不变、语义逐行等价。批5（`warn`→`error` + 撤 `ci.yml` 容错）列为 BF-086 遗留后续项，未在本条范围内。详见 `docs/BugFixed/Bug修复活账本.md` BF-086。
+- **关闭回执（2026-10-12）**：本条建议已由 **BF-086 / P1-4** 完整执行——规则先入 `eslint.config.ts`（`complexity: ['warn', 10]` + scripts/测试豁免 override，子仓 `4c6fe84`），随后两批清零至 **remaining complexity issues = 0**（子仓 `b248900`）。32 个文件仅改结构不删分支、错误消息逐字不变、语义逐行等价。**批5 亦同日落地**（子仓 `a683f20` + 父仓 `1e60441`）：`complexity` 升 `'error'`，`ci.yml` frontend-complexity 撤 `continue-on-error` 与 CLI `--rule` 覆盖，改跑 `npm run lint` 读 config。详见 `docs/BugFixed/Bug修复活账本.md` BF-086 §五⑦。
+  > **勘误注记**：上方「证据」行的 `--rule 'complexity: [2, 10]'` 系**历史取证快照**，保留原样以保真。该命令现**已废弃**——CLI `--rule` 不读 flat config 的 `app/complexity-exempt` override 块，会绕过豁免并对 `scripts/*.mjs`、`**/__tests__/*.spec.ts` 误报（批5 实测 5 处）。现行唯一口径为 `npm run lint`（走 config）。
 
 ## 2. P2 — 功能验证 / 待决策 / 规范漂移
 
@@ -165,7 +166,7 @@
 
 | 结论 | 命令 / 依据 | 结果 |
 |---|---|---|
-| 前端复杂度债 | `npx eslint . --rule 'complexity: [2,10]'` | 52 errors |
+| 前端复杂度债 | `npx eslint . --rule 'complexity: [2,10]'` | 52 errors **（历史快照，2026-10-10 口径；BF-086 批5 已清零，现行口径 `npm run lint`）** |
 | frontend-mutation 假绿 | 读 `ci.yml:437-471` | `:441` continue-on-error；`:438` 注释「临时：0b 移除」；summary 仅阻断 backend |
 | 后端变异基线 | 读 `asset_management_backend/mutmut-baseline.json` | `"score": 68.6064`（run_date 2026-09-30，CI 环境精确值 `95f9458`）；账面 70.44 系 WSL 旧口径，不一致 |
 | G-4 未实现 | `rg "def check_g" scripts/check_duplicate_invariants.py` | 仅 g1/g2/g3/g5 |
