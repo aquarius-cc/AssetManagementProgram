@@ -265,22 +265,22 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install -r requirements/dev.txt
-      - name: 变异测试（相对基线不回归）
-        # 门禁策略 B批（2026-09-30）：相对基线不回归，基线存于 mutmut-baseline.json
-        # （现行 score=68.6064，CI 执行环境实测；首基线 70.44% 系 WSL 旧口径，113 timeout
-        # 因跨 /mnt/d 慢 I/O 误计入 killed，已作历史留痕，见 BF-067 §四）。
+      - name: 变异测试（绝对红线+基线双重门禁）
+        # 门禁策略 C批终态（2026-10-12，T7 v1.7）：双重门禁——绝对红线 80.0 + 相对基线
+        # 不回归（基线存于 mutmut-baseline.json，现行 score=83.25676365492598，CI 实证
+        # run 38224467353）。沙盒期已解除（C批补测抬分达 80% 红线，人工审批 2026-10-12）。
         # 官方口径 = (killed + timeout) / (total - skipped) * 100。
-        # 80% 绝对红线暂挂沙盒期，C批补测抬分后更新基线直至恢复绝对红线。
         # 配置全部来自 setup.cfg [mutmut]，此处刻意不传任何 CLI 参数（消除 CI/本地双口径）。
         timeout-minutes: 300
         run: mutmut run
-      - name: 变异得分门禁（相对基线不回归）
+      - name: 变异得分门禁（绝对红线+基线双重门禁）
         # 比率真源为 export-cicd-stats 产出的 JSON。`mutmut results` 只列非 killed
         # 且无 total 行，无法计算比率（旧写法 grep -c "killed" 恒为 0）。
         # 口径 = mutmut 官方公式 (killed + timeout) / (total - skipped) * 100，
-        # 对齐 backend-testing-rules.md T7；分母剔除 skipped（skipped = 显式
+        # 对齐 backend-testing-rules.md T7 v1.7；分母剔除 skipped（skipped = 显式
         # pragma no mutate，不算有效变异）；timeout 计入杀灭（官方口径语义）。
-        # 基线不得低于 mutmut-baseline.json 记录值；低于即回归，阻止合并。
+        # 双重门禁：① 绝对红线 score >= 80.0（硬地板）；② 相对基线 score >= baseline
+        #（防滑斜坡，防 80~基线区间静默回归）。任一不满足 exit 1。
         timeout-minutes: 5
         run: |
           mutmut export-cicd-stats
@@ -288,6 +288,7 @@ jobs:
           import json
           import sys
 
+          RED_LINE = 80.0
           BASELINE_FILE = "mutmut-baseline.json"
           STATS = "mutants/mutmut-cicd-stats.json"
 
@@ -320,11 +321,12 @@ jobs:
           breakdown = " ".join(
               f"{key}={stats.get(key, 0)}" for key in ("killed", "survived", "timeout", "no_tests", "suspicious")
           )
-          # 【BF-067】显示精度提到 4 位小数：门禁用 `score >= baseline` 精确比较，
-          # 而 `:.2f` 会把 68.60643 与基线 68.6064 都渲染成 68.61，出现
-          # 「显示 68.61% 对 68.61% 却 exit 1」的误导现场（run 99 实测）。
-          print(f"变异得分 {score:.4f}%（基线 {baseline:.4f}%，{(score - baseline):+.4f}pt）（{breakdown} tested={tested}）")
-          sys.exit(0 if score >= baseline else 1)
+          # 【BF-067】显示精度提到 4 位小数：门禁用 `score >= RED_LINE and score >= baseline`
+          # 精确比较，而 `:.2f` 会把 83.256763 与基线 83.2568 都渲染成 83.26，出现
+          # 「显示 83.26% 对 83.26% 却 exit 1」的误导现场（run 38220043308 实测，
+          # 根因截断值偏高）。
+          print(f"变异得分 {score:.4f}%（红线 {RED_LINE:.1f}% / 基线 {baseline:.4f}%，相对基线 {(score - baseline):+.4f}pt）（{breakdown} tested={tested}）")
+          sys.exit(0 if (score >= RED_LINE and score >= baseline) else 1)
           PY
 
   # ==================== 前端检查 ====================

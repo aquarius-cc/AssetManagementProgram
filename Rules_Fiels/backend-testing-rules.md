@@ -48,12 +48,12 @@ pytest --cov=apps.assetmanagement.services --cov-fail-under=90
 ## 七、变异测试（强化测试有效性）[T7]
 | 规则ID	| 内容 |
 | :--- | :--- |
-| T7	| 必须引入变异测试工具（mutmut，已在 `requirements/dev.txt` 钉 `mutmut==3.8.0`），对核心业务代码（Service 层）执行变异测试，变异通过率（Killed Mutants + Timeout）必须保持**不回归**：本 run 得分不得低于 `asset_management_backend/mutmut-baseline.json` 记录的基线。 |
+| T7	| 必须引入变异测试工具（mutmut，已在 `requirements/dev.txt` 钉 `mutmut==3.8.0`），对核心业务代码（Service 层）执行变异测试，变异通过率（Killed Mutants + Timeout）必须**同时满足**：① ≥ **80% 绝对红线**（硬地板）；② 不低于 `asset_management_backend/mutmut-baseline.json` 记录的基线（**相对不回归**，防 80~基线区间静默回归）。任一不满足即触发 `[HALT]` 并补充/完善测试用例。 |
 
-**门禁策略修订（B批，2026-09-30）**：
+**门禁策略（C批终态，2026-10-12，恢复绝对红线）**：
 - **判分口径 = mutmut 官方公式** `(killed + timeout) / (total - skipped) × 100`（timeout 计入杀灭）。
-- **绝对红线 80% 暂挂沙盒期（根级 §5.4）**：首基线 70.44%（BF-066 全量首跑，1959 mutants，**WSL 旧口径**）低于 80%，若立刻用绝对红线会让 CI 恒红且无法补测推进。**基线口径已于 2026-09-30 切换为 CI 执行环境：现行 `mutmut-baseline.json` 实测 `score` = 68.6064**（WSL 113 个 timeout 系跨 `/mnt/d` 慢 I/O 的环境伪象，CI 原生磁盘下 timeout=0；详见 BF-067 §四），门禁一律以 JSON 现值为准，70.44 仅作历史留痕。改为**相对基线不回归**：每轮只拦「跌破基线」的回归，补测抬分后**人工更新 `mutmut-baseline.json`** 抬高基线，直至达 80% 后恢复绝对红线并解除沙盒。
-- 沙盒期留痕：本变动登记于 `docs/BugFixed/Bug修复活账本.md` BF-064/BF-066；期满（14 自然日）人工复核后转为绝对红线硬门禁。
+- **双重门禁**：① 绝对红线 `score ≥ 80.0`（硬地板，宪法级）；② 相对基线 `score ≥ mutmut-baseline.json` 现值（防滑斜坡，防 80~基线区间静默回归）。任一不满足 `exit 1`。实现见 `ci.yml` backend-mutation 门禁脚本。
+- **沙盒期解除留痕**：80% 红线沙盒期（B批 2026-09-30 起挂，依根级 §5.4）经 C 批补测抬分至 **83.25676365492598**（CI run `38224467353` 实证，killed=1631 survived=310 no_tests=18 tested=1959）后达标，依 §5.4「期满人工复核」经用户审批（2026-10-12）恢复。登记于 `docs/BugFixed/Bug修复活账本.md` BF-064【已关闭】。本次为**解除沙盒、恢复既定红线**，非新增/收紧红线，不触发新 14 日沙盒期。
 
 **执行命令**（配置唯一事实源为 `asset_management_backend/setup.cfg` 的 `[mutmut]` 段，命令不传任何参数）：
 ```bash
@@ -105,7 +105,7 @@ pytest --cov=apps.unregisteredasset.services --cov-fail-under=90
 # 查看详细 HTML 报告
 pytest --cov=. --cov-report=html
 
-# 变异测试（配置见 setup.cfg [mutmut]；T7 相对基线不回归，基线见 mutmut-baseline.json）
+# 变异测试（配置见 setup.cfg [mutmut]；T7 双重门禁：≥80% 绝对红线 且 ≥ 基线，见 mutmut-baseline.json）
 mutmut run
 mutmut export-cicd-stats
 python -c 'import json;s=json.load(open("mutants/mutmut-cicd-stats.json"));t=s["total"]-s["skipped"];print(round((s["killed"]+s["timeout"])/t*100,2),"%")'
@@ -117,6 +117,8 @@ findstr /N "RemoveIndex RemoveField RenameField" <迁移文件名>
 ```
 
 ## 十、变更日志
+- **v1.7 (2026-10-12)**：T7 恢复 80% 绝对红线（C批终态，人工审批双重门禁方案）——沙盒期解除：C 批补测抬分至 **83.25676365492598**（CI run `38224467353` 实证，killed=1631 survived=310 no_tests=18 tested=1959）达 80% 红线，依根级 §5.4「期满人工复核」经用户审批（2026-10-12）恢复。门禁改为**双重门禁**：① 绝对红线 `score ≥ 80.0`（硬地板）；② 相对基线 `score ≥ mutmut-baseline.json` 现值（防滑斜坡，防 80~基线区间静默回归）。任一不满足 exit 1。基线取值规则定稿（BF-067 截断教训复现后）：**存全精度**（Python float 十进制全位），禁用四舍五入/截断值——run 38220043308 实测截断值 83.2568 比真实值 83.25676365492598 高致门禁恒红。本次为解除沙盒、恢复既定红线，非新增/收紧红线，不触发新 14 日沙盒期。配套：`ci.yml` backend-mutation 门禁脚本（step 名、注释、exit 条件改双条件）、后端 `AGENTS.md` §1.3 条目（顺带修正 v9.3.2 残留的「当前基线 68.6064」漂移）。登记于 BF-064【已关闭】。
+
 - **v1.6 (2026-10-10)**：T7 基线口径补注（P1-2 口径统一，人工拍板 C 双端差异化）——现行基线为 `mutmut-baseline.json` 实测 **68.6064**（CI 执行环境），v1.5 所载「首基线 70.44%」系 WSL 旧口径（113 timeout 因跨 `/mnt/d` 慢 I/O 误计入 killed），仅作历史留痕。门禁机制不变（相对基线不回归），80% 绝对红线仍处沙盒期。配套：`ci.yml:269-271` 注释同步、后端 `AGENTS.md` §1.3 变异测试条目改为 T7 相对基线口径。
 
 - **v1.5 (2026-09-30)**：T7 门禁口径修订（B批决策，人工审批）——判分公式改为 mutmut 官方公式 `(killed+timeout)/(total-skipped)×100`（timeout 计入杀灭）；绝对红线 80% 暂挂沙盒期（根级 §5.4），改为**相对基线不回归**（基线存 `asset_management_backend/mutmut-baseline.json`，首基线 70.44% 取自 BF-066 全量首跑），补测抬分后人工更新基线直至恢复 80% 绝对红线。同步修订 §九 变异命令为官方口径。配套改动：`.github/workflows/ci.yml` backend-mutation 门禁（移两处 `continue-on-error`、ci-summary 纳入 result 判定）。
