@@ -39,8 +39,11 @@
 
 ## 六、整体覆盖率检查（宪法 CT-2 落地）[T14]
 - 整体红线（宪法 CT-2）：`npm run test:coverage`（等价于 `vitest run --coverage`）
-- 阈值由 `vitest.config.ts` 的 `coverage.thresholds` **自动强制**（statements / branches / functions / lines = 80），不达标即判失败，**无需也不应再传 `--threshold`**。
-- 若整体覆盖率 < 80%，触发 `[HALT]` 并补测。
+- 阈值由 `vitest.config.ts` 的 `coverage.thresholds` **自动强制**，不达标即判失败，**无需也不应再传 `--threshold`**。
+- 阈值为**分层前缀块**（BF-086 / P2-2 落地）：`'src/**/*.ts'` = 80（`'src/stores/**/*.ts'` = 90），`'src/**/*.vue'` = 分层棘轮（2026-10-12 实测基线：语句 12.9 / 分支 11.6 / 函数 10.9 / 行 13.0）。**无无前缀全局块**——因 `.vue` 存量零覆盖会把并集拖至 42% 直接假红。
+- **棘轮语义**：`.vue` 块阈值**只升不降**；覆盖率上移后需**手工同步调高**该块数值，否则棘轮退化为「只记录不阻断」。补组件测试专项时应与该块上移绑定推进。
+- `coverage.include` 现为 `['src/**/*.ts', 'src/**/*.vue']`（120 个组件已进入统计口径）。
+- 若 ts 层整体覆盖率 < 80%，触发 `[HALT]` 并补测；若 `.vue` 层跌破当前棘轮阈值，同样触发 `[HALT]`。
 
 > ⚠️ **勿用 `--threshold` CLI 参数（vitest 4 已移除）**：`vitest --coverage --threshold 80` 实测报 `CACError: Unknown option '--threshold'`（exit 1）。
 > 该形制在 vitest 3 也不可靠——`docs/compose/specs/2026-07-06-rules-files-fix-plan.md:314` 曾挂待办提议改为 `--coverage.threshold=80`，该待办从未销项，且在 vitest 4 下同样失效。唯一正解是依赖配置文件强制。

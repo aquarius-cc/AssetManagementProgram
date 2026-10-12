@@ -2458,9 +2458,11 @@ F-P2-8~13 六票批量执行（用户拍板 D1 补实现 / D2 取消不回退 / 
 
 ### 六、遗留与关联事项
 
-1. **[待决策] 覆盖率门禁不含 `.vue`**：`vitest.config.ts:22` `coverage.include: ['src/**/*.ts']` 使组件覆盖率对 80%/90% 门禁不可见，CT-2「核心模块覆盖率」在组件层实际未受门禁保护。修法为并入 `'src/**/*.vue'`，但会立即拉低整体数值（大量存量组件零覆盖，如 `commoncomponents/InfoCard.vue`、`NotificationBell.vue` 等实测 0%），需先补测试或分阶段设阈值。属工程配置标准变更（前端 AGENTS §4.1 自主范围），**本次未擅自改动**，提请决策。
+1. **[✅已关闭] 覆盖率门禁不含 `.vue`**：`vitest.config.ts:22` `coverage.include: ['src/**/*.ts']` 使组件覆盖率对 80%/90% 门禁不可见，CT-2「核心模块覆盖率」在组件层实际未受门禁保护。修法为并入 `'src/**/*.vue'`，但会立即拉低整体数值（大量存量组件零覆盖，如 `commoncomponents/InfoCard.vue`、`NotificationBell.vue` 等实测 0%），需先补测试或分阶段设阈值。属工程配置标准变更（前端 AGENTS §4.1 自主范围），**本次未擅自改动**，提请决策。
+   > **【2026-10-12 关闭·决策已落地】** 上述「提请决策」已由用户拍板**分层棘轮**方案并在 **BF-086** 落地：`coverage.include` 并入 `'src/**/*.vue'`，80/90 收进 `'src/**/*.ts'` 前缀块，`.vue` 独立棘轮（语句 12.9 / 分支 11.6 / 函数 10.9 / 行 13.0，取当日实测并向下取整留余量，语义=只升不降）。子仓提交 `100c93f`。**现行口径以 BF-086 / `vitest.config.ts` 为准**，本条「待决策」标记随之失效。
 2. **[已记录·不改] expose 可选链语义**：`CommonList.vue` 的 `actionsRef.value?.search()` 仅在子实例为 null 时短路；子实例存在但缺方法时抛错。生产 `CommonListActions.vue` 已 expose `search`/`clearSearch`，当前无实际风险；如未来该子组件 expose 面变化需同步复核。
-3. **[待决策] 复杂度存量欠债 52 处**：全仓 `complexity: 10` 门禁 53 errors，本次触及文件已清零，其余 52 处分布于 `AssetForm.vue`、`*BatchImport.config.ts`、`useOutAssetDetailCards.ts`、`createEntityStore.ts`、`request.ts` 等未触达文件。规范未把该规则写入 eslint 配置（`npm run lint` 不含），故为人工核验项。建议纳入后续批次并考虑先入 eslint 配置 + 沙盒警告期（根级 §5.4）。
+3. **[✅已关闭] 复杂度存量欠债 52 处**：全仓 `complexity: 10` 门禁 53 errors，本次触及文件已清零，其余 52 处分布于 `AssetForm.vue`、`*BatchImport.config.ts`、`useOutAssetDetailCards.ts`、`createEntityStore.ts`、`request.ts` 等未触达文件。规范未把该规则写入 eslint 配置（`npm run lint` 不含），故为人工核验项。建议纳入后续批次并考虑先入 eslint 配置 + 沙盒警告期（根级 §5.4）。
+   > **【2026-10-12 关闭·建议已执行】** 上述「建议纳入后续批次」已由 **BF-086 / P1-4** 执行完毕：规则先入 `eslint.config.ts`（`complexity: ['warn', 10]` + scripts/测试文件豁免 override，即本条建议的沙盒警告期形态，子仓 `4c6fe84`），随后两批清零至 **remaining complexity issues = 0**（子仓 `b248900`）。32 个文件仅改结构不删分支、错误消息逐字不变、语义逐行等价。**现行口径以 BF-086 为准**，本条「待决策」标记随之失效。后续批5（`warn`→`error` + 撤 `ci.yml` 容错）列为 BF-086 遗留后续项，未在本条范围内。
 4. **关联未处理项**：报告 Q-03（页面绕过 store/api 直连请求层）、Q-05（两处 flaky 测试）本次未动，仍在「6. 结论与后续建议」待办清单中。Q-05 前端项（`src/router/__tests__/index.spec.ts`）在本次全量跑（③④⑤）中 136 files 全绿通过，但隔离复跑亦通过，**未复现**，故仍按存量 flaky 挂账不关闭。
 5. **提交状态**：本条目登记时全部改动仍在工作区未提交（type-check/lint/format/test/coverage/护栏均已绿）。按规范需用户显式要求才提交。
 
@@ -5857,3 +5859,82 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 - **收尾提交（2026-10-11）**：与 BF-083 文件交叠合为一笔 `e7e1fc3` 落库（详见 BF-083 收尾提交说明）——CommonList 三件套 + useContainerWidth + fixedDegrade.spec + variables.css 密度 token + types/list.ts fixed 字段 + AssetContentDetails 平铺列 fixed:left 均在本笔。全量门禁复验 exit 0。
 
 *登记人：opencode ｜ 状态：已关闭（代码级门禁全绿 + 先红后绿 + 全量回归 + 三护栏 + DR-1 消重 + 浏览器目验五项回执通过），2026-10-10*
+
+---
+
+## BF-086 【已关闭】前端两项工程门禁落地：complexity 存量欠债清零 + 覆盖率门禁纳入 `.vue` 2026-10-12
+
+### 〇、元信息
+
+- **发现/关闭日期**：2026-10-12（一条会话内完成发现→修复→验证→落库）
+- **来源**：非生产缺陷。两项均为既有审查的「待决策」挂账——本账本 **BF-044 §六-1**（覆盖率门禁不含 `.vue`）与 **§六-3**（复杂度存量欠债 52 处）。
+- **严重级别**：P1（门禁盲区 + 工程债，均不涉业务逻辑）
+- **影响范围**：
+  - 子仓 `vue-assetmanagement`：`eslint.config.ts`、`vitest.config.ts`、新建 `src/utils/batchImport/validation.ts`，及 **32 个** `.vue`/`.ts` 的纯结构重构。
+  - 父仓：本账本、`Rules_Fiels/frontend-testing-rules.md` T16（覆盖率口径）、`docs/BugFixed/BugBackLog20261010.md`。
+  - **跨端契约变更：无**（响应结构、状态枚举、分页参数、日期格式均未动）。
+- **提交**：子仓 `4c6fe84`（批0 沙盒入配置）、`b248900`（P1-4 清零）、`100c93f`（P2-2 覆盖率分层棘轮）；父仓 `89a7f01`（本条文档同步，未 push）。
+
+### 一、问题现象（两项，同批处置）
+
+1. **复杂度债**：全仓 `complexity: 10` 门禁 **53 errors**，其中 52 处分布于 `AssetForm.vue`、`*BatchImport.config.ts`、`useOutAssetDetailCards.ts`、`createEntityStore.ts`、`request.ts` 等未触达文件；`npm run lint` 不含该规则，故为纯人工核验项，长期无机器强制。
+2. **覆盖率门禁盲区**：`vitest.config.ts` 的 `coverage.include` 仅 `['src/**/*.ts']`，**`.vue` 组件覆盖率对 80%/90% 门禁结构性不可见**，CT-2「核心模块覆盖率」在组件层实际未受保护。
+
+### 二、根因
+
+| # | 项 | 事实 |
+|:--|:--|:-----|
+| 1 | 复杂度债 | 规则曾长期只以 CLI `--rule` 形式在 CI 单点执行，未入 `eslint.config.ts`；分支税随 `?.`/`??`/`\|\|`/`?:` 的连年堆叠自然累积至 52 处。 |
+| 2 | 覆盖率盲区 | `coverage.include` 未纳入 `.vue`；一旦并入，大量零覆盖存量组件会把整体数值从 93% 拖至 **42.23%**，与全局 80% 门禁直接冲突，故长期搁置。 |
+
+### 三、修复内容
+
+**P1-4（复杂度 47→0，两批）**
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 批0 | `complexity: ['warn', 10]` 入 eslint 配置 + scripts/测试文件豁免 override（沙盒警告期，根级 §5.4） | `eslint.config.ts` |
+| 批1/2 | 抽模块级纯函数吸收分支税（`orEmpty`/`pickStr`/`pick*`/`deriveDarkLight`/`isDateColumnHeader`/`normalizeCellValue`/`extractTopLevelMsg`…） | 4 个 `*BatchImport.config.ts`、`AssetForm`、`OutAssetForm`、`ContractForm`、`WasteAssetForm`、`RecycleAssetForm`、`UnregisteredAssetForm`、`request.ts`、`guards.ts`、`SubmitBatch.ts`、`excelExporter.ts`、`useChartTheme.ts`、`useExcelExport.ts`、`useOutAssetDetailCards.ts`、`createEntityStore.ts`、`entityStoreRequestControl.ts`、`userStore.ts`、`Format.ts` 等 32 文件 |
+| 批3+ | 三个 `*BatchImport.vue` 校验分支收敛至 **DR-1 单一实现** | 新建 `src/utils/batchImport/validation.ts` + `AssetBatchImport.vue`/`AssetTypeBatchImport.vue`/`DamagedAssetBatchImport.vue` |
+
+**P2-2（覆盖率分层棘轮）**
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `coverage.include` 并入 `'src/**/*.vue'`（120 个组件进入统计口径） | `vitest.config.ts` |
+| 2 | 无前缀全局阈值会让 `.vue` 拖垮并集至 42% 假红 → 80/90 收进 `'src/**/*.ts'` 前缀块 | 同上 |
+| 3 | `.vue` 独立棘轮块，阈值取当日实测基线并向下取整留余量：**语句 12.9 / 分支 11.6 / 函数 10.9 / 行 13.0**（实测 12.98/11.66/10.95/13.11）；语义=只升不降，上移需手工同步调高，回吐则 CI 红 | 同上 |
+
+### 四、对抗审核
+
+- **CT-4 结构红线**：32 个文件**只改结构不删分支**，错误消息**逐字不变**，语义逐行等价；helper 消息一律参数化传入，不内联中文文案（避免与既有文案漂移）。
+- **DR-1 消重**：三个 `*BatchImport.vue` 原三处内联校验链同构 → 收敛为 `validation.ts` 单一实现，未新增重复模式，`complete-patterns.md` 无需登记。
+- **`.vue` 棘轮余量**：四项均**向下取整到 0.1 粒度**（如 lines 13.11→13.0），避免浮点噪声在 CI 触发假红。
+- **门禁自洽**：`npm run lint` 仍为 `eslint . --fix` 无 `--max-warnings`，批0 的 `warn` 档位不阻断本地提交；批5（未做）拟在清零后升 `error` 并撤 `ci.yml` 的 `continue-on-error` 与 CLI `--rule` 覆盖。
+- **CT-7 工具链**：以下结论均在子仓 `package.json` 声明版本下取得（本地环境未漂移）。
+
+### 五、验证记录
+
+```text
+① 复杂度：npx eslint . --format json → 解析后 remaining complexity issues = 0（47→0）✅
+② 前端三项（T17）：type-check 0 / lint 0 / format:check All matched files use Prettier code style ✅
+③ 全量（CT-2/CT-5）：npm run test:coverage → exit 0，**153/158 文件、2111/2111 tests** 全绿
+   Statements 93.06% / Branches 86.32% / Functions 88.35% / Lines 93.88%
+   （阈值 整体80 / stores90 / **.vue 分层棘轮** 三项同时强制通过）✅
+④ .vue 层独立取证：npx vitest run --coverage --coverage.include="src/**/*.vue"
+   → stmts 12.98 / branch 11.66 / funcs 10.95 / lines 13.11，均 ≥ 棘轮阈值 ✅
+⑤ 护栏：check_frontend_invariants PASS / check_file_length_guard PASS / check_duplicate_invariants PASS ✅
+⑥ 变异（T16）：本次改动多为 `.vue`/config/纯函数抽取，与 stryker mutate 范围（stores/** + useGroup*.ts）零交集
+   → 不重跑，引用 BF-083/085 的 82.29/82.35 基线留痕 ✅
+```
+
+### 六、遗留与关联事项
+
+- **[已回执·本条关闭]** BF-044 §六-1「覆盖率门禁不含 `.vue`」→ 由本条 **P2-2** 关闭（已并入 `.vue` + 分层棘轮）。
+- **[已回执·本条关闭]** BF-044 §六-3「复杂度存量欠债 52 处」→ 由本条 **P1-4** 关闭（清零至 0）。
+- **[后续项·未做]** **批5 升级**：`complexity` 由 `warn` 升 `error`，并撤 `ci.yml` 的 `frontend-complexity` step `continue-on-error` 与 CLI `--rule` 覆盖，使本地 lint 与 CI 同权阻断。**须在清零态下另起会话执行**（本条已停在 0 债基线，未动 CI）。
+- **[后续项·未做]** `.vue` 棘轮**上移**：现阈值仅为存量锚点（≈13%），后续每补一批组件测试需**手工同步调高**该块，否则棘轮退化为「只记录不阻断」。建议与组件测试专项（`InfoCard.vue`/`NotificationBell.vue` 等 0% 存量）绑定推进。
+- **关联条目**：BF-044（本条两项挂账的原始出处）、BF-062（`frontend-complexity` 的 `continue-on-error` 起源）、BF-083/085（变异基线留痕来源）。
+- **提交状态**：子仓三笔 + 父仓文档笔均已落库，**未 push**。
+
+*登记人：opencode ｜ 状态：已关闭（P1-4 清零 + P2-2 分层棘轮落地，全量门禁 0 债基线 + 三护栏 + CT-4 等价 + CT-7 版本复核），2026-10-12*
