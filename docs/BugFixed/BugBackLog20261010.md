@@ -11,6 +11,7 @@
 | P0 | **0** | 原 P0 类（权限旁路、H-1 契约、并发出库 409、代签审批）已全部关闭并有红绿锚，本轮实测无回归 |
 | P1 | **2** | 已收口 2 项（P1-1 前端变异假绿 2026-10-10、P1-2 变异口径双漂移 2026-10-12，均关闭）；余下 Docker Hub 凭据缺失、52 处复杂度债挂账 |
 | P2 | **9** | 端到端验证待人工、覆盖率 `.vue` 待决策、飞书加签待复核、G-4 护栏未实现等规范漂移 |
+| — | — | **【2026-10-13 回写】** P2-9 已收口（D-6 翻已关闭 / D-7 转已核查，见该节）；P2-2/P2-3/P2-4/P2-5/P2-6/P2-7/P2-8 此前已收口。P2 余开放：P2-1 四项人工验证（BF-002~005）、BF-088 观察项（表外）；另见审核报告 `docs/Review/代码多维度审核20261013.md` R-05（CI 取证 502）与 R-02（ci-cd file 路径疑点）。 |
 | P3 | **12** | 观察项 / 低危（含 1 处 `!important` 残余、13 处注释 console、Q-07~Q-11 规范债） |
 
 ## 1. P1 — 门禁假绿 / 阻断能力缺口（建议本周内清零）
@@ -24,8 +25,8 @@
 
 ### P1-2 变异测试口径缺口（BF-064，前后端双漂移）【已收口 2026-10-12，双端均过红线，BF-064 转已关闭】
 - **证据**（本轮实测复核）：
-  - 后端：`mutmut-baseline.json` 实测 `"score": 68.6064`（`95f9458` 修正后精确值）；**账面 70.44 为 WSL 旧口径**（113 个 timeout 因 `/mnt/d` I/O 误计入 killed），修复前需先钉死基线口径（见 §1a 第 2 步第 1 小步）。
-  - 前端：账本登记 **60.00**（120 mutants 聚焦），BF-083 实跑 **82.29**（scope=stores + useGroup*）——**scope 不同但未标注**，构成账本卫生问题（见 §4）。
+  - 后端：`mutmut-baseline.json` 实测 `"score": 68.6064`（`95f9458` 修正后精确值）；**账面 70.44 为 WSL 旧口径**（113 个 timeout 因 `/mnt/d` I/O 误计入 killed），修复前需先钉死基线口径（见 §1a 第 2 步第 1 小步）。**【现状补注 2026-10-13】** 68.6064 为 2026-10-10 快照；C 批补测后现值 **83.25676365492598**（全精度取值规则，CI run 38224467353），以 `mutmut-baseline.json` 现值为准。
+  - 前端：账本登记 **60.00**（120 mutants 聚焦），BF-083 实跑 **82.29**（scope=stores + useGroup*）——**scope 不同但未标注**，构成账本卫生问题（见 §4）。**【收口补注 2026-10-13】** scope 双口径注已落 BF-064（2026-10-13 账本卫生补标）与 BF-083 条目；60.00 转历史留痕，后续门禁以 stryker 射程 CI 实跑为准。
 - **影响**：P1-1 无法安全解闸（口径不统一时移除 continue-on-error 会误伤）。
 - **修复**：按 §1a 修复方案第 2 步执行（钉基线 → 统一 scope 重跑归档 → 账本卫生 → 拍板 0b → 更新 ci.yml 注释）。
 - **建议顺序**：第 3 步（P1-1 前置）。
@@ -33,6 +34,7 @@
 - **收口记录（2026-10-12 C批终态）**：**后端开放区残留消解**——C 批盲区补测抬分越 80% 绝对红线。B2（`test_operation_log_mutants.py`，40 用例）：`operation_log_service` 存活 181→0，68.6064→77.8458；B3（`test_out_asset_mutants.py`，24 用例）：`out_asset_service` 123→28，→82.6977；B3-二轮（`test_out_asset_mutants_round2.py`，6 用例）：→83.2568（余量 3.2568pt）。终态基线 score **83.2568**（killed 1631 / survived 310 / no_tests 18，1959 mutants，WSL 2026-10-12，CI 实证待补）。前端红线 80 维持（82.29 CI 双证）。**双端均过红线，BF-064 转【已关闭】**。残留 17 个判等价变异（B类，Fact-1）。T7 绝对红线恢复条件本 run 已满足，规则变更另批送审。子仓 `73d8d61` + 父仓 `01ef6be`。
 
 ### P1-3 Docker Hub 凭据缺失（BF-067 §三-5）
+> **【方案迁移 2026-10-13】** 原「配 Docker Hub secrets」方案**作废**——触发事实：Docker Hub 网络不可达（用户实测）。改为 **GHCR 迁移**（`ci-cd.yml` Login/tags/prune + `docker-compose.prod.yml:13` 已改造，零库外 secrets），详见 BF-067「部署仓库迁移决策」补注与审核报告 §5.1 批次 1.2。本节下方第 1 步原文保留作历史，**实际关闭条件已改为**：CD run 双绿 + GHCR 包页标签实证 + 包页联动本仓 + 部署主机 pull 成功。
 - **证据**：`ci-cd.yml:100-104` 使用 `secrets.DOCKERHUB_USERNAME` / `secrets.DOCKERHUB_TOKEN`；`:20` 注明 token 权限须 Read & Delete；BF-067 状态【待修复】仅剩此项（§一~§四、§三-6 已修复，run 106 head `46ef870` 全绿）。
 - **影响**：部署 workflow 必失败；且因触发条件限制，补配后只能空提交重跑。
 - **修复**：运维一次性配置 secret（详见 §1a 修复方案第 1 步）。
@@ -92,63 +94,67 @@
 - **建议顺序**：第 4 步（与 P1-4 同批）。
 - **关闭回执（2026-10-12）**：用户拍板**分层棘轮**方案，已由 **BF-086 / P2-2** 落地——`coverage.include` 并入 `'src/**/*.vue'`（120 组件进入口径），80/90 收进 `'src/**/*.ts'` 前缀块，`.vue` 独立棘轮（语句 12.9 / 分支 11.6 / 函数 10.9 / 行 13.0，取当日实测并向下取整留余量，语义=只升不降）。子仓提交 `100c93f`。详见 `docs/BugFixed/Bug修复活账本.md` BF-086。
 
-### P2-3 飞书加签 `TODO_AI_CONFIRM` 残留（Q-06 / AR-1 受控清单）
+### P2-3 飞书加签 `TODO_AI_CONFIRM` 残留（Q-06 / AR-1 受控清单）【已关闭 2026-10-13】
 - **证据**：实测 `asset_management_backend/docker/feishu-webhook/app.py:42` 存活 `# TODO_AI_CONFIRM: 上线前对照飞书官方文档复核加签算法与字段名(timestamp/sign)`。
-- **影响**：若加签算法与飞书现状不符，生产通知会**静默失败**且无复核证据。
-- **修复**：上线前人工对照官方文档复核 → 删除标注 → 飞书集成冒烟。
-- **建议顺序**：**第 2 步**（人工 30 分钟，上线阻塞项）。
+- **影响**：~~若加签算法与飞书现状不符，生产通知会**静默失败**且无复核证据。~~ 措辞订正（2026-10-13）：代码本就有结构化日志 + 502（`app.py:163-166`），非静默；真实风险是「失败无人盯日志」。复核后确认算法与飞书现状一致。
+- **修复**：~~上线前人工对照官方文档复核 → 删除标注 → 飞书集成冒烟。~~ **按 B 顺序执行完毕（2026-10-13，用户拍板方案审核后）**：①文档对照复核 6 点全一致（含行号订正 `:113-115`→`:117-120`）；②单测 `test_app.py` 删前删后双跑 **14/14 OK**；③真实冒烟双检通过——正检 HTTP 200 + 群卡片实收、负检错密钥 HTTP 502 + 日志 `code=19021` 实证签名生效；④删标注留痕（官方文档出处 + 复核日期 + 冒烟实证）；⑤`rg TODO_AI_CONFIRM` 全仓零命中，AR-1 受控清单归零。详见 **BF-089**。
+- **建议顺序**：~~**第 2 步**（人工 30 分钟，上线阻塞项）。~~ 已执行。
 
-### P2-4 G-4 护栏未实现（F-P3-3）
+### P2-4 G-4 护栏未实现（F-P3-3）【已关闭 2026-10-13】
 - **证据**：本轮 rg 实测 `scripts/check_duplicate_invariants.py` 仅含 `check_g1_closed_patterns_absent` / `check_g2_operation_log_single_impl` / `check_g3_frontend_single_source` / `check_g5_no_shadow_modules`——**无 G-4**（error_code 注册提示）。
 - **漂移**：根级 §1.8 声称「沙盒期内 G-1~G-3、G-5 阻断、G-4 仅报告」，与实现不符。
-- **修复**：补 G-4 实现（报告模式）或在脚本头部显式注明「G-4 为人工执行项」。
+- **修复**：~~补 G-4 实现（报告模式）或在脚本头部显式注明「G-4 为人工执行项」。~~ **按第三选项关闭（2026-10-13，经 §5.2 人工审批）**：不补实现，改根级 AGENTS.md §1.8 定性——G-4（error_code 注册）已定案无需注册（服务层 `error_code` 仅供批量 `fail_items` 日志、前端零消费，账本 `:1700` 留痕），属语义级定性检查，护栏不实现自动化；§1.8 守护枚举改为 G-1~G-3、G-5，「阻断」主语锚定该四条。AGENTS.md 升 v3.7.1 + changelog；`complete-patterns.md:971` 脚注同步补注「未自动化，账本 `:1700` 留痕」。依据链：账本 `:911`（「G-4：无需注册」）+ `:1700`（「无 G-4 实现函数」2026-09-23 已留痕）+ `complete-patterns.md:966/:971`（定案定义与脚注）+ 自测套件 `test_duplicate_invariants.py` 仅测 g1/2/3/5（与「无实现」一致）。
 
-### P2-5 跨部门部门可见性未评估（BF-048 遗留，条目未建）
+### P2-5 跨部门部门可见性未评估（BF-048 遗留，条目未建）【已关闭 2026-10-13】
 - **证据**：BF-048 第三节「`get_department_by_jobcode` 返回部门而非员工档案，跨部门部门可见性未评估，另立条目跟进」——账本未见对应新条目。
 - **修复**：建 BF 条目并评估；在评估前，相关可见性行为按「未知风险」对待。
+- **关闭回执（2026-10-13）**：已建 **BF-088**【观察项·未评估】（账本 BF-087 之后，无跳号）——元信息双向锚定（BF-088 引 `:2842`「另立」原文 + BF-048 `:2842` 补注「→ 已另立 BF-088 跟进」）；影响段按未知风险落位并点名行为面：① 跨部门员工列表查询与导出（`list`/`export_excel`）经部门过滤后的行集合范围；② `get_department_by_jobcode` 单独调用的返回边界（与 BF-048 `:2842` 原文对齐）。附待评估项清单 3 条 + 对抗审核（与 BF-048 边界切分、BF-049~087 零命中核查、Fact-1 不臆造结论）。**本条仅完成「建条目」，评估本身挂账于 BF-088 按需排期**（Backlog §1.6 类型 E 表 E2 行同步收口）。
 
-### P2-6 `?search=` vs `?keyword=` 语义不一致（BF-049 残余）
+### P2-6 `?search=` vs `?keyword=` 语义不一致（BF-049 残余）【已消解 2026-10-13】
 - **证据**：A-44 变更日志明确「`?search=` 与 `?keyword=` 语义不一致未处理」。
-- **修复**：后端统一参数名（建议统一 `keyword`）+ api-schema 基线重导出；或前端收敛调用。
+- **消解认定（2026-10-13）**：本条证据为 A-44 登记时点（v2.9.49，2026-09-26）快照，已被次日 commit `c1ff7dd`（2026-09-27，子仓）解决——双语义**定性为既定设计并护栏化**：新增 `apps/usermanagement/employee_search.py` 专职模块（`?search=` 窄口径=DRF SearchFilter 字段名匹配、`?keyword=` 宽口径=列表查询含部门名与中文状态别名，文案从 selectors 权威常量派生）；`test_employee_search_contract.py` **16 条合同测试**锁死窄/宽口径、AND 交集、「search 单独传 400」等行为为预期设计；`employee_view.py:167` `search_param_description_actions` 限定声明范围；前端实测只发 `keyword`（`user.spec.ts:39/49`）。§3 跨端契约表不含 search/keyword（仅响应根结构/状态枚举/分页/日期），**无 [HALT] 触发点**；强制统一参数名会撞毁这批刻意设计的合同测试且前端零收益。
+- **修复**：~~后端统一参数名（建议统一 `keyword`）+ api-schema 基线重导出；或前端收敛调用。~~ 不做参数统一——双语义为既定设计，本条转状态回写收口（配套：`complete-patterns.md:986` 遗留② 与账本 `:2776` 两处 A-44 时代措辞同步补注 c1ff7dd 后现状）。
 
-### P2-7 `amount_paid` 重算串行依赖（BF-053 ↔ BF-055）
+### P2-7 `amount_paid` 重算串行依赖（BF-053 ↔ BF-055）【已失效 2026-10-13】
 - **证据**：BF-053 依赖 BF-055 先修（`amount_paid` 重算链路）；BF-055 状态【待验证】。
-- **修复**：排期严格 BF-055 → BF-053，不可颠倒。
+- **失效认定（2026-10-13）**：本条前提已消解——BF-053（活账本 `:3142`）与 BF-055（`:3242`）均已【已关闭】，同批 2026-09-28 v2.9.53 B-25 子项①③处置；`:3174` 明示「两者须同批处置（B-25 已论证，不单飞）」= 串行依赖已被遵守。本文件 :115「BF-055 状态【待验证】」系登记时点（2026-10-10）的陈旧快照，未随账本关闭同步。
+- **修复**：~~排期严格 BF-055 → BF-053，不可颠倒。~~ 无需排期——依赖关系已消解，本条转状态回写收口。
 
-### P2-8 BF-045 状态漂移待收口
+### P2-8 BF-045 状态漂移待收口 【已关闭 2026-10-13】
 - **证据**：`vitest.config.ts` 已实测命中 `maxWorkers: 4`（BF-046 落地时顺带），BF-045 仍标【部分关闭】，「环境性成因留账待决策」实际已消解。
 - **修复**：复核后将 BF-045 收口为已关闭，或缩小其开放范围至真实未解部分。
+- **关闭回执（2026-10-13）**：BF-045 已收口为【已关闭】，范围严格限定 Q-05 两处 flaky——证据链三段闭合（根因表实测锁「15 workers + 4.92GB 内存争用」→ BF-046 落地固化 `vitest.config.ts:20` `maxWorkers: 4`（改动表第 10 行）→ 2026-10-13 复核实测命中）。原「环境性成因留账待决策」开放项失效。**第六节遗留 2（mypy 注解债）、遗留 3（pytest teardown 告警）为独立技术债，不随本条关闭，继续独立挂账**（本条仅收 Q-05）。
 
-### P2-9 D 区待核查项（重复代码账本）
-- **D-6**：z-index 无层级令牌（状态【待核查】）。
-- **D-7**：布尔 query 手写解析（`notification/views.py` 一带，状态【待核查】，与 BF-065 布尔解析 DR-1 系同族）。
-- **修复**：完成核查并关闭或转「待修复」立批次。
+### P2-9 D 区待核查项（重复代码账本）【✅ 已收口 2026-10-13】
+- **D-6**：~~z-index 无层级令牌（状态【待核查】）~~ → **【✅已关闭】**。2026-10-13 实测已修复：`vue-assetmanagement/src/styles/variables.css:103-108` 存在完整 `--z-*` 阶梯（content 1 / mask 100 / child-container 200 / notification 900 / router-mask 1000 / view-overlay 2000）；全仓 z-index 引用恰 8 处全部 `var(--z-*)`、零裸值。与 `complete-patterns.md:884`「✅ 已修复（2026-09-09）」一致——本行原【待核查】为登记时点漂移，予以收口。
+- **D-7**：~~布尔 query 手写解析（`notification/views.py` 一带，状态【待核查】，与 BF-065 布尔解析 DR-1 系同族）~~ → **【✅已核查·低风险观察】**。2026-10-13 完成前端字面量实证核查：`NotificationList.vue:73` `params.is_read = filters.is_read === 'true'` 赋**布尔值**，axios 序列化仅产生 `true`/`false`，与后端 `notification/views.py:31` `== "true"` 词表一致，现实现无隐性 Bug。**重开条件**：前端一旦改发 `1`/`0` 或其他字面量即构成静默错答，须重开并按 `complete-patterns.md` D-7「修复建议」走 §5.2 审批改造（Serializer `BooleanField` 收敛）。证据同步登记于 `complete-patterns.md:900` 状态行。
+- **修复**：~~完成核查并关闭或转「待修复」立批次。~~ **已执行**——D-6 翻已关闭、D-7 转已核查（含重开条件），本节收口。执行记录见 `docs/Review/代码多维度审核20261013.md` §5.1 批次 3。
 
 ## 3. P3 — 观察项 / 低危（按需排期）
 
 | # | 项 | 证据 / 位置 | 建议 |
 |---|---|---|---|
-| 1 | side-tab accent border（BF-072） | `GroupedAssetTable.vue:285` | 待用户选 A/B/C 方案后再动 |
-| 2 | keepAlive + componentName 死配置（BF-079） | 路由配置 | 用户已拍板不动代码，维持观察 |
-| 3 | `asset_view.py` 512 行存量豁免（BF-018） | `views/asset_view.py` | 触发条件：下次新增 ≥50 行时按方案 B 拆分 |
-| 4 | dev 连通性探测裸 fetch（Q-07） | `src/api/network.ts:83` | 加 AbortController + 超时，或标注 dev-only |
-| 5 | 业务接口内联 `.vue` 未下沉 types（Q-09） | `DepartmentTree.vue:92` 等 ~12 处 | 迁移至 `src/types/`，.vue 仅留 Props/Emits |
-| 6 | API JSDoc 指向不存在视图（Q-10） | `foundAsset.ts:8` 等 11 处 | 更新或删除过时 JSDoc |
-| 7 | 设计 token 偏移（Q-11） | `DashboardStatusOverview.vue:90` 等 | 收敛为 4 的倍数、4/8px 圆角 |
-| 8 | C-10 残余 1 处 `!important` | **实测** `MainView.vue:205` | 改用 CSS 变量 + scoped 继承模式（对齐 C-10 其余 8 处做法） |
-| 9 | BF-041 残余 console | **实测** 13 处（多为注释掉的调试行） | 批量删除注释行即可，低风险 |
+| 1 | ~~side-tab accent border（BF-072）~~ | ~~`GroupedAssetTable.vue:285`~~ | **【✅ 2026-10-13】** 批次 D2 拍板**选项 D**（取代 A/B/C，原定义错位）：六处统一 `var(--color-primary)`（#2b5fd7）+ 宽度 4px（仅 `UnregisteredAssetBasicDetails.scss:87` 3px→4px），`common-forms.scss:85` 基准不动；复扫 `border-left.*primary-light` 清零、7 处 primary accent 齐整；行号 `:285`→`:396`；三项门禁绿；BF-072 翻【已关闭】；目验归行10 |
+| 2 | ~~keepAlive + componentName 死配置（BF-079）~~ | ~~路由配置~~ | **【✅ 2026-10-13】** 用户改按**方案②**执行（取代 2026-10-08「维持观察」拍板）：删资产详情条 `keepAlive`+`componentName` 死配置（`routes-main-core.ts` 原 :71-72）+ grouped 段注释显式声明「有意不缓存」（`:46-49`）+ spec 回归锚先红后绿（`index.spec.ts:130-141`，12/12）；五条同构路由（Contract/AssetType/Storage/User/Department，实测缓存活）零触碰；全量 vitest **2119 passed**、三项门禁绿；BF-079 翻【已关闭】；**零行为变化**（死配置本就从未生效） |
+| 3 | ~~`asset_view.py` 512 行存量豁免（BF-018）~~ | `views/asset_view.py` | **【✅ 2026-10-13 口径订正】** 512 系物理行口径（LT-2 禁用，RF-058/BF-058 同型第三次）；护栏 `--print` 权威值 **471 逻辑行 < 500，0 违规**（2026-10-13 实测；2026-09-29 计划 D3 批已同结论取消拆分）→ **不立项**；触发条件改按逻辑行口径：新增 ≥50 逻辑行时同步拆分至 ≤500 |
+| 4 | ~~dev 连通性探测裸 fetch（Q-07）~~ | ~~`src/api/network.ts:83`~~ | **【✅ 2026-10-13】** 批次 B1：OPTIONS 预检补 `signal: AbortSignal.timeout(TIMEOUT)`，`TIMEOUT=15s` import 自 `api/config.ts:17`（零扩导出面）；spec 先红（`timeout` 0 calls / exit=1）后绿 **7/7**；三项门禁绿 |
+| 5 | ~~业务接口内联 `.vue` 未下沉 types（Q-09）~~ | ~~`DepartmentTree.vue:92` 等 ~12 处~~ | **【✅ 2026-10-13】** 批次 C1 分流执行：真手写 EP 内部类型**仅 DepartmentTree 三件**（`ElTreeNode:92`/`ElTreeStore:114`/`DropType:120`）→ 迁入 `types/form-helpers.ts`（该文件树三件死导出同名异构、全仓零调用，一并清除并删死 `AssetTypeTreeNode`）；「~12 处」其余为单文件业务类型（`SearchForm`×3 / `FormDataType`×4 **形状全异**，跨文件不同构）按批准分流**留原地**；EP 官方 `TreeNode`=useDragNode 包装、`Node` 类未公开导出故手写不可避免；type-check 绿 + `departmentTree.spec` **16/16**；执行中顺带发现 `.section-title` 同款样式 ×5 重复，已按 §1.8 新发现义务登记 `complete-patterns.md` **B-26**（待修复） |
+| 6 | ~~API JSDoc 指向不存在视图（Q-10）~~ | `foundAsset.ts:8` 等 | **【✅ 2026-10-13】** 批次 A2 实测 29 文件 72 目标、失效 **28**（原「11 处」低估）：15 处视图改真实路由页（`componentsdetails/*Details` / `views/*View`）、`stores/authStore`→`stores/auth`、network 拆 `stores/networkStore`+`views/LogIn`、roles.ts 自引用 ×7 → `stores/roleStore`+`UserDetails.vue`、`api/userAPI`→`api/authusers.ts`；余 4 为有意保留伪目标（index.ts 通配 ×3、request.ts「全局」描述），复扫 missing=4 全部留痕 |
+| 7 | ~~设计 token 偏移（Q-11）~~ | ~~`DashboardStatusOverview.vue:90` 等~~ | **【✅ 2026-10-13】** 批次 D1：自写扫描（间距 %4≠0 + 圆角 ∉{0,4,8}px，`var()/calc()/50%` 豁免）实测 **14 处 / 8 文件**（间距 6/10/14/18/22/2px + 圆角 3/6px）全部收敛（就近 4 倍数、tie 取小、2→4 特例）；复扫 **CLEAN**；三项门禁绿；`status-bar` radius 3→4 为胶囊半高、浏览器钳制回 3px **渲染零变化已留痕**；14 处全列目验单 |
+| 8 | ~~C-10 残余 1 处 `!important`~~ | ~~**实测** `MainView.vue:205`~~ | **【✅ 2026-10-13】** 批次 B2：**整行删除** `padding: var(--el-main-padding) !important`——EP `.el-main` 自消费该 var（`theme-chalk/index.css` 实测 `padding:var(--el-main-padding)`），`:204` 设 8px 后特异性 0,2,0 > EP 0,1,0，`:205` 整行冗余；修法为「CSS 变量 + scoped 继承」原建议，且避开 `variables.css:111`「禁写 :deep+!important」禁令；三项门禁绿 |
+| 9 | ~~BF-041 残余 console~~ | **实测 13 处** | **【✅ 2026-10-13】** 批次 A1 拆分订正：13 = **10 注释行 + 3 logger 合法唯一出口**（`logger.ts:58/60/63`，`:62` 带 `eslint-disable no-console` 豁免），**0 active**——原「8 注释 + 3 logger + 2 待逐条判定」口径不成立；10 处注释已全删，复扫仅剩 logger 3 处 |
 | 10 | BF-014 遗留：暗色态浏览器目验 | `NotificationBell.vue` / `BindAuthUserDialog.vue` / `LogIn.vue` | 拉起 dark 主题逐页目验，有偏差回开条目 |
-| 11 | G-4 error_code schema 观察项 | 护栏脚本 | 与 P2-4 同批处理 |
-| 12 | `?search=`/`?keyword=` 文档口径 | 后端 api-schema | 与 P2-6 同批处理 |
+| 11 | ~~G-4 error_code schema 观察项~~ | 护栏脚本 | **【✅ 2026-10-13】** P2-4 按第三选项收口：改 AGENTS.md §1.8 定性（G-4 已定案无需注册，不实现自动化），不补报告模式 |
+| 12 | ~~`?search=`/`?keyword=` 文档口径~~ | 后端 api-schema | **【✅ 2026-10-13】** P2-6 已消解：双语义为既定设计（`c1ff7dd` + `employee_search.py` + 16 条合同测试护栏化），前端 keyword-only，不做参数统一 |
 
-## 4. 账本卫生（先清理的 4 处漂移，半小时内可完成）
+## 4. 账本卫生（先清理的 4 处漂移，半小时内可完成）【✅ 全部完成 2026-10-13】
 
 | # | 漂移 | 处理 |
 |---|---|---|
-| 1 | BF-064 前端基线 60.00 vs BF-083 实跑 82.29（scope 不同但未标注） | 在 BF-064 补注「scope=聚焦 120 mutants」与「scope=stores+useGroup* 全量」的区分；以全量口径为后续门禁基线 |
-| 2 | 后端变异基线 70.44（账面/WSL 旧口径）vs 68.6064（`mutmut-baseline.json` 实测，`95f9458` 修正精确值） | 70.44 系 WSL 旧口径（113 timeout 因 `/mnt/d` I/O 误计入 killed）；以 JSON 68.6064 为准，账本补注口径切换历史（BF-067 §四已定案，Backlog 引用需同步） |
-| 3 | BF-045 状态未随 `vitest.config.ts` maxWorkers 落地收口 | 复核后关闭（见 P2-8） |
-| 4 | 计划 D1「mypy 27 errors」已被推翻 | Q-08 实测 `.venv` **0 errors / 209 files**；`dev.txt:35-44` 钉 mypy 2.1.0 + django-stubs 6.1.0 + drf-stubs 3.18.0；CI 同口径成功 → 关闭 D1，避免下次审计误判 |
+| 1 | ~~BF-064 前端基线 60.00 vs BF-083 实跑 82.29（scope 不同但未标注）~~ | ~~在 BF-064 补注「scope=聚焦 120 mutants」与「scope=stores+useGroup* 全量」的区分；以全量口径为后续门禁基线~~ **【✅ 2026-10-13 完成】** BF-064 已落 2026-10-13 账本卫生补标：60.00 标注为 2026-09-24 聚焦口径历史留痕；后续前端门禁以 `stryker.config.json` 射程 CI 实跑为准（现行 82.29） |
+| 2 | ~~后端变异基线 70.44（账面/WSL 旧口径）vs 68.6064（`mutmut-baseline.json` 实测，`95f9458` 修正精确值）~~ | ~~70.44 系 WSL 旧口径（113 timeout 因 `/mnt/d` I/O 误计入 killed）；以 JSON 68.6064 为准，账本补注口径切换历史（BF-067 §四已定案，Backlog 引用需同步）~~ **【✅ 2026-10-13 完成】** 口径史七段已落 BF-064 补标（70.44→68.6064→77.8458→82.6977→83.2568→**83.25676365492598**）；权威现值 **83.25676365492598**（全精度取值规则，CI run 38224467353）；现状级引用（本文件 :27/:173、实施方案-v2.3.md:1056）已补注现值指针；`ci.yml:270` 实测已同步不改 |
+| 3 | ~~BF-045 状态未随 `vitest.config.ts` maxWorkers 落地收口~~ | ~~复核后关闭（见 P2-8）~~ **【✅ 2026-10-13 完成】** BF-045 已翻【已关闭】（范围限定 Q-05），P2-8 已附关闭回执；遗留 2/3 独立挂账 |
+| 4 | ~~计划 D1「mypy 27 errors」已被推翻~~ | ~~Q-08 实测 `.venv` **0 errors / 209 files**；`dev.txt:35-44` 钉 mypy 2.1.0 + django-stubs 6.1.0 + drf-stubs 3.18.0；CI 同口径成功 → 关闭 D1，避免下次审计误判~~ **【✅ 2026-10-13 完成】** D1 已按 Q-08 关闭（计划 D1 行 + 顺序表第 2 行 + §8.1 可验证行均已补注推翻与根因=工具链钉版非代码修复）；`complete-patterns.md:430` 遗留项同步订正 |
 
 ## 5. 修复顺序（推荐）
 
@@ -158,9 +164,9 @@
 | 2 | **飞书加签人工复核**（P2-3 / Q-06） | 人工 30 分钟 | 消除上线静默失败风险 |
 | 3 | **统一变异口径 → 移除 `ci.yml:441` + ci-summary 加前端阻断**（P1-2 → P1-1，详见 §1a 第 2/3 步；0b 策略见「待拍板」表） | 半天 | 收口最大门禁假绿通道 |
 | 4 | ~~**覆盖率 `.vue` 决策 + 52 处复杂度立项**（P2-2 + P1-4）~~ | 一次拍板 | **【✅已完成 2026-10-12】**两道门禁补全落地，见 BF-086（P1-4 清零 + P2-2 分层棘轮）。后续项：批5 `warn`→`error` + `.vue` 棘轮上移 |
-| 5 | **账本卫生 4 处**（§4） | 半小时 | 避免下次审计误判 |
+| ~~**5**~~ | ~~**账本卫生 4 处**（§4）~~ | 半小时 | 避免下次审计误判 **【✅已完成 2026-10-13】** §4 四处全部收口：BF-064 门禁口径补标（前端 60.00 转历史留痕 + 后端口径史七段）、BF-045 翻【已关闭】（P2-8 回执）、后端基线现状级引用补注（Backlog :27/:173 + 实施方案-v2.3:1056）、计划 D1/D6 关闭 + complete-patterns:430 遗留订正。改动留工作区待用户审阅提交 |
 | 6 | **C 批端到端清单**（P2-1） | 人工 1~2 天 | CT-4 回归屏障闭环 |
-| 7 | **P2 其余（G-4、BF-048 建条目、参数统一、BF-055→BF-053 串行）** | 分批 | 规范漂移清零 |
+| ~~**7**~~ | ~~**P2 其余（G-4、BF-048 建条目、参数统一、BF-055→BF-053 串行）**~~ | 分批 | 规范漂移清零 **【✅ 2026-10-13 全部收口】** 四项分别由 P2-4（G-4 改 §1.8 定性，已关闭）、P2-5（BF-048 建条目 → 新建 BF-088）、P2-6（参数统一已消解——双语义为既定设计 `c1ff7dd`，不做统一）、P2-7（BF-055→BF-053 串行已失效——双 BF 同批关闭 2026-09-28）收口；本行整行 ✅ |
 | 8 | **P3 项按需** | 随迭代 | 低危清理 |
 
 ## 6. 取证记录（本轮实测命令与结果）
@@ -169,9 +175,9 @@
 |---|---|---|
 | 前端复杂度债 | `npx eslint . --rule 'complexity: [2,10]'` | 52 errors **（历史快照，2026-10-10 口径；BF-086 批5 已清零，现行口径 `npm run lint`）** |
 | frontend-mutation 假绿 | 读 `ci.yml:437-471` | `:441` continue-on-error；`:438` 注释「临时：0b 移除」；summary 仅阻断 backend |
-| 后端变异基线 | 读 `asset_management_backend/mutmut-baseline.json` | `"score": 68.6064`（run_date 2026-09-30，CI 环境精确值 `95f9458`）；账面 70.44 系 WSL 旧口径，不一致 |
+| 后端变异基线 | 读 `asset_management_backend/mutmut-baseline.json` | `"score": 68.6064`（run_date 2026-09-30，CI 环境精确值 `95f9458`）；账面 70.44 系 WSL 旧口径，不一致 **【2026-10-13 补注：本行为 2026-10-10 取证快照；JSON 现值已升至 83.25676365492598（C批 B2/B3/B3-二轮 + 全精度取值规则，CI run 38224467353），后续引用以现值为准】** |
 | G-4 未实现 | `rg "def check_g" scripts/check_duplicate_invariants.py` | 仅 g1/g2/g3/g5 |
-| 飞书 TODO 存活 | `rg TODO_AI_CONFIRM` | `docker/feishu-webhook/app.py:42` 唯一命中 |
+| 飞书 TODO 存活 | `rg TODO_AI_CONFIRM` | `docker/feishu-webhook/app.py:42` 唯一命中 **【2026-10-13 补注：已收口——单测 14/14 + 冒烟双检（正检 200/群卡片、负检 502/code=19021）通过后删标注留痕，源码零命中；详见 BF-089】** |
 | `!important` 残余 | `rg "!important" vue-assetmanagement/src` | `MainView.vue:205` 为唯一真实残余（其余为注释） |
 | console 残余 | `rg "console\.(error\|warn\|log)"`（排除 logger/测试） | 13 处，多为注释行 |
 | Docker Hub 凭据 | `rg DOCKERHUB .github/workflows/ci-cd.yml` | `:100-104` 引用 secrets，`:20` 注明 token 权限 Read & Delete，凭据未配置（BF-067 登记） |

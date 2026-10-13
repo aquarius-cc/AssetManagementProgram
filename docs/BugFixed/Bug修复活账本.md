@@ -1130,6 +1130,8 @@ element-plus:552KB（独立 chunk, 含图标）
 
 *登记人：big-pickle ✅ 状态：核实完成、零代码改动、豁免成立，2026-09-20*
 
+> **口径订正补注（2026-10-13，P3 项3 收口 / 批次 A3）**：本条行数结论（502/512）均为**物理行口径**。LT-1（2026-09-30 确立）后行数唯一口径 = 逻辑行，以 `python scripts/check_file_length_guard.py --print` 为准：**`asset_view.py` = 471 逻辑行 < 500，0 违规**（2026-10-13 实测；2026-09-29《Bug待修复计划-20260929.md》D3 批已同结论「471 行 0 违规 → 取消全部拆分」）。三点订正：①「超 DR-5 上限」按现行口径**不成立**；②方案 B 触发条件改按逻辑行口径（单次新增 ≥50 逻辑行，或逻辑行 ≥500）；③「第 1 行已有 `# TECHNICAL_DEBT` 标注」现状已失效——文件现以 docstring 开头、无该标注（逻辑行未超限，本无需豁免标注）。Backlog P3 行 3 已同步。
+
 ---
 
 ## BF-019 【已闭环】CT-3 状态机 5 条合法路径零测试覆盖（审查报告 #13）
@@ -2267,8 +2269,9 @@ F-P2-* 其余项、变异测试 T8 仍开放（与 H-1 无关）。
 
 ---
 
-## BF-041 【部分关闭】F-P2-1/2/3 可观测性与 AI 标注批 2026-09-24
+## BF-041 【已关闭】F-P2-1/2/3 可观测性与 AI 标注批 2026-09-24
 > 状态补标（2026-09-29）：依本条收尾登记人行「首批已关闭，后续批开放」补齐为【部分关闭】——不可记「已关闭」。
+> **关闭回执（2026-10-13，账本卫生批）**：§四全部遗留项均已由后继批次消解——console 维度（A1 批次，见本条 `:2303` 补注，0 active）；F-P2-4 变异基线缺口 → BF-064（2026-10-12 双端越 80% 红线后关闭）；F-P2-8~13 AC 修订 → BF-043（已关闭，「全部关闭/闭环」）。**勘误（纯事实纠正，不涉责任判定）**：`:2303` 补注中「F-P2-4 变异基线、F-P2-8~13 AC 修订维持开放」为该补注写入时点的陈旧事实表述（BF-064 于其前一日关闭、BF-043 更早关闭），以本回执为准。本条由【部分关闭】翻【已关闭】。
 
 ### 一、问题概述
 
@@ -2298,11 +2301,14 @@ F-P2-* 其余项、变异测试 T8 仍开放（与 H-1 无关）。
 
 *登记人：opencode（mimo-v2.6-flash-free） ｜ 状态：首批已关闭，后续批开放，2026-09-24*
 
+> **残余 console 维度处置补注（2026-10-13，P3 项9 / 批次 A1）**：§四「F-P2-2 后续批」的 console 维度已收口——A1 全口径实测 src（非测试）`console.*` 共 13 处 = **10 注释行 + 3 logger 合法唯一出口**（`utils/logger.ts:58/60/63`，`:62` 带 `eslint-disable no-console` 豁免），**0 active**；10 处注释行已全删，复扫仅剩 logger 3 处。Backlog P3 行 9 已同步；本补注仅覆盖 console 维度，§四其余遗留（F-P2-4 变异基线、F-P2-8~13 AC 修订）维持开放。
+
 ---
 
-## BF-042 【部分关闭】F-P2-2 后续批 + F-P2-6 旧报告补标 + F-P2-4 变异基线 2026-09-24
+## BF-042 【已关闭】F-P2-2 后续批 + F-P2-6 旧报告补标 + F-P2-4 变异基线 2026-09-24
 > 状态补标（2026-09-29）：依本条收尾登记人行「F-P2-2/F-P2-6 已关闭，F-P2-4 前后端双基线归档完成（均 <80 待补测）」补齐为【部分关闭】。
 > 其中 F-P2-4 的「均 <80 待补测」缺口已于 2026-09-29 独立登记为 **BF-064**（并附 BF-059 / BF-060 / BF-061 三条工具链根因），本条不再承担该缺口。
+> **关闭回执（2026-10-13，账本卫生批）**：§四两项遗留均已消解——F-P2-4 终态（双端 ≥80 补测）→ BF-064（2026-10-12 关闭，后端 83.2568 / 前端 82.29 均越红线）；F-P2-8~13 AC 修订 → BF-043（已关闭）。本条由【部分关闭】翻【已关闭】。
 
 ### 一、问题概述
 
@@ -2470,13 +2476,14 @@ F-P2-8~13 六票批量执行（用户拍板 D1 补实现 / D2 取消不回退 / 
 
 ---
 
-## BF-045 【部分关闭】审查报告 Q-05 两处 flaky 测试（前端 router spec mock 竞态 + 后端 SQLite 行级锁）2026-09-26
+## BF-045 【已关闭】审查报告 Q-05 两处 flaky 测试（前端 router spec mock 竞态 + 后端 SQLite 行级锁）2026-09-26
 
 ### 〇、元信息
 
-- **发现日期**：2026-09-25（来源：`docs/Review/opencode-2026-09-25-检查报告.md` Q-05）；**关闭日期**：2026-09-26
+- **发现日期**：2026-09-25（来源：`docs/Review/opencode-2026-09-25-检查报告.md` Q-05）；**关闭日期**：2026-09-26；**收口关闭**：2026-10-13（见下方状态补标）
 - **严重级别**：P2（测试可靠性；不污染生产代码）
-- **状态口径**：**部分关闭**。仓内潜在竞态已消除并加固；但触发超时的**环境性成因未在仓内修复**（见"六、遗留"第 1 条），故不宣称 Q-05 全面关闭。
+- **状态口径**：**已关闭（2026-10-13 收口，范围限定 Q-05）**。仓内竞态已消除并加固；触发超时的环境性成因（默认 15 workers 内存争用）亦已由 `vitest.config.ts` 固化 `maxWorkers: 4` 消解（BF-046 改动表第 10 行落地），原「部分关闭」的唯一开放理由失效。**关闭范围严格限定 Q-05 两处 flaky**——第六节遗留 2（mypy 注解债）、遗留 3（pytest teardown 告警）为独立技术债，**不随本条关闭，继续独立挂账**。
+  > **状态补标（2026-10-13 账本卫生收口）**：证据链三段闭合——① 根因表第 2/3 行实测锁定「15 workers + 4.92GB 空闲内存 → 争用超时」，`--maxWorkers=4` 反证全绿（`:2495-2496`）；② 「刻意未固化」决策其后被**推翻并落地**（第六节遗留 1 的 2026-09-29 决策反转注，`:2537-2539`）：`vue-assetmanagement/vitest.config.ts:20` 现为 `maxWorkers: 4`（`:15-19` 含【Q-05】定值论证注释），落地记录见 **BF-046 改动表第 10 行（本文件 :2603）**；③ 复核实测（2026-10-13）：`vitest.config.ts` 命中 `maxWorkers: 4`，环境性成因已仓内消解。原「环境性成因留账待决策」开放项失效，故翻【已关闭】。
 - **影响范围**：
   - 前端：`src/router/__tests__/index.spec.ts`（mock 机制重写，10 用例语义不变）。
   - 后端：`apps/unregisteredasset/tests/test_concurrent.py`（新增 `requires_row_lock` 守卫 + 4 处装饰器；串行锚 `test_approve_then_approve_fails` 不受影响）。
@@ -2541,6 +2548,7 @@ F-P2-8~13 六票批量执行（用户拍板 D1 补实现 / D2 取消不回退 / 
 4. **提交状态**：本条目登记时全部改动仍在工作区未提交。按规范需用户显式要求才提交。
 
 *登记人：opencode ｜ 状态：部分关闭（仓内竞态已消除；环境性成因留账待决策），2026-09-26*
+*状态收口：opencode ｜ 已关闭（范围限定 Q-05；环境性成因经 BF-046 固化 `maxWorkers: 4` 消解，遗留 2/3 独立挂账），2026-10-13*
 
 ---
 
@@ -2771,7 +2779,7 @@ F-P2-8~13 六票批量执行（用户拍板 D1 补实现 / D2 取消不回退 / 
 1. **BF-048**：员工导出为全公司口径，无行级数据权限（本次未修，见下条）。
 2. **BF-049**：导出端点的 OpenAPI 未声明其实际支持的 `keyword` / `employee_status` / `department_code`（本次未修，见下条）。
 3. `employee_department__department_code` 兼容别名暂无退场计划；若将来下线，须按 §1.3 走人工审批并同步前端与文档。
-4. `?search=`（DRF `SearchFilter` 的窄口径，不含部门名匹配与状态别名映射）与 `?keyword=`（列表口径）两套搜索语义并存，前端只用后者；后端未拒绝 `search`，属文档层遗留。
+4. `?search=`（DRF `SearchFilter` 的窄口径，不含部门名匹配与状态别名映射）与 `?keyword=`（列表口径）两套搜索语义并存，前端只用后者；后端未拒绝 `search`，属文档层遗留。**〔2026-10-13 订正：本「文档层遗留」已于次日 `c1ff7dd`（2026-09-27）消解**——`employee_search.py` 专职模块文档化双语义 + `test_employee_search_contract.py` 16 条合同测试护栏化为预期设计，`employee_view.py:167` 限定声明范围，前端 keyword-only；残留仅「后端未拒绝 `search`」这一运行时行为，且为刻意保留（拒绝会撞毁「search 窄口径」合同测试）。Backlog P2-6 已据此重定性为已消解〕
 
 *登记人：opencode ｜ 状态：已关闭（2026-09-26）*
 
@@ -2837,7 +2845,7 @@ F-P2-8~13 六票批量执行（用户拍板 D1 补实现 / D2 取消不回退 / 
 
 ### 八、遗留（不在本条范围）
 
-- `get_department_by_jobcode` 返回部门而非员工档案，跨部门部门可见性未评估，另立。
+- `get_department_by_jobcode` 返回部门而非员工档案，跨部门部门可见性未评估，另立。**→ 已另立 BF-088 跟进（2026-10-13）**
 - `mypy . --strict` 全量仍有 **27 errors / 12 文件**存量（`dateutil` stubs 等，含提交自述的「27 存量不变」），与本条无关，未处理。
 
 *登记人：opencode ｜ 状态：已修复，2026-09-26*
@@ -3629,7 +3637,8 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 *登记人：opencode ｜ 状态：已关闭，完成验证，2026-09-29*
 
 
-## BF-059 【部分关闭】后端变异测试门禁空转：mutmut 未声明依赖、统计口径错误、无阈值断言 2026-09-29
+## BF-059 【已关闭】后端变异测试门禁空转：mutmut 未声明依赖、统计口径错误、无阈值断言 2026-09-29
+> **关闭回执（2026-10-13，账本卫生批）**：唯一残留「0b 阈值拍板」已由 T7 v1.7 双重门禁收口——`ci.yml` 后端变异判分 step 实测双重断言在位（绝对红线 score ≥ 80.0 硬地板 + 相对基线 score ≥ baseline 防滑），现行基线 83.25676365492598（CI run 38220043308 直证）；`backend AGENTS.md` v9.3.3（2026-10-12 人工审批，沙盒期解除）。本条由【部分关闭】翻【已关闭】。
 
 ### 〇、元信息
 
@@ -3755,7 +3764,8 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 *登记人：opencode ｜ 状态：0a 已落地并本地验收通过（20 项），0b 待 CI 首跑（阈值与容错拍板），2026-09-29*
 
 
-## BF-060 【部分关闭】前端变异测试命令非法：`npx vitest --mutate` 被 CAC 拒绝，job 恒红 2026-09-29
+## BF-060 【已关闭】前端变异测试命令非法：`npx vitest --mutate` 被 CAC 拒绝，job 恒红 2026-09-29
+> **关闭回执（2026-10-13，账本卫生批）**：唯一残留「0b 耗时/得分拍板」已收口——前端变异红线 80 经 CI 正反双证（正向 run 38035803775 score=82.29 全绿；反向 run 38038707562 强制 step 失败 → `ci-summary` 阻断链实测成立，2026-10-10，BF-061 同批关闭）；`stryker.config.json` break=80 内置，`ci.yml` 前端变异 step 实测 `npm run test:mutate` + timeout 90min。本条由【部分关闭】翻【已关闭】。
 
 ### 〇、元信息
 
@@ -3951,7 +3961,8 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 *登记人：opencode ｜ 状态：**已关闭**（0b 三清单核验齐备，2026-10-10），2026-09-29*
 
 
-## BF-062 【部分关闭】前端复杂度 error 级门禁：52 处存量失败并连带跳过后续 job 2026-09-29
+## BF-062 【已关闭】前端复杂度 error 级门禁：52 处存量失败并连带跳过后续 job 2026-09-29
+> **关闭回执（2026-10-13，账本卫生批）**：§三/§四全部残留已由 BF-086 完整执行（Backlog P1-4 关闭回执 2026-10-12）——52 处复杂度债两批清零（remaining complexity issues = 0）；批5 规则由 `warn` 升 `'error'`，CI `frontend-complexity` 撤 step 级 `continue-on-error` 与 CLI `--rule` 覆盖、改跑 `npm run lint` 读 flat config（`eslint.config.ts` `complexity: ['error', 10]` + 豁免 override）。本条由【部分关闭】翻【已关闭】。
 
 ### 〇、元信息
 
@@ -4051,6 +4062,7 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 
 
 ## BF-063 【部分关闭】ci.yml 全无 timeout-minutes / continue-on-timeout 兜底，失败无边界 2026-09-29
+> **范围缩小补注（2026-10-13，账本卫生批）**：登记时事实「全文无 timeout-minutes」已不成立——现存 3 处 **step 级**（8 空格缩进）timeout：`ci.yml:274` 后端变异 300min / `:284` 基线断言 5min / `:451` 前端变异 90min。本轮精确实测：`jobs:` 段顶层键（2 空格缩进）解析共 **15 个 job**（backend-lint 至 ci-summary 逐一列名核对），**零 job 级（4 空格缩进）timeout-minutes**。本条开放范围缩小为「job 级 timeout 边界补齐」，其余子项视为已收口；维持【部分关闭】（真实残留仍在，不翻转）。
 
 ### 〇、元信息
 
@@ -4158,6 +4170,8 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 - **状态补标（2026-10-12 C批终态，转【已关闭】）**：**后端开放区残留已消解——C批盲区补测抬分越 80% 绝对红线**。补测路径（服务层盲区逐个杀灭存活 mutant）——**B2**（`test_operation_log_mutants.py`，40 用例）：`operation_log_service.py` 存活 181→0，全局 killed 1344→1525，68.6064→77.8458（+9.2394pt，run 38099431497 CI 实证）；**B3**（`test_out_asset_mutants.py`，24 用例）：`out_asset_service.py` 存活 123→28，killed 1525→1620，77.8458→82.6977（+4.8519pt，越红线，CI 实证待补）；**B3-二轮**（`test_out_asset_mutants_round2.py`，6 用例）：killed 1620→1631、survived 321→310，82.6977→83.2568（+0.5591pt，余量 3.2568pt）。终态 `mutmut-baseline.json`：score **83.2568** / killed 1631 / survived 310 / no_tests 18（1959 mutants，WSL 实测 2026-10-12，CI 实证待补——`cc75aa9`/`ca49f43`/`73d8d61` 未 push）。**T7 绝对红线恢复条件本 run 已满足**（83.2568 ≥ 80），规则变更（T7 由「相对基线不回归」改回「≥80% 绝对红线」）另批送审。残留 17 个判为**等价变异**（B类，不计战果，Fact-1）：`batch_create` #3 deepcopy、#26/#27/#31/#33 max_batch_size/use_transaction 参数变体、#32 batch_execute 101 条 size 守卫、`_delete_one` #24/#25 recycle 过滤器参数变体、`_snapshot` #8/12/20/24/30 与 `_audit` #13/27/53 fallback 死分支。子仓 `73d8d61` + 父仓指针 `01ef6be` 已提交。**本条关闭。**
 
 - **状态补标（2026-10-12 T7 规则变更，绝对红线恢复）**：**T7 v1.7 恢复 80% 绝对红线（双重门禁，人工审批）**——沙盒期解除（依根级 §5.4「期满人工复核」经用户审批 2026-10-12）。门禁改为**双重门禁**：① 绝对红线 `score ≥ 80.0`（硬地板）；② 相对基线 `score ≥ mutmut-baseline.json` 现值（防滑斜坡，防 80~基线区间静默回归）。任一不满足 exit 1。配套：`backend-testing-rules.md` T7 v1.7、`ci.yml` backend-mutation 门禁脚本（step 名、注释、exit 条件改双条件）、后端 `AGENTS.md` v9.3.3（§1.3 条目 + 顺带修正 v9.3.2 残留的「基线 68.6064」漂移，现 83.25676365492598，CI 实证 run 38224467353）。**本次为解除沙盒、恢复既定红线，非新增/收紧红线，不触发新 14 日沙盒期。** 基线取值规则定稿（BF-067 截断教训复现后）：**存全精度**（Python float 十进制全位），禁用四舍五入/截断值——run 38220043308 实测截断值 83.2568 比真实值 83.25676365492598 高致门禁恒红。子仓 `5ff83db` + 父仓 `0d91142`。
+
+- **状态补标（2026-10-13 账本卫生，门禁口径收口）**：本条登记的前端 **60.00** 系 2026-09-24 聚焦口径历史快照（7 store / 120 mutants，见 `docs/Review/mutation-baseline-2026-09-24.md`），**仅作历史留痕，不再作为任何现状或门禁基线引用**。后续前端变异门禁基线以 **`stryker.config.json` mutate 射程（`src/stores/**` + `src/composables/useGroup*.ts`）在 CI 实跑**的分数为准——现行 CI 实证 82.29（run 38035803775，归档 `docs/Review/mutation-baseline-2026-10-10.md`），本地同射程实跑 82.29/82.35 与之同源。后端基线口径史（七段，防漂移对照）：`70.44`（WSL 旧口径）→ `68.6064`（CI 首跑 `95f9458`）→ `77.8458`（C批 B2 `a5ef896`）→ `82.6977`（C批 B3 `ca49f43`）→ `83.2568`（C批 B3-二轮历史记录值 `73d8d61`）→ **`83.25676365492598`（全精度取值规则下的权威现值，`4dee56e`，CI run 38224467353）**——其中 `83.2568`（4 位截断）与 `83.25676365492598` 并存**非漂移**：前者是 B3-二轮当日记录值，后者依 BF-067 截断教训定稿的「存全精度」规则为唯一权威现值。现状级引用收口落点见 Backlog §4/§6 与 `docs/资产分组展开表格-实施方案-v2.3.md`（已同步补注）。
 
 > **0a 对本条的实质贡献（但不足以关闭）**：① 门禁现在**会算分了**——判分公式
 > `killed / (total - skipped) * 100` 且**有阈值断言**（< 80 即 exit 1），根因表第 1 行「门禁不产分数」已消解；
@@ -4377,6 +4391,7 @@ args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**�
 
 ## BF-067 【待修复】master 存量 CI 三红：ci.yml 4 失败 job + 3 skip / ci-cd Docker Hub 登录 / security-scan npm audit 2026-09-30
 > **当前状态（2026-10-01 更新）**：§一~§三-1~§三-4 与 **§三-6 已修复并经 CI 直证**（run 106 head `f753d75`，双 audit 归零）；**§三-6 后续「依赖审计接入合并/部署门禁」亦已落地并 CI 直证**（head `46ef870`，`Security 汇总` success + CD `安全门禁校验` success）。**仅剩 §三-5 ci-cd Docker Hub 登录凭据缺失**。详见下方第 12/13/14 条。
+> **部署仓库迁移决策（2026-10-13，追加）**：§三-5 的处置方案**由「配 Docker Hub secrets」改为「迁移 GHCR」**——触发事实：Docker Hub 网络不可达（用户实测连不上）。迁移落点：`ci-cd.yml` Login 改 `github.actor` + `GITHUB_TOKEN`（`registry: ghcr.io`）、tags 改 `ghcr.io/aquarius-cc/asset-management-backend`、prune 改 GitHub Packages API（`gh api`，`/users/{user}/packages/container/{pkg}/versions`，版本级删除，KEEP=5/latest/PROD_SHA 豁免语义原样）、`docker-compose.prod.yml:13` 镜像改 ghcr 全路径；**permissions 由 `contents: read` 放宽为 `contents: read + packages: write`**（唯一外写 = 本仓 packages，一次性仓库限定 token，取代库外长期 Docker Hub PAT——净安全收益为正，放宽留痕见 `ci-cd.yml` 权限注释）。**原 §三-5「凭据缺失」子项作废（零库外 secrets）**；本条关闭条件改为：**CD run 双绿 + GHCR 包页出现 latest/sha 标签 + 包页 linked repository 为本仓 + 部署主机 compose pull 成功**（audit 报告 GHCR 迁移验证计划 6 步），关闭回执留批次 1.5。
 
 ### 〇、元信息
 
@@ -4840,7 +4855,7 @@ args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**�
 - 关联 **BF-068**（create 落值）、**BF-069**、**BF-070**。
 - 快照护栏 G-1~G-5 未受扰。
 
-## BF-072 【追踪中】GroupedAssetTable.vue side-tab accent border（impeccable 引入后首跑实证产出）
+## BF-072 【已关闭】GroupedAssetTable.vue side-tab accent border（impeccable 引入后首跑实证产出）
 
 > **登记来源**：impeccable v4.5.0（opencode 发行版）引入计划 Step6 首跑实证——`impeccable detect --json` 输出。
 > **性质说明**：此为**设计质量告警（非功能缺陷）**，依用户拍板"接受该告警并录入追踪（不豁免）"。不改代码。
@@ -4886,6 +4901,16 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 - 引入计划全部 7 步已执行（SL 基础→安装→校验→清理→.gitignore→首跑→审计票）。
 
 *登记人：big-pickle ｜ 状态：追踪中（首跑实证产出，待用户选择处置项 A/B/C），2026-10-07*
+
+> **处置执行补注（2026-10-13，P3 项1 / 批次 D2）**：用户 2026-10-13 拍板**选项 D**（取代 §三 A/B/C——原方案定义与账本原义全部错位：A=弱化 4px→2px、B=完全移除、C=保持，均非「统一 accent 令牌」诉求），六处改动已落地并过前端三项门禁。
+>
+> **①10 处枚举定案**：全仓 `border-left` 恰 10 处 = **7 处 accent tab**（`GroupedAssetTable.vue:396`、`AssetForm.vue:476`、`SelectedRecordsTable.vue:69`、`RecycleSharedInfo.vue:133`、`RecycleAssetForm.vue:417`、`UnregisteredAssetBasicDetails.scss:87`、`common-forms.scss:85`）+ 2 处语义色（`NotificationBell.vue:227` danger / `:231` warning，**排除**——语义告警色非 brand accent）+ 1 处 1px 分隔线（`DashboardWelcomeBar.vue:145`，**排除**——分隔线非 side-tab）。
+> **②选项 D 定义**：六处统一读 **`--color-primary`**（#2b5fd7，F1 品牌主色）+ **宽度统一 4px**（仅 `UnregisteredAssetBasicDetails.scss:87` 由 3px 升）；`common-forms.scss:85` 现值即目标（`4px solid var(--color-primary)`）= **基准不动**。
+> **③执行结果（D2，2026-10-13）**：六处 `var(--color-primary-light)` → `var(--color-primary)`（5 处）+ `:87` 3px→4px；复扫 `border-left.*primary-light` **清零**，全仓 `4px solid var(--color-primary)` accent tab **7 处齐整**（语义色 3px ×2、分隔线 1px ×1 保持原样）；`npm run type-check` / `lint` / `format:check` 三项 **exit 0**。
+> **④行号漂移**：本条 §〇/§一 引用的 `:285` 已漂至 **`:396`**（历次样式追加），以本补注为准。
+> **⑤状态与边界**：【追踪中】→**【已关闭】**（代码级验证 + 三项门禁通过，依 resolution-fix-ledger-sync 判据）；**浏览器视觉目验未做**，归 P3 项10 同批目验清单——预期视觉 delta：accent 竖条由 `--color-primary-light`（浅蓝）转 `--color-primary`（品牌蓝），`GroupedAssetTable.vue:396` 条更醒目，**单列为预期变化**。
+
+*登记人：opencode ｜ 状态：已关闭（选项 D 六处落地 + 复扫清零 + 前端三项门禁绿；浏览器目验归 P3 项10，已如实标注），2026-10-13*
 
 *登记人：big-pickle ｜ 状态：已关闭（W-3 + W-3a + T2/T4；本地验证通过，CI 未直证），2026-10-03*
 
@@ -5351,7 +5376,7 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 
 ---
 
-## BF-079 【观察项·未修复】detail 路由 keepAlive + componentName 死配置：MainView keep-alive 的 include 名永不匹配实渲染 vnode，「扁平详情列表缓存」意图从未生效（登记来源：BF-078 需求3 二轮诊断附带发现，用户拍板「立账本条目、本次不动代码」）
+## BF-079 【已关闭】detail 路由 keepAlive + componentName 死配置：MainView keep-alive 的 include 名永不匹配实渲染 vnode，「扁平详情列表缓存」意图从未生效（登记来源：BF-078 需求3 二轮诊断附带发现，原拍板「立账本条目、本次不动代码」；2026-10-13 用户改按方案②执行收口）
 
 > **登记来源**：BF-078 二轮诊断中核验「返回分组页为何不重挂」时发现——当时旧注释把实例复用归因于 keep-alive，读码后确认真实机制是 router-view 无 key（已随 BF-078 §七 修复），而 keep-alive 侧则根本不匹配、从未缓存。用户拍板（2026-10-08）：**立账本条目登记观察，本次不改代码**——删 include 或删 keep-alive 涉及 MainView 缓存策略意图考证（波及 Contract/AssetType/Storage/User 等同构路由），与 BF-078 范围无关，登记观察项成本最低。
 
@@ -5386,6 +5411,15 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 - 关联：**BF-078 §七**（复用真相与注释订正）、BF-078 观察项②（已标注 keep-alive 实为死配置）。
 
 *登记人：opencode ｜ 状态：观察项（未修复，待立项考证后决定修匹配或删配置），2026-10-08*
+
+> **处置执行补注（2026-10-13，用户改按方案②执行）**：用户 2026-10-13 拍板执行原 §三 方案②（删死配置），取代 2026-10-08「维持观察」拍板。
+> ① `routes-main-core.ts` 资产详情条删除 `keepAlive: true` + `componentName: 'AssetContentDetails'` 两行（原 :71-72，删后 meta 见 `:69-71`）；grouped 段注释改写为显式「有意不缓存」声明（`:46-49`，防后人加回）。
+> ② 五条同构路由（Contract `:115` / AssetType `:160` / Storage `:193` / User `:226` / Department `routes-main-system.ts:125`）**实测缓存活**（均 MainView 平级直渲 + defineOptions/`__name` 与 componentName 匹配），本处置零触碰——原 §三「波及」仅指修复动作影响面，非它们也坏。
+> ③ CT-4 回归锚先红后绿：`index.spec.ts:130-141` 新用例「flat asset detail route with no keepAlive (BF-079 方案②)」——首跑红（`keepAlive=true` ≠ `undefined`，1 failed / exit=1）→ 删配置后绿 **12/12**（exit=0）。
+> ④ 行为等价声明：删除前后该子树均从未被缓存（死配置），**零行为变化**；「资产详情返回重置」由隐性副作用转为注释显式声明的有意决策。
+> ⑤ 验证：router spec 12/12、全量 vitest **159 files / 2119 tests passed**（exit=0）、type-check / lint / format 三项 exit=0。
+
+*处置执行：opencode ｜ 状态：【已关闭】（方案② 落地——死配置清除 + 回归锚固封 + 有意决策显式化），2026-10-13*
 
 ---
 
@@ -6018,4 +6052,112 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 - **提交状态**：子仓 + 父仓本笔均已落库，随本轮 push。
 
 *登记人：opencode ｜ 状态：已关闭（[PATCH-FE] customLogger 过滤落地，正检降噪单行 + 反向不吞 6/6 + 全量门禁全绿），2026-10-13*
+
+---
+
+## BF-088 【观察项·未评估】跨部门部门可见性未评估：get_department_by_jobcode 返回部门而非员工档案 2026-10-13
+
+### 〇、元信息
+
+- **发现/登记日期**：2026-10-13（问题本身 2026-09-26 BF-048 修复时已识别，「另立」承诺未兑现，本次补立）。
+- **来源**：BF-048 遗留条目（本账本 `:2842`）「`get_department_by_jobcode` 返回部门而非员工档案，跨部门部门可见性未评估，另立条目跟进」——逐条核查 BF-049~BF-087 均未覆盖本议题，Backlog P2-5 据此收口。
+- **严重级别**：P3（观察项）——非功能缺陷，属**评估缺口**：该函数的跨部门调用场景自 2026-09-26 识别以来从未被显式验证（无测试锚、无文档声明）。
+- **影响范围**：`get_department_by_jobcode` 调用链；关联面为员工域经部门过滤的可见性边界。
+- **跨端契约变更**：无。
+
+### 一、问题描述
+
+`get_department_by_jobcode` 返回的是**部门对象**而非员工档案。BF-048 修复员工导出/统计的部门作用域收窄（B-24 行级 RBAC）时，该函数的跨部门调用场景未纳入评估——按 jobcode 查询部门这一路径上，调用者所在部门与目标部门不同时的可见性行为（返回/拒绝/裁剪）无测试锚、无文档声明。
+
+### 二、影响评估（未知风险声明）
+
+**评估前，以下行为面按「未知风险」对待**（与 BF-048 `:2842` 原文「跨部门部门可见性未评估」对齐）：
+
+1. **跨部门员工列表查询与导出（`list` / `export_excel` 端点）经部门过滤后的行集合范围**——`get_department_by_jobcode` 参与的部门边界判定是否泄露非授权部门行、是否静默裁剪，未验证。
+2. **`get_department_by_jobcode` 单独调用的返回边界**——目标部门 ≠ 调用者部门时返回部门对象 / 空 / 403，未验证。
+
+本条**不认定存在漏洞**（无实证），仅登记「未评估」这一事实缺口；评估完成前，任何依赖该函数做部门边界判断的调用方不得假设其具备行级隔离（BF-048 已收窄的是 list/statistics/export 的作用域，本函数不在其覆盖内）。
+
+### 三、待评估项清单
+
+| # | 待评估项 | 说明 |
+|:--|:---------|:-----|
+| 1 | 跨部门调用返回语义 | 目标部门 ≠ 调用者部门时，返回部门对象 / 空 / 403？ |
+| 2 | 与 B-24 行级 RBAC 的边界 | 是否需对齐 BF-048 的部门可见性口径？ |
+| 3 | 测试锚补全 | 现无用例覆盖跨部门场景（评估后按 CT-4 补回归护栏） |
+
+### 四、对抗审核
+
+- **与 BF-048 的边界**：BF-048（【已修复】）修的是员工列表/导出/统计的行级部门作用域；本条登记的是 `get_department_by_jobcode` 这一**独立函数**的跨部门可见性评估缺口，两者不重叠——BF-048 `:2842`「另立」即划清此边界。
+- **编号连续性**：BF-087（`:5952`）为最新条目，本条取 BF-088，无跳号。
+- **不臆造结论（Fact-1）**：本条不对「是否存在越权返回」下判断——事实是「未评估」，评估是后续动作。
+
+### 五、验证记录
+
+- 核查 BF-049~BF-087 全部条目标题与关键词（department / jobcode / 可见性），零命中本议题。
+- `rg "get_department_by_jobcode"` 账本命中：BF-048 `:2842`（遗留原文）+ 本条。
+
+### 六、遗留与关联事项
+
+- **关联条目**：BF-048（前身，【已修复】，行级 RBAC 收窄）；Backlog P2-5（本条登记来源）。
+- **排期**：按需评估，非上线阻塞。
+
+*登记人：opencode ｜ 状态：观察项·未评估（BF-048「另立」承诺补立；评估前按未知风险对待），2026-10-13*
+
+---
+
+## BF-089 【已关闭】飞书加签 `TODO_AI_CONFIRM` 残留：AR-1 受控清单唯一存量闭环——文档对照复核 + 单测零回归 + 真实冒烟双检通过后删标注留痕（登记来源：Q-06 / Backlog P2-3 上线阻塞项）
+
+### 〇、元信息
+
+- **发现/登记日期**：2026-10-13（Q-06 原发现 2026-09-25；本次收口登记）。
+- **来源**：`docs/Review/opencode-2026-09-25-检查报告.md` Q-06（P2 上线阻塞）→ `BugBackLog20261010.md` P2-3 → 2026-10-13 用户拍板方案审核后按 **B 顺序**（真实冒烟先于删标注）执行。
+- **严重级别**：P2 → 关闭后归零。
+- **影响范围**：`asset_management_backend/docker/feishu-webhook/app.py` 单文件单行注释；docker 子组件随镜像发布，不在后端 CI（ruff/pytest）射程。
+- **跨端契约变更**：无（纯注释行，零逻辑改动）。
+
+### 一、问题描述
+
+`app.py:42` 存活 `# TODO_AI_CONFIRM: 上线前对照飞书官方文档复核加签算法与字段名(timestamp/sign)`。该标注是 2026-09-24 F-P2-3 整改时（backend `3e0f165`）从 `AI_REVIEW_NEEDED` 转入 AR-1 受控清单的唯一存量（账本 `:2291`：「TODO_AI_CONFIRM → 1（feishu 受控）」）。上线前须人工复核后闭环，否则生产通知链路的加签正确性无复核证据。
+
+### 二、复核结论（静态文档对照，2026-10-13）
+
+| # | 复核点 | 官方口径 | 代码实测（`app.py`） | 判定 |
+|:--|:-------|:---------|:---------------------|:-----|
+| 1 | 签名串 | `timestamp + "\n" + 密钥` | `:45` `f"{timestamp}\n{FEISHU_SECRET}"` | ✓ |
+| 2 | 算法 | HmacSHA256(key=签名串, msg=空串) | `:46` `hmac.new(key=..., digestmod=sha256)`，msg 缺省空串 | ✓ |
+| 3 | 编码 | Base64 | `:47` `base64.b64encode(digest).decode("utf-8")` | ✓ |
+| 4 | 时间戳 | 秒级、距当前 ≤1 小时 | `:102` `str(int(time.time()))` | ✓ |
+| 5 | 字段名 | payload 携 `timestamp` + `sign` | `:103-104` | ✓ |
+| 6 | 失败可见性 | 签名错返回业务码 | `:117-120` 非零码进 `last_error`；`:163-166` 结构化日志 + HTTP 502 | ✓ 非静默 |
+
+### 三、处置（B 顺序：冒烟先于删标注）
+
+1. **单测零回归**：`python -m unittest test_app.py` → **14/14 OK**（exit=0；`test_app.py` 本就覆盖 SignTests 确定性/base64/空密钥、`test_payload_carries_sign_when_secret_set` 字段名断言、业务码非零重试）。
+2. **真实冒烟双检**（2026-10-13，用户本机凭据，脚本 `Temp/opencode/smoke-feishu.ps1`，凭据不入库）：
+   - **正检**：正确密钥 @9095 → HTTP 200 `{"delivered": 1}`，飞书群实收「🟡 warning 告警」交互卡片（用户目视确认）。
+   - **负检**：错密钥 @9096 → HTTP 502；日志 `feishu code=19021 msg=sign match fail or timestamp is not within one hour from current time`——**19021 为真实回执实证**（非推测），签名校验真实生效。
+3. **删标注留痕**：`app.py:42` 删 `TODO_AI_CONFIRM`，替换两行复核留痕注释（官方文档出处 + 复核日期 + 结论 + 冒烟实证）。
+4. **残留终扫**：`rg TODO_AI_CONFIRM` 全仓（排除历史快照文档）→ **零命中**；AR-1 受控清单归零。
+5. **删后单测复跑**：14/14 OK（exit=0）。
+
+### 四、对抗审核
+
+- **零行为变化**：仅注释行替换（1 删 2 增），无逻辑/签名/重试路径改动；单测前后双跑 14/14 佐证。
+- **行号取证纪律（LT/§1.9）**：方案原文失败码引用 `:113-115` 为误指（实为 headers/urlopen 行），审核纠正为 `:117-120`；本条全部行号为改后实测。
+- **「静默失败」措辞订正**：Backlog 原文「静默失败且无复核证据」与代码实况不符——`app.py:163-166` 已有结构化日志 + 502，真实风险是「失败无人盯日志」而非「无痕迹」；Backlog P2-3 已同步订正。
+- **既有小观察不入本条**：签名失败（19021，客户端错误）仍走 3 次指数退避重试（`:108-128`），重试无收益——属既有行为，如需优化另立条目（本次不扩散范围）。
+- **受控清单实体核查**：AGENTS.md 仅定义 AR-1 规则本身，无具名受控清单文件；融合审查报告属历史快照不回写——无实体清单需同步。
+
+### 五、验证记录
+
+- 单测：删前 14/14 OK、删后 14/14 OK（exit=0）。
+- 冒烟：正检 200 + 群卡片实收；负检 502 + `code=19021` 日志实证（2026-10-13）。
+- 残留：`rg TODO_AI_CONFIRM` 全仓零命中（排除 `docs/` 历史快照与 AGENTS 规则定义）。
+
+### 六、关联事项
+
+- **关联条目**：F-P2-3 整改批次（账本 `:2277-2291`，backend `3e0f165` 转 TODO 之出处）；Backlog P2-3（本条登记来源）；Q-06（原始发现，`opencode-2026-09-25-检查报告.md`）。
+
+*登记人：opencode ｜ 状态：【已关闭】（文档对照 + 冒烟双检 + 留痕三重证据闭环，AR-1 受控清单归零），2026-10-13*
 
