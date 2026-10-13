@@ -5942,3 +5942,80 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 - **提交状态**：子仓四笔（`4c6fe84`/`b248900`/`100c93f`/`a683f20`）+ 父仓三笔（`69c1686`/`1e60441` + 本笔文档回填）均已落库，**未 push**。
 
 *登记人：opencode ｜ 状态：已关闭（P1-4 清零 + P2-2 分层棘轮落地，全量门禁 0 债基线 + 三护栏 + CT-4 等价 + CT-7 版本复核），2026-10-12*
+
+---
+
+## BF-087 【已关闭】dev 代理断连错误刷屏降噪：vite customLogger 过滤（[PATCH-FE]）2026-10-13
+
+### 〇、元信息
+
+- **发现/关闭日期**：2026-10-13（一条会话内完成诊断→方案→实现→验证→落库）
+- **来源**：用户上报——dev 会话 console 被 `ws proxy socket error: write ECONNABORTED` 与 `http proxy error: read ECONNRESET` 大段堆栈刷屏。
+- **严重级别**：P2（仅污染 dev 体验，不影响生产构建/运行时；但每次后端 auto-reload 窗口都复现，高频干扰）。
+- **影响范围**：
+  - 子仓 `vue-assetmanagement`：`vite.config.ts`（唯一生产改动）+ 新增 `src/__tests__/bf087-vite-logger.spec.ts`（回归测试）。
+  - 父仓：本账本。后端、`useNotificationConnection.ts`、生产构建**零改动**。
+  - **跨端契约变更：无**。
+- **提交**：子仓 `492b740`（vite.config.ts + spec）；父仓本笔文档同步。
+
+### 一、问题现象
+
+后端（daphne 8000）auto-reload 或浏览器断开 WS 时，vite dev console 每次刷两条全栈错误：
+
+```text
+13:31:01 [vite] http proxy error: /api/assets/?... (url)
+ Error: read ECONNRESET ... code: 'ECONNRESET' ... at TLSWrap.onStreamRead ...
+13:31:01 [vite] ws proxy socket error: /ws/notifications/U001/ (url)
+ Error: write ECONNABORTED after 0 of 8192 ... code: 'ECONNABORTED' ...
+```
+
+### 二、根因（源码级取证，vite 8.2.2）
+
+| # | 事实 | 位置 |
+|:--|:-----|:-----|
+| 1 | Vite 四个代理日志点**硬编码** `config.logger.error(...err.stack)`，无静默开关 | `dist/node/chunks/node.js:19212`（http）/ `:19218`（ws）/ `:19228`（ws socket）/ `:19254`（bypass） |
+| 2 | `configure` 钩子挂 `proxy.on('error')` **无效**：Vite 在 `configure()` 返回**之后**才注册自身处理器（EventEmitter 调用全部监听器，用户监听挡不住打全栈）；且 ws socket 路径根本不触发 `proxy.on('error')` | `:19209→:19210`、`:19227-19232` |
+| 3 | `customLogger` 是 UserConfig 正式字段；`createLogger` 直接返回它 → 成为 `config.logger` → proxyMiddleware 同一 config，四日志点全走它——**唯一干净官方扩展点** | `index.d.ts:3598`、`node.js:3234→:36616→:35845` |
+| 4 | 前端重连为**线性退避** `3s × min(attempts+1, 5)` 封顶 15s，`MAX_RECONNECT_ATTEMPTS=10`（≈120s 后 exhausted 弹提示需手动重连）——**非指数退避**（历史口头表述勘误，仓内文档无错误记载，无需回改） | `useNotificationConnection.ts:36/:146-151` |
+
+### 三、修复内容
+
+`vite.config.ts` 新增模块级三函数 + `customLogger` 字段（`error()` 判据：**错误码白名单 ∩ msg 含 `proxy`**，双条件缺一不可）：
+
+| # | 变更 | 说明 |
+|:--|:-----|:-----|
+| 1 | `PROXY_NOISE_CODES = {ECONNRESET, ECONNABORTED, ECONNREFUSED, EPIPE}` + `PROXY_NOISE_WINDOW_MS = 10_000` | 判据与节流窗口常量 |
+| 2 | `shouldDowngradeProxyNoise()` / `isProxyNoiseThrottled()` / `createProxyQuietLogger()` | 三小函数各司其职，单函数 complexity ≤10（过 `eslint.config.ts:37`） |
+| 3 | 命中 → 单行 `代理连接中断（<code>）：后端重载/重启或浏览器断开所致，属 dev 预期，前端将自动重连` + 同码 10s 节流；未命中 → `base.error()` **原样透传（不吞真错误）** | `hasWarned` 用 getter/setter 委托底 logger（不可 spread 拷贝，底 logger 原地改写自身 `hasWarned`） |
+| 4 | 回归测试 `src/__tests__/bf087-vite-logger.spec.ts`（6 用例） | 降噪单行/节流窗口过期再打/非白名单透传完整堆栈/白名单码无 proxy 标记透传/未知码透传/`hasWarned` 委托 |
+
+### 四、对抗审核
+
+- **不吞真错误**：判据为双条件交集——非白名单码（如 `ETIMEDOUT`）、白名单码但非代理日志点（msg 不含 proxy）两条路径均实测透传完整堆栈（spec 三用例锚定）。
+- **自动覆盖面**：`customLogger` 是四日志点统一通道，`/ws` socket error（本次报错点）+ ws proxy error + `/api` http proxy error + bypass error **一处覆盖**，无需 per-proxy 配置。
+- **工程红线**：type-check 0 / lint 0（complexity 经 config 路径，非 CLI 绕过）/ format:check 全绿 / 全量 159 文件 2117 tests 全绿（新增 6 用例计入）。
+- **DR-5**：`vite.config.ts` 177→246 行 < 500；单函数最大 complexity 未超限。
+- **AR-2**：`vite.config.ts` 过滤判据处标注 `# AI_REVIEW_NEEDED`（AR-2①），人工复查通过后移除。
+- **CT-7 工具链**：结论均在 `package.json` 声明版本下取得（vite 8.2.2 / vitest 4.1.11）。
+
+### 五、验证记录
+
+```text
+① 前端三项（T17）：type-check 0 / lint 0 / format:check All matched files ✅
+② 全量（CT-2/CT-5）：npm run test → 159 files / 2117 tests 全 passed ✅
+③ 功能冒烟（独立 5199 实例指向死端口 9999，不触用户 5173 会话）：
+   连打 3 次 /api（ECONNREFUSED）+ 1 次 /ws 升级失败
+   → console 仅 1 行「代理连接中断（ECONNREFUSED）…属 dev 预期」，零堆栈，节流生效 ✅
+④ 反向不吞 + 节流过期 + hasWarned 委托：spec 6/6 passed（直测真实 vite.config.ts 导出） ✅
+⑤ 护栏：npm run lint（含 complexity）exit 0 ✅
+```
+
+### 六、遗留与关联事项
+
+- **[后续项·未做]** `AI_REVIEW_NEEDED` 注释待人工复查后移除（`vite.config.ts:17`）。
+- **[表述勘误留痕]** 前端重连为线性退避（封顶 15s、10 次 ≈120s exhausted），**非指数**——本条 §二-4 为仓内唯一记载，后续引用以本条为准。
+- **关联条目**：无（首例 dev-proxy 噪声问题）。
+- **提交状态**：子仓 + 父仓本笔均已落库，随本轮 push。
+
+*登记人：opencode ｜ 状态：已关闭（[PATCH-FE] customLogger 过滤落地，正检降噪单行 + 反向不吞 6/6 + 全量门禁全绿），2026-10-13*
+
