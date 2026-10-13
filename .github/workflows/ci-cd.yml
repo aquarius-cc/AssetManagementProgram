@@ -14,11 +14,11 @@
 #   ① 部署不再与审计并行竞争，安全扫描不通过则镜像不推送；
 #   ② 移除 workflow_dispatch —— 该触发下 github.event.workflow_run 上下文为空，
 #      security-gate 必然失败，留着会制造永久红的误导性入口。代价是无法手动
-#      重跑部署，只能推空提交触发（§三-5 Docker Hub 凭据就绪后请知悉）。
+#      重跑部署，只能推空提交触发。
 #
-# 前置要求(Secrets):
-#   - DOCKERHUB_USERNAME / DOCKERHUB_TOKEN(token 权限必须含 Read & Delete,
-#     默认 Read Only token 无法执行 prune 的删除操作)
+# 【仓库迁移 2026-10-13】镜像仓库由 Docker Hub 改为 GHCR(github.com/packages)：
+#   触发事实: Docker Hub 网络不可达; 迁移后零库外 secrets(GITHUB_TOKEN 即可发布),
+#   原 DOCKERHUB_USERNAME/DOCKERHUB_TOKEN 前置要求整项作废(审计 GHCR 迁移决策)。
 # Variables:
 #   - PROD_IMAGE_SHA: deploy 成功后由部署方写入, prune 时排除以防回滚无镜像可用
 # =============================================================================
@@ -30,11 +30,14 @@ on:
     workflows: ["Dependency Security Scan"]
     types: [completed]
 
-# 【最小权限 2026-10-01】本 workflow 的全部外部动作（Docker Hub 登录/推送/删标签）
-# 走 secrets 里的 Docker Hub 凭据与 curl，不依赖 GITHUB_TOKEN 的写能力。
-# 显式收窄为只读，作为 security-gate 注入面被突破时的爆炸半径兜底。
+# 【权限调整 2026-10-13，GHCR 迁移】原收窄为 contents:read(不依赖 GITHUB_TOKEN
+# 写能力)的依据是"外写走 Docker Hub secrets"; 迁移后唯一外写 = 向本仓 namespace
+# 发布/清理 GHCR 镜像, 故增 packages: write。token 一次性、随 run 注入且仓库限定,
+# 取代原库外长期 Docker Hub PAT(Read & Delete) —— 净安全收益为正。仍不授予
+# contents: 写能力, security-gate 爆炸半径兜底不变。
 permissions:
   contents: read
+  packages: write
 
 jobs:
   # ==================== 部署前置门禁 ====================
@@ -97,84 +100,95 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to Docker Hub
+      - name: Login to GHCR
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: ./asset_management_backend
-          file: Dockerfile
+          # file 省略 = 默认 {context}/Dockerfile。勿写相对仓根的 file: ——该值原样透传给
+          # buildx (--file 相对 GITHUB_WORKSPACE 解析)，仓根无 Dockerfile 即 build 必败。
+          # 源码直证: docker/build-push-action src/context.ts `args.push('--file', inputs.file)`。
+          # 修复: 审计 R-02 / BF-067 部署链，2026-10-13。
           push: true
+          # source 标签: GHCR 包—仓联动。包名 asset-management-backend ≠ 仓库名
+          # AssetManagementProgram, 不触发名称自动联动; 无联动则 GITHUB_TOKEN 对包
+          # 的写/删可能 403。该 label 使 push 时自动建联(GitHub 官方机制之一)。
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/asset-management-backend:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/asset-management-backend:${{ github.sha }}
+            ghcr.io/aquarius-cc/asset-management-backend:latest
+            ghcr.io/aquarius-cc/asset-management-backend:${{ github.sha }}
 
   prune-images:
     name: Prune Old Images (keep last 5 + latest + prod current)
     runs-on: ubuntu-latest
     needs: [docker]
     steps:
-      - name: Remove old sha tags from Docker Hub (keep 5 most recent)
+      - name: Remove old versions from GHCR (keep 5 most recent)
         env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          REPO: ${{ secrets.DOCKERHUB_USERNAME }}/asset-management-backend
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PKG_OWNER: ${{ github.repository_owner }}
           # 生产当前运行版本由部署流程写入 repo variable; 无值时仅按时间保留
           PROD_SHA: ${{ vars.PROD_IMAGE_SHA || '' }}
         run: |
           set -euo pipefail
           KEEP=5
-          HUB_URL="https://hub.docker.com/v2/repositories/${REPO}/tags?page_size=100"
+          # GHCR 版本 API(GitHub REST): 用户包 = /users/{user}/packages/...
+          # (owner 实测 type=User; 若迁移至 Org 需改 /orgs/{org}/)
+          # 版本级删除: 删 version 连删其全部 tag —— 排除按 tag 成员判定,
+          # latest/生产当前命中即整版豁免; sha 与 latest 同 digest 时折叠为同一版本, 同样被豁免。
+          VER_URL="/users/${PKG_OWNER}/packages/container/asset-management-backend/versions"
+          echo "查询 GHCR 版本: ${VER_URL}"
 
-          TOKEN=$(curl -sf -X POST "https://hub.docker.com/v2/users/login" \
-            -H "Content-Type: application/json" \
-            -d "{\"username\": \"${DOCKERHUB_USERNAME}\", \"password\": \"${DOCKERHUB_TOKEN}\"}" \
-            | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+          CANDIDATES=$(gh api --paginate --slurp "${VER_URL}?per_page=100" \
+            | PROD_SHA="${PROD_SHA}" python3 -c '
+          import sys, json, os
+          prod = os.environ.get("PROD_SHA", "")
+          pages = json.load(sys.stdin)
+          versions = [v for page in pages for v in page]
+          out = []
+          for v in versions:
+              tags = set(t for t in (v.get("metadata", {}).get("container", {}).get("tags") or []) if t)
+              if "latest" in tags:
+                  continue
+              if prod and prod in tags:
+                  continue
+              out.append((v.get("created_at", ""), str(v.get("id")), ",".join(sorted(tags))))
+          out.sort(reverse=True, key=lambda x: x[0])
+          for created, vid, tg in out:
+              print("%s\t%s\t%s" % (created, vid, tg))
+          ')
 
-          PAGE="$HUB_URL"
-          SHA_TAGS=()
-          while [ -n "$PAGE" ]; do
-            RESP=$(curl -sf -H "Authorization: Bearer ${TOKEN}" "$PAGE")
-            PAGE=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('next') or '')")
-            BATCH=$(echo "$RESP" | PROD_SHA="${PROD_SHA}" python3 -c "
-              import sys, json, os
-              prod = os.environ.get('PROD_SHA', '')
-              out = []
-              for r in json.load(sys.stdin)['results']:
-                  names = {t['name'] for t in r.get('tags', [])}
-                  if 'latest' in names:
-                      continue
-                  if prod and prod in names:
-                      continue
-                  out.append(r['name'])
-              print('\n'.join(out))
-            ")
-            if [ -n "$BATCH" ]; then
-              mapfile -t BATCH_ARR <<< "$BATCH"
-              SHA_TAGS+=("${BATCH_ARR[@]}")
-            fi
-          done
-
-          TOTAL=${#SHA_TAGS[@]}
-          echo "候选 sha 标签共 ${TOTAL} 个"
+          TOTAL=$(printf '%s\n' "$CANDIDATES" | grep -c . || true)
+          echo "候选版本共 ${TOTAL} 个(已排除 latest 与生产当前)"
           if [ "$TOTAL" -le "$KEEP" ]; then
             echo "✅ 数量未超限, 无需清理"
             exit 0
           fi
 
-          # 最旧的在前(Docker Hub 按时间倒序返回), 删除前 TOTAL-KEEP 个
-          for tag in "${SHA_TAGS[@]:$KEEP}"; do
-            echo "删除过期镜像标签: ${tag}"
-            curl -sf -X DELETE \
-              -H "Authorization: Bearer ${TOKEN}" \
-              "https://hub.docker.com/v2/repositories/${REPO}/tags/${tag}" \
-              || echo "⚠️ 删除 ${tag} 失败(可能已被删或权限不足)"
+          # created_at 已倒序, 删除第 KEEP 个及之后的最旧版本
+          mapfile -t LINES <<< "$CANDIDATES"
+          FAILED=0
+          for ((i=KEEP; i<TOTAL; i++)); do
+            vid=$(printf '%s\n' "${LINES[$i]}" | cut -f2)
+            tg=$(printf '%s\n' "${LINES[$i]}" | cut -f3)
+            echo "删除过期版本: id=${vid} tags=${tg}"
+            if ! gh api -X DELETE "/users/${PKG_OWNER}/packages/container/asset-management-backend/versions/${vid}"; then
+              echo "⚠️ 删除版本 ${vid} 失败(可能已被删或权限不足)"
+              FAILED=1
+            fi
           done
-          echo "✅ 清理完成, 已保留最近 ${KEEP} 个 + latest + 生产当前版本"
+          if [ "$FAILED" -ne 0 ]; then
+            echo "❌ 删除失败 —— 排查包联动(包页 linked repository 是否为本仓)与 packages: write 权限"
+            exit 1
+          fi
+          echo "✅ 清理完成, 已保留最近 ${KEEP} 个版本 + latest + 生产当前版本"
 
   # =============================================================================
   # 部署到预发布环境 —— 决策记录(BF-005): staging 从未落地(原为 echo 占位),
