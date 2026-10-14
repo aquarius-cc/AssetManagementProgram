@@ -4389,10 +4389,17 @@ args 分支因 arg 为相对路径、parents 止于 `.`，不会逃逸——**�
 
 ---
 
-## BF-067 【待修复】master 存量 CI 三红：ci.yml 4 失败 job + 3 skip / ci-cd Docker Hub 登录 / security-scan npm audit 2026-09-30
+## BF-067 【已关闭】master 存量 CI 三红：ci.yml 4 失败 job + 3 skip / ci-cd Docker Hub 登录 / security-scan npm audit 2026-09-30
 > **当前状态（2026-10-01 更新）**：§一~§三-1~§三-4 与 **§三-6 已修复并经 CI 直证**（run 106 head `f753d75`，双 audit 归零）；**§三-6 后续「依赖审计接入合并/部署门禁」亦已落地并 CI 直证**（head `46ef870`，`Security 汇总` success + CD `安全门禁校验` success）。**仅剩 §三-5 ci-cd Docker Hub 登录凭据缺失**。详见下方第 12/13/14 条。
 > **部署仓库迁移决策（2026-10-13，追加）**：§三-5 的处置方案**由「配 Docker Hub secrets」改为「迁移 GHCR」**——触发事实：Docker Hub 网络不可达（用户实测连不上）。迁移落点：`ci-cd.yml` Login 改 `github.actor` + `GITHUB_TOKEN`（`registry: ghcr.io`）、tags 改 `ghcr.io/aquarius-cc/asset-management-backend`、prune 改 GitHub Packages API（`gh api`，`/users/{user}/packages/container/{pkg}/versions`，版本级删除，KEEP=5/latest/PROD_SHA 豁免语义原样）、`docker-compose.prod.yml:13` 镜像改 ghcr 全路径；**permissions 由 `contents: read` 放宽为 `contents: read + packages: write`**（唯一外写 = 本仓 packages，一次性仓库限定 token，取代库外长期 Docker Hub PAT——净安全收益为正，放宽留痕见 `ci-cd.yml` 权限注释）。**原 §三-5「凭据缺失」子项作废（零库外 secrets）**；本条关闭条件改为：**CD run 双绿 + GHCR 包页出现 latest/sha 标签 + 包页 linked repository 为本仓 + 部署主机 compose pull 成功**（audit 报告 GHCR 迁移验证计划 6 步），关闭回执留批次 1.5。
 > **迁移验证进度（2026-10-13 首跑直证）**：head `3f811a2` 触发四连绿——security-scan 38424456708 / duplicate-guard 38424456994 / **CD Pipeline 38424503207（安全门禁 4s + Build & Push 1m23s + Prune 4s 全绿）** / CI Pipeline 38424456886（15 jobs 全绿）。CD 直证：buildx 命令含 `--label org.opencontainers.image.source=https://github.com/aquarius-cc/AssetManagementProgram` 与 `:latest`+`:3f811a2...` 双标签，`pushing manifest ...:latest@sha256:140ad647... done` 镜像入 GHCR 成功；prune 走读路径早退（`候选版本共 2` → `数量未超限, 无需清理`，GET 无 403）。**关闭前余项**：① 包页 visibility→Public（默认 private，用户网页一次性操作）；② 包页联动/标签网页确认（本机 gh token 无 packages scope）；③ 部署主机 `docker compose pull` 成功；④ prune DELETE 分支待版本数 >5 后随 run 自然直证（首跑早退未触发；本机无 docker 无法 dummy 推送）。
+> **关闭回执（2026-10-13，批次 1.5）**：本条【待修复】→【已关闭】，按迁移后四项关闭口径逐项核销——
+> **① CD run 双绿**：两条独立 push 链四连绿——head `3f811a2`：security-scan 38424456708 / duplicate-guard 38424456994 / CI Pipeline 38424456886（15 jobs，含变异双门禁）/ **CD 38424503207**；head `f7481cd`：security-scan 38431549797 / guard 38431549815 / CI 38431549854 / **CD 38431608091**。原「CI 三红」（ci.yml 4 失败 + ci-cd 登录失败 + audit）彻底翻绿。
+> **② GHCR 包标签**：匿名 registry 直证（比网页更硬）——`GET /v2/aquarius-cc/asset-management-backend/tags/list` = `latest` + `3f811a2699ca...` + `f7481cd26a91...`。
+> **③ 包—仓联动**：两次 buildx 命令均含 `--label org.opencontainers.image.source=https://github.com/aquarius-cc/AssetManagementProgram`（GitHub 官方联动机制）；visibility=public 由用户于包设置页确认（`This package is currently public`）。
+> **④ 部署主机 pull**：以匿名 registry 等价直证收口（用户拍板 2026-10-13）——匿名 token + `GET manifests/latest` → **HTTP 200 + `docker-content-digest: sha256:ab590acb9207...`**，即部署主机 compose pull 的同协议前置全通；服务器实机 pull 列为关闭后冒烟项。
+> **残余观察（不阻塞本条）**：prune DELETE 分支尚未触发（版本候选 ≤5 走早退）——脚本 fail-loud 设计（删除失败显式 exit 1），后续版本超限时自然覆盖，若 403 再走「包名改仓库同名」回退预案。
+> **连带账本动作**：Backlog P1-3 同步关闭、P1 速览行改「P1 全部收口」；审计报告 §6 R-01/R-02/R-03 全勾、Go/No-Go 转 **Go**（R-04 四项人工验证保留强烈建议轨）。原 §一~§四 历史内容保留不覆写（补注不覆写原则）。
 
 ### 〇、元信息
 
