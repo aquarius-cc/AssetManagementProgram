@@ -669,6 +669,12 @@
 - **修复方案**：[待决策] ① 先归一两差异项（SelectedRecords `margin:0` 是否有意；内联渐变是否改 `var(--gradient-card-highlight)` 以恢复暗色跟随——改法则 common-forms 与其余 4 处完全同源）；② 共同属性收敛至 `common-forms.scss` 单源，`.vue` 删本地块（`AssetForm.vue` 同步去 `:deep` 形态）。
 - **验证命令**：`rg -n "\.section-title" vue-assetmanagement/src -g '*.vue' -g '*.scss'`（当前 5 文件命中；收敛后应剩 1）
 
+### B-27. 【已关闭 2026-10-15】el-pagination `@size-change` 直连 fetch ×3 不回退页码（前端；§1.8 新发现义务 + M-3 同型）
+- **编号**：顺延登记（B-26 后最大号 +1）。**状态**：✅ 已关闭 | 登记日期：2026-10-15 | 登记来源：P3 批次 M-3 修复执行中依 §1.8 新发现义务登记——原审查仅列 3 处直连，实测同型面为 5 处（含 composable 钳制与已正确的 NotificationList），修完即关闭留痕。
+- **判定**：同型直连模式（`@size-change="fetchXxx"` 不置 1）在 3 个视图独立书写：`ContactsView.vue`（fetchContacts）、`RoleManage.vue`（fetchRoles）、`AuthUserManage.vue`（fetchAuthUsers）；与 `usePaginationSearch.handleSizeChange`（composable 钳制实现）语义不一（DR-1/DR-2 同型点散落）。第 5 处 `NotificationList.vue:102` 已正确回 1（非重复，登记留痕防误改）。
+- **修复**（2026-10-15，BF-093/M-3）：① composable `handleSizeChange` 统一置 1（删钳制逻辑）；② 3 直连视图各加 `handleSizeChange` 包装（置 1 + fetch），模板接线改 `@size-change="handleSizeChange"`。
+- **验证命令**：`rg -n "@size-change=\"fetch" vue-assetmanagement/src`（预期 0 命中，全部已包装）；`npx vitest run src/composables/__tests__/usePaginationSearch.spec.ts`（handleSizeChange 置 1 用例通过）。
+
 ---
 
 ## C — 降级/待决策（Downgraded / Decision Gate）

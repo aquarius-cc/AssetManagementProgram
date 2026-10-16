@@ -50,3 +50,8 @@ __pycache__/
 
 # impeccable 运行时数据（critique/audit 快照，不入库）
 .impeccable/
+
+# CodeGraph 索引与本机 MCP 配置（67MB 可再生索引；mcp 配置含机器绝对路径，2026-10-16 拍板不入库）
+.codegraph/
+.mcp.json
+mcp.json

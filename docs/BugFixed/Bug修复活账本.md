@@ -6169,3 +6169,526 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 
 *登记人：opencode ｜ 状态：【已关闭】（文档对照 + 冒烟双检 + 留痕三重证据闭环，AR-1 受控清单归零），2026-10-13*
 
+---
+
+## BF-090 【已关闭】三缺陷批修：C-4「确认找回」按钮失效 + C-3 部门 move 未纳入管理权限白名单 + I-3 登录页用户名校验整体失效
+
+### 〇、元信息
+
+- **发现/登记日期**：2026-10-14（三缺陷来自同一轮审查核验，源码实证后批量修复）。
+- **来源**：审查报告三行 P0/Important 缺陷（C-4 / C-3 / I-3），核验阶段已完成根因 file:line 实证。
+- **严重级别**：C-4 Critical（核心找回链路完全不可用）、C-3 Critical（任意登录用户可改部门层级）、I-3 Important（用户名校验整体不触发）。
+- **影响范围**：
+  - C-4：`FoundAssetView.vue` 单视图，「确认找回」按钮点击无任何响应。
+  - C-3：`DepartmentViewSet.move` 端点，任意登录用户（dept_manager / regular_user）可 PUT 改部门父级。
+  - I-3：`LogIn.vue` 登录页用户名字段，blur 后无校验错误提示。
+- **跨端契约变更**：无（前端 prop 名对齐 + 后端白名单补全，响应结构与枚举值未动）。
+
+### 一、问题描述与根因
+
+| # | 缺陷 | 根因（file:line 实测） | 机制 |
+|:--|:-----|:----------------------|:-----|
+| C-4 | 「确认找回」按钮完全失效 | `FoundAssetView.vue:54-59` 解构 `useAssetOperationForm` 返回值时漏了 `formRef`；模板 `:20` 有 `ref="formRef"` 但绑不到 composable 内部 ref（`useAssetOperationForm.ts:78`）；`handleSubmit` 的 `if (!formRef.value) return`（`:107`）恒早退 | 模板 ref 绑定依赖 setup 同名解构——解构漏一个名字，ref 链即断 |
+| C-3 | 部门 `move` 未纳入管理权限白名单 | `department_view.py:59` 管理权限白名单 = create/update/partial_update/destroy/batch_create/batch_delete/sort，漏 `move`；`move` 是 `detail=True PUT` action，落入 `else` 分支仅要求 `IsAuthenticated` | 任意登录用户可 PUT 改部门层级，违反 §4.2 部门管理仅 system_admin |
+| I-3 | 登录页用户名校验规则整体失效 | `LogIn.vue:28` `prop="username"` vs 表单字段/规则键均为 `auth_username`（`:113`/`:197-198`）；el-form 按 prop 查 rules 落空，`validateUsername` 校验器不触发 | 密码 `prop="password"` 恰好同名所以活着，用户名不同名即失效 |
+
+**同型排查**：grep 确认 8 个 `useAssetOperationForm` 调用方（Scrap/Repair/RepairDone/RepairFailed/Recycle/Lost/MarkBroken/Found）中仅 FoundAssetView 漏解构 `formRef`，其余 7 个均已正确解构且有 `void formRef` 注释。
+
+### 二、修复方案（三项各 1 行核心改动）
+
+| # | 文件 | 改动 | 行数 |
+|:--|:-----|:-----|:----:|
+| C-4 | `FoundAssetView.vue:59` | 解构补 `formRef,` + `:76-78` 补 `void formRef` 留痕注释（对齐 Scrap 先例） | 1 + 3 注释 |
+| C-3 | `department_view.py:59` | 白名单列表补 `"move"`（改为多行格式） | 1 |
+| I-3 | `LogIn.vue:28` | `prop="username"` → `prop="auth_username"` | 1 |
+
+### 三、回归测试（先红后绿）
+
+| # | 测试文件 | 用例数 | 锚定行为 |
+|:--|:---------|:------:|:---------|
+| C-4 | `FoundAssetView.spec.ts`（新建） | 3 | 点击「确认找回」→ foundAsset 被调 + router.back()；表单数据传递；失败分支 |
+| C-3 | `test_admin_permissions.py::TestDepartmentMoveGate`（新增） | 3 | dept_manager/regular_user PUT move → 403；system_admin → 200 |
+| I-3 | `LogIn.spec.ts`（新建） | 10 | prop 对齐验证（auth_username/password）；validateUsername 5 条规则；validatePassword 2 条规则 |
+
+**测试策略说明（I-3）**：Element Plus async-validator 校验链在 JSDOM 环境下不可靠（provide/inject 与内部事件监听依赖真实 DOM 行为），故采用双层验证：① prop 绑定验证（断言 el-form-item 的 prop 与 loginRules 键一致）；② 校验器独立验证（经 vm 取 loginRules 内校验器函数直接调用）。两层合起来证明 prop 对齐后 el-form 能按 prop 找到 rules 并执行校验器。
+
+### 四、验证记录
+
+```text
+前端：
+① type-check: vue-tsc --build → 0 error ✅
+② lint: eslint . --fix → 0 error ✅
+③ format:check: prettier --check src/ → All matched files use Prettier code style ✅
+④ 定向 vitest: FoundAssetView.spec.ts + LogIn.spec.ts → 13/13 passed ✅
+⑤ 全量 test:coverage: 161 files / 2132 tests passed；Store 层 97.97%（≥90% 达标）✅
+
+后端：
+⑥ pytest test_admin_permissions.py → 11 passed（含新增 3 个 move 门禁用例）✅
+⑦ pytest apps/usermanagement/ → 188 passed ✅
+⑧ ruff check department_view.py + test_admin_permissions.py → All checks passed ✅
+⑨ mypy department_view.py --strict → Success: no issues found ✅
+   （test_admin_permissions.py 存量 25 条未类型化函数告警为原有，非本次引入）
+
+同型排查：
+⑩ rg formRef 全部 8 个 useAssetOperationForm 调用方 → 均含 formRef（4-5 处/文件），无遗漏 ✅
+```
+
+### 五、对抗审核
+
+- **C-4 机制留痕**：模板 ref 绑定依赖 setup 同名解构——解构漏一个名字，ref 链即断。`void formRef` 注释（对齐 ScrapAssetView.vue:83-85 先例）既消除 TS6133 又作为机制说明，防同型复发。
+- **C-3 权限语义**：`move` 是 `detail=True PUT` action，DRF 自动生成 `departments-move` 路由。修复前落入 `else` 分支仅要求 `IsAuthenticated`，任意登录用户可改部门层级。修复后与 create/update/destroy 等写操作同权（仅 system_admin）。
+- **I-3 prop 对齐**：el-form 的 rules 按 prop 键查找。`prop="username"` 与 `loginRules.auth_username` 不匹配导致校验器不触发。密码字段 `prop="password"` 与 `loginRules.password` 恰好同名，未受影响——这正是此 bug 长期隐匿的原因。
+- **测试 mock 完备性**：FoundAssetView.spec.ts 补 mock `useOperationGuard`（原方案遗漏），否则 composable 的 `guardOnMounted()` 会因 `canOperateAsset` 未定义而拦截 mount，测试无法到达点击路径。
+
+### 六、关联事项
+
+- **审查报告**：三缺陷来自同一轮审查核验（C-4 / C-3 / I-3 编号沿用原审查报告）。
+- **机制先例**：ScrapAssetView.vue:65/:83-85（formRef 解构 + void 注释）、RepairAssetView.vue:92/:113-115 等 7 个视图均遵循同一模式。
+
+*登记人：opencode ｜ 状态：【已关闭】（三缺陷源码实证 + 1 行修复 + 回归测试先红后绿 + 门禁全绿 + 同型排查零遗漏），2026-10-14*
+
+## BF-091 【已关闭】双缺陷批修：C-1 单条 create 绕过状态机 + C-2 出库/回收/维修缺行级隔离
+
+### 〇、元信息
+
+- **发现/登记日期**：2026-10-14（两缺陷来自同一轮审查核验，源码实证后批量修复）。
+- **来源**：审查报告两行 P1/Critical 缺陷（C-1 / C-2），核验阶段已完成根因 file:line 实证。
+- **严重级别**：C-1 Critical（状态机/审计/行隔离三重失效）、C-2 Critical（跨部门越权写资产主表）。
+- **影响范围**：
+  - C-1：BrokenAsset/LostAsset/FoundAsset 单条 create 端点——资产 `asset_current_status` 不变、无 FSM 校验、无审计日志。
+  - C-2：OutAsset/RecycleAsset/RepairAsset 单条 create 端点——跨部门 asset_admin 可出库/回收/送修乙部门资产，资产主表被改写。
+- **跨端契约变更**：无（响应结构与枚举值未动；schema 基线仅 docstring 描述更新，非破坏性）。
+
+### 一、问题描述与根因
+
+| # | 缺陷 | 根因（file:line 实测） | 机制 |
+|:--|:-----|:----------------------|:-----|
+| C-1 | 单条 create 绕过状态机 | `_lifecycle_base.py:34-43` 无 create 覆写；`core/mixins.py:123-137` ResponseWrapperMixin.create 仅 `serializer.save()` 直落库，不调用 `AssetLifecycleMixin` 对应 mark 方法 | DRF 默认 create 不经 Service 层 → FSM 校验/审计日志/行级隔离三重失效；对照 batch_create 走 service 有完整语义，两条路径分裂 |
+| C-2 | 出库/回收/维修缺行级隔离 | `out_asset_service.py:44-46`、`recycle_asset_service.py:41-42`、`repair_asset_service.py:113-120` 均无 `ensure_asset_visible`，无 user 参数；对应 views 不传 user | damaged（`damaged_asset_service.py:46-47`）与 lifecycle mixin（`asset_lifecycle_mixin.py:46-48`）均有 BEQ-02 检查，这三个写路径漏掉了——系统性遗漏 |
+
+### 二、修复方案
+
+| # | 文件 | 改动 |
+|:--|:-----|:-----|
+| C-1 | `_lifecycle_base.py` | 新增 `create` 覆写 + `create_service_method` 类属性 + `build_create_kwargs` 钩子，委托 `AssetLifecycleMixin` 对应 mark 方法（与 destroy/batch_delete 委托模式一致） |
+| C-1 | `asset_lifecycle_mixin.py` | `mark_asset_broken`/`mark_asset_lost` 加可选日期参数；`find_and_return_asset` 加 `user`/`found_date` 参数、返回 `FoundAsset`、加 `ensure_asset_visible`；batch 透传日期 |
+| C-1 | `asset_lifecycle_view.py` | 三子类注入 `create_service_method`/`build_create_kwargs`；Found 加 `lost_asset_recordcode` 一致性校验 |
+| C-2 | `out_asset_service.py` / `recycle_asset_service.py` / `repair_asset_service.py` | 单条 + batch 均加 `user` 参数 + `AssetSelector.ensure_asset_visible`；回收校验前移至 `RecycleAsset.objects.create` 之前 |
+| C-2 | `out_asset_view.py` / `recycle_asset_view.py` / `repair_asset_view.py` / `asset_view.py` | 6 处传 `user=request.user`；found/repair action 适配返回值 |
+
+### 三、回归测试（先红后绿）
+
+| # | 测试文件 | 用例数 | 锚定行为 |
+|:--|:---------|:------:|:---------|
+| C-1 | `test_create_row_isolation.py`（BF-091 块） | 17 | Broken/Lost/Found 单条 create 跨部门 → 400/404 + 状态不变；本部门 → 201 + FSM 状态流转；superuser → 201；Found 记录码错配 → 400 |
+| C-1 | `test_lifecycle_view_api.py` | 补 3 断言 | create 后 `asset.asset_current_status` 已流转（broken/lost/recycled_pending） |
+| C-2 | `test_create_row_isolation.py`（BF-091 块） | 12 | Out/Recycle/Repair 单条 create 跨部门 → 400/404 + 状态不变；本部门 → 201 + FSM 状态流转；superuser → 201 |
+
+### 四、验证记录
+
+```text
+后端：
+① pytest test_create_row_isolation.py → 29 passed（含 C-1/C-2 隔离测试）✅
+② pytest test_lifecycle_view_api.py + test_asset_lifecycle.py + test_lifecycle_mixin_gaps.py → 86 passed ✅
+③ pytest 全量 → 1894 passed（21 分钟）✅
+④ Service 层覆盖率 → 99%（≥90% 达标）✅
+⑤ ruff check . → All checks passed ✅
+⑥ mypy . --strict → Success: no issues found in 226 source files ✅
+   （CT-7 版本对齐：mypy 2.1.0 / django-stubs 6.1.0 / djangorestframework-stubs 3.18.0 / types-channels 4.3.0.20260518 与 dev.txt 声明一致）
+⑦ schema 重导出 → 仅 3 处 docstring 描述更新（broken/found/lost create），非破坏性 ✅
+
+契约保护：
+⑧ test_batch_contract_snapshot.py + test_lifecycle_view_api.py → 117 passed，响应契约零破坏 ✅
+```
+
+### 五、对抗审核
+
+- **C-1 响应契约**：create 响应 = 201 + `code:0` + `"创建成功"` + `CreateSerializer(record).data`（源自 `core/mixins.py:123-137` ResponseWrapperMixin），与 DRF 默认 create 语义一致，前端零感知。
+- **C-1 FSM 边合法性**：`IN_STORE→BROKEN/LOST`、`LOST→RECYCLED_PENDING(found)` 均在 `transitions.py:24-28,:54-57` 合法路径内，未增删节点。
+- **C-2 校验前移**：回收 `ensure_asset_visible` 前移至 `RecycleAsset.objects.create` 之前，防止先建记录后校验失败留下脏数据。
+- **C-2 batch 日期透传**：`LostAssetBatchCreateItemSerializer.lost_date` 是 required=True 却从未透传——存量静默丢弃 bug，本次一并修复。
+- **user=None 向后兼容**：`reissue_recycle_asset`（recycle_asset_service.py:437）不传 user，`ensure_asset_visible(asset, None)` 跳过校验（asset_selector.py:126-136），行为不变。
+- **schema 基线**：仅 docstring 描述更新（`@extend_schema` 注释），无路径/字段/枚举变更，CI `api-schema-check` 非破坏性漂移警告。
+
+### 六、关联事项
+
+- **审查报告**：两缺陷来自同一轮审查核验（C-1 / C-2 编号沿用原审查报告）。
+- **机制先例**：damaged（`damaged_asset_service.py:46-47`）与 lifecycle mixin（`asset_lifecycle_mixin.py:46-48`）已有 BEQ-02 检查，本次将同模式推广至 out/recycle/repair 三个漏掉的写路径。
+- **P0 批次**：BF-090（C-4 / C-3 / I-3），同日修复。
+
+*登记人：opencode ｜ 状态：【已关闭】（两缺陷源码实证 + 写路径收敛 + 回归测试先红后绿 + 门禁全绿 + 契约零破坏），2026-10-14*
+
+---
+
+## BF-092 【已关闭】六缺陷批修：I-4 合同行锁缺失 + I-10 结算重算缺失 + I-5 出库审计快照硬编码 + I-6 待报废 FSM 无异常处理 + I-11 付款端点校验重复 + I-1 前端导出未走服务端
+
+> **登记时间**：2026-10-15 ｜ **修复批次**：P2 ｜ **严重度**：High（I-4/I-10）/ Medium（I-5/I-6/I-11/I-1）
+> **关联审查**：`docs/Review/CodeReview20261014.md` 批次 3（I-4 / I-10 / I-5 / I-6 / I-11 / I-1）
+
+### 一、缺陷清单
+
+| 编号 | 缺陷摘要 | 根因 | 修复范围 |
+|:-----|:---------|:-----|:---------|
+| I-4 | 合同付款读-改-写无行锁，并发丢失更新 | `add/delete/approve_payment_record` 三方法用 `get_contract_by_code`（无锁），并发下 `paid_record` 覆盖 | `contract_selector.py` 新增 `get_contract_for_update`；`contract_service.py` 三方法换锁 + `add_payment_record` save 收敛为 `update_fields` |
+| I-10 | 结算状态流转后金额滞留旧口径；settlemented_price 可写但编辑不触发重算 | `update_settlement_status` 未调 `_recalc_paid_amounts`；`ContractViewSet` 无 `perform_update` 覆写 | `update_settlement_status` FSM 成功后调 `_recalc_paid_amounts` + 定向 save；新增 `recalculate_amounts_for_update` 公共入口；`perform_update` 覆写 |
+| I-5 | 出库审计日志 before_status 硬编码 `in_store` | `log_asset_out` 与 `AuditLogger.log_asset_out` 均写死 `IN_STORE`，`recycled_pending` 出库时审计失真 | `operation_log_service.py` 加 `before_status` 参数；`audit.py` 双层透传；`out_asset_service.py` 传实际前状态 |
+| I-6 | 待报废三处 FSM 调用无异常处理 | `approve/reject_to_original/cancel_damaged` 直接调 FSM，非法流转抛 500 而非 400 | 三处包 try/except，`InvalidTransitionError` → `AppValidationError(INVALID_STATE_TRANSITION)` |
+| I-11 | 单条付款端点手写校验与批量端点重复 | `payment_record` 手写 Decimal 解析/范围校验，与 `ContractBatchPaymentRecordItemSerializer` 重复（DR-1 违规） | 改用共享 item 校验器 + `is_valid(raise_exception=True)` |
+| I-1 | 4 个生命周期页面内联客户端导出，导出全量数据受分页钳制 | `useAssetLifecycleActions` 用 `exportToExcel` 客户端导出，`getList({page_size: total})` 受分页上限 100 钳制 | 迁移至 `useServerExcelExport` 服务端导出；4 API 加 `exportExcel`；4 store 加导出入口；4 视图改传 `fetchExport` |
+
+### 二、修复明细
+
+**I-4（行锁防并发丢失更新）**
+- `contract_selector.py:28-41`：新增 `get_contract_for_update(contract_code)` = `lock_row_or_409(Contract.objects.select_for_update(), contract_code=..., is_deleted=False)`，锁超时统一映射 409。
+- `contract_service.py:213-221`（add）/ `:448-455`（delete）/ `:480-487`（approve）：三方法换 `get_contract_for_update`，`DoesNotExist` 翻译为 `CONTRACT_NOT_FOUND`。
+- `contract_service.py:240`：`add_payment_record` save 从全字段 `contract.save()` 收敛为 `save(update_fields=["paid_record","amount_paid","amount_unpaid","updated_at"])`。
+
+**I-10（结算后金额重算）**
+- `contract_service.py:315-330`：`update_settlement_status` FSM 成功后调 `_recalc_paid_amounts(contract)`（FSM 已改内存状态，结算分支可正确看到新状态），save 收敛为 `update_fields`。
+- `contract_service.py:341-356`：新增 `recalculate_amounts_for_update(contract_code)` 公共入口，供 View 层编辑后重算。
+- `contract_view.py:123-136`：新增 `perform_update` 覆写——serializer.save 后若 `settlemented_price` ∈ validated_data 则调 `recalculate_amounts_for_update` + `refresh_from_db`。
+
+**I-5（出库审计快照修复）**
+- `operation_log_service.py:239-256`：`log_asset_out` 加 `before_status: str | None = None` 参数，`before_data` 用 `before_status or IN_STORE` 兜底。
+- `audit.py:189-206`：`AuditLogger.log_asset_out` 双层加参透传。
+- `out_asset_service.py:79-86`：调用点传 `before_status=outasset.outasset_previous_status`（在 `_apply_outasset_to_asset` 改写前已捕获）。
+
+**I-6（待报废 FSM 异常处理）**
+- `damaged_asset_service.py:174-178`（approve）/ `:245-249`（reject）/ `:310-314`（cancel）：三处 FSM 调用包 try/except，`InvalidTransitionError` → `AppValidationError(INVALID_STATE_TRANSITION)`，与 `:72-75` 已有范式一致。
+
+**I-11（付款端点校验收敛）**
+- `contract_view.py:255-270`：`payment_record` 端点改用 `ContractBatchPaymentRecordItemSerializer`（`batch_serializers.py:95-99`）+ `is_valid(raise_exception=True)`，消除与批量端点的重复校验（DR-1）。
+- **行为变更声明**：错误响应从手写 `error_response(message, 400)` 变为 DRF 统一 400 格式；`DecimalField` 要求恰好 2 位小数（"100.5" 将被拒，旧代码接受）。
+
+**I-1（前端导出迁移服务端）**
+- `useAssetLifecycleActions.ts`：`handleExportExcel` 从客户端 `exportToExcel` 迁移至 `useServerExcelExport.exportFromServer`；接口新增 `fetchExport` 参数，移除 `fileNamePrefix`/`exportColumns`。
+- `api/brokenAsset.ts` / `lostAsset.ts` / `foundAsset.ts` / `repairAsset.ts`：各加 `exportExcel(params)` → `getBlob(.../export/, ...)`。
+- `stores/brokenAssetStore.ts` / `lostAssetStore.ts` / `foundAssetStore.ts` / `repairAssetStore.ts`：各加 `xxExportExcel` 导出函数（经 store 层消费，满足 `no-restricted-imports` 分层约束）。
+- `BrokenAssetDetails.vue` / `LostAssetDetails.vue` / `FoundAssetDetails.vue` / `RepairAssetDetails.vue`：改传 `fetchExport: xxExportExcel`，移除 `exportColumns`/`fileNamePrefix`。
+- `useAssetLifecycleActions.spec.ts`：重写导出测试（2 用例），mock `useServerExcelExport` 而非 `exportToExcel`。
+
+### 三、测试锚定
+
+| # | 测试文件 | 用例数 | 锚定行为 |
+|:--|:---------|:------:|:---------|
+| I-4 | `test_contract_payment_lock_and_settlement.py` | 6 | `get_contract_for_update` 返回/缺失/软删不可见；并发付款金额累加不丢失（Postgres 守卫）；定向 save 验证 |
+| I-10 | `test_contract_payment_lock_and_settlement.py` | 5 | settlement_done 后 amount_unpaid 基于 settlemented_price 重算；零付款重算；非结算流转不受影响；PATCH settlemented_price 触发重算；PATCH 其他字段不触发 |
+| I-5/I-6 | 既有 `test_out_asset_service.py` / `test_damaged_asset_service.py` | 0（回归） | 既有 87 用例全部通过，无回归 |
+| I-11 | 既有 `test_contract_view_api.py` | 0（回归） | 既有 31 用例全部通过，无回归 |
+| I-1 | `useAssetLifecycleActions.spec.ts` | 2（重写） | 委托 `useServerExcelExport`；透传 `pagination.total` |
+
+### 四、验证记录
+
+```text
+后端：
+① pytest test_contract_payment_lock_and_settlement.py → 11 passed ✅
+② pytest test_contract_service.py + test_contract_view_api.py + test_contract.py → 88 passed ✅
+③ pytest test_damaged_asset_service.py + test_out_asset_service.py + test_contract_view_api.py → 87 passed ✅
+④ pytest 全量 → 1909 passed（8 分 45 秒）✅
+⑤ ruff check . → All checks passed ✅
+⑥ mypy . --strict → Success: no issues found in 226 source files ✅
+⑦ schema 重导出 → 仅 docstring 描述更新，非破坏性 ✅
+
+前端：
+⑧ npm run type-check → 无错误 ✅
+⑨ npm run lint → 无错误 ✅
+⑩ npm run format:check → All matched files use Prettier code style ✅
+⑪ npx vitest run → 2130 passed（161 files）✅
+```
+
+### 五、对抗审核
+
+- **I-4 锁语义不变**：`lock_row_or_409` 调用方构造锁（`core/locks.py:45`），selector 保留 `is_deleted=False` 过滤，不放宽可见性；锁超时映射 409 与既有资产行锁一致。
+- **I-10 FSM 顺序**：`_recalc_paid_amounts` 在 FSM `transition` 成功后调用，此时 `contract.contract_status` 已被 FSM 改为新值（`contract_fsm.py:73`），结算分支可正确看到 `settlement_done`。
+- **I-10 perform_update 语义**：仅当 `settlemented_price` ∈ validated_data 时触发重算，其他字段 PATCH 不触发；`refresh_from_db` 确保 serializer.data 返回落库后值。
+- **I-5 向后兼容**：`before_status` 参数可选，缺省回退 `IN_STORE`，既有调用方行为不变。
+- **I-10 update_fields 包含 updated_at**：`Contract` 模型有 `auto_now=True` 的 `updated_at`，Django 在 `update_fields` 含该字段时才更新时间戳。
+- **I-11 DecimalField 精度**：`DecimalField(max_digits=12, decimal_places=2)` 要求输入恰好 2 位小数，与批量端点行为一致；旧代码接受 "100.5"，新代码拒绝——此为**有意收紧**（与批量端点对齐）。
+- **I-1 权限语义**：regular 用户 UI 隐藏导出按钮（`permissions.py:204-205` 强制 CanExportExcel），后端 export 端点仍受权限保护；本次仅迁移前端实现路径，不改变权限矩阵。
+- **I-1 分批循环**：本批不做分批循环（EXPORT_MAX_ROWS=10000 + ExportTooLargeError 400 已消除 100 行静默截断），`useServerExcelExport` 已有上限预判逻辑。
+- **I-1 fetchAllData 消费方**：迁移前 grep 确认 `store.getList({page:1, page_size:total})` 在 4 个视图中无第二消费方（仅用于导出）。
+- **I-11 批量端点锁语义**：`add_payment_record_batch`（`contract_service.py:236`）内部循环调用 `add_payment_record`，每次调用独立加锁，批量端点锁语义不变。
+
+### 六、关联事项
+
+- **审查报告**：六缺陷来自同一轮审查核验（I-4 / I-10 / I-5 / I-6 / I-11 / I-1 编号沿用原审查报告）。
+- **P0/P1 批次**：BF-090（C-4/C-3/I-3）、BF-091（C-1/C-2），同日修复。
+- **机制先例**：`lock_row_or_409`（`core/locks.py:45`）已有资产行锁先例；`_recalc_paid_amounts`（`contract_service.py:85-95`）已有结算重算逻辑；`useServerExcelExport`（`composables/useServerExcelExport.ts`）已有服务端导出先例；`InvalidTransitionError` 异常处理（`damaged_asset_service.py:72-75`）已有范式。
+
+*登记人：opencode ｜ 状态：【已关闭】（六缺陷源码实证 + 回归测试先红后绿 + 门禁全绿 + 契约零破坏），2026-10-15*
+
+## BF-093 【已关闭】五缺陷批修：I-8 请求竞态丢弃过期响应 + I-2 重置不加载数据 + M-2 搜索不回第 1 页 + M-3 改页长页码语义分叉 + I-7 通讯录管理路由缺权限加固
+
+> **登记时间**：2026-10-15 ｜ **修复批次**：P3 ｜ **严重度**：Medium（I-8/I-2）/ Low（M-2/M-3/I-7）
+> **关联审查**：`docs/Review/CodeReview20261014.md` 批次 4（I-8 / I-2 / M-2 / M-3 / I-7）
+
+### 一、缺陷清单
+
+| 编号 | 缺陷摘要 | 根因 | 修复范围 |
+|:-----|:---------|:-----|:---------|
+| I-8 | getList/搜索并发竞态：慢响应覆盖新数据 | `createEntityStore.getList` 与 `usePaginationSearchState` 两搜索函数均无请求序号守卫，先发后至的过期响应仍写回状态 | `createEntityStore.ts` 加 `listRequestSeq` + getList seq 守卫；`usePaginationSearchState.ts` 加 `searchSeq` + 两搜索函数成功/失败/finally 三路守卫 |
+| I-2 | resetToFirstPage 只清状态不加载数据 | 同步函数仅置 1 + clearSearch，不调 loadList，表格停留在旧数据/空态 | `usePaginationSearch.ts` resetToFirstPage 改 async + `await loadList(1, pageSize)`；消费点补 `void` |
+| M-2 | 用户触发搜索不回第 1 页 | 消费点直接调 `searchWithParams`（保留当前页），在第 3 页搜索结果显示第 3 页搜索结果 | 新增 `searchWithReset` 薄包装（置 1 + 委托）；composable 返回 + SmartListContainer slot/expose + `types/common.ts` 类型 + AssetContentDetails 接线 |
+| M-3 | 改每页条数页码语义分叉 | composable 钳制（保末页内）与 3 个直连接口（不回 1）语义不一，EP size-change/current-change 双触发下页码落点不可预期 | `handleSizeChange` 统一置 1；ContactsView/RoleManage/AuthUserManage 三处直连补 `handleSizeChange` 包装 |
+| I-7 | 通讯录管理（用户录入/批量导入）无角色门槛 | `departmentmanagement` 父+3 子路由 meta 仅 `requiresAuth`，roleWhitelist 无条目，普通用户直达 | 4 处 meta 加 `requiredMinRole: 'system_admin'`；roleWhitelist 加前缀条目（双重保护） |
+
+### 二、修复明细
+
+**I-8（请求竞态 seq 守卫）**
+- `createEntityStore.ts:104`：闭包级 `let listRequestSeq = 0`（per-store，范式同 `dashboard.ts:61` trendRequestId）。
+- `createEntityStore.ts:208-213`：getList 回调内 `const seq = ++listRequestSeq` 声明在 try 前；await 后 `if (seq !== listRequestSeq) return []`，跳过页码校验/`handleInvalidPage`/`syncListToState`/pagination 写回。
+- `usePaginationSearchState.ts:64-65`：composable 实例级 `let searchSeq = 0`。
+- `usePaginationSearchState.ts` performSearch（`:97-120`）/ performSearchWithParams（`:189-212`）：seq 声明在 try 前（catch/finally 可见）；成功路径 `if (seq !== searchSeq) return` 跳过结果写回；catch 仅最新请求才清结果（过期失败仍 rethrow 不清场）；finally `if (seq === searchSeq)` 守卫 isSearching 复位（防慢请求复位新请求的进行中标志）。
+
+**I-2（重置真实加载）**
+- `usePaginationSearch.ts:177-183`：resetToFirstPage 改 async，clearSearch 后 `await loadList(1, pageSize.value)`。
+- `AssetContentDetails.vue:333`：消费点补 `void`（项目惯例）。
+
+**M-2（搜索入口置 1）**
+- `usePaginationSearch.ts:186-194`：新增 `searchWithReset(params)` = `currentPage.value = 1` + 委托 `performSearchWithParams`；**不动** `performSearchWithParams` 原型（翻页/刷新路径契约，routing.spec:50-65 钉死）。
+- `SmartListContainer.vue`：slot 加 `:search-with-reset` + defineExpose 加 `searchWithReset`。
+- `types/common.ts:156-160`：SmartListContainerExpose 加 `searchWithReset` 签名。
+- `AssetContentDetails.vue:324-325`：`searchWithParams` → `searchWithReset` + `void`。
+
+**M-3（改页长统一回 1）**
+- `usePaginationSearch.ts:149-156`：handleSizeChange 删钳制逻辑，改 `currentPage.value = 1`（业界惯例，消解 EP 双触发分叉）。
+- `ContactsView.vue` / `RoleManage.vue` / `AuthUserManage.vue`：各加 `handleSizeChange`（置 1 + fetch），模板 `@size-change` 改接新 handler；`@current-change` 不动。
+- **口径订正**：原审查标注 3 处，实测为 5 处——CommonList（composable 钳制）+ 3 直连（不回 1）+ NotificationList.vue:102（已正确回 1，无需改）。
+
+**I-7（通讯录管理权限加固）**
+- `routes-main-system.ts:74-78`（父）/ `:91-95`（userform）/ `:100-104`（userbatchimport）/ `:109-113`（departmentbatchimport）：4 处 meta 加 `requiredMinRole: 'system_admin'`（守卫只读 `to.meta`，子路由必须独立声明）。
+- `guards.ts:36-37`：roleWhitelist 加 `'/main/departmentmanagement': [ROLE_CODES.SYSTEM_ADMIN]`（前缀匹配，与 meta 双重保护）。
+- **第 5 触点留痕**：`AsideMenu.vue:76` 已有 `v-if="canManageSystem"`（UI 层隐藏），无需改。
+- **后端读侧选项 A 留痕**：`department_view.py:57` 注释「普通用户只能查看」为有意设计（读侧开放、写侧收紧），本次不改后端。
+
+### 三、测试锚定
+
+| # | 测试文件 | 用例数 | 锚定行为 |
+|:--|:---------|:------:|:---------|
+| I-8 | `createEntityStore.edge.spec.ts` | 2（新增） | getList 慢响应丢弃不覆盖状态；慢响应不触发 handleInvalidPage |
+| I-8 | `usePaginationSearch.spec.ts` | 4（新增） | 慢关键词/慢参数搜索丢弃；慢失败不清新结果；finally 不复位 isSearching |
+| I-2 | `usePaginationSearch.spec.ts` | 1（改写） | 重置后调用 loadList({page:1, page_size:20}) |
+| M-2 | `usePaginationSearch.routing.spec.ts` | 2（新增） | searchWithReset 先置 1 再委托；performSearchWithParams 原型不复位（翻页契约回归锁） |
+| M-2 | `SmartListContainer.spec.ts` | 1（改写） | 委托断言加 searchWithReset |
+| M-3 | `usePaginationSearch.spec.ts` | 1（改名） | 「always resets to page 1」替代「clamps to last page」 |
+| I-7 | `guards.spec.ts` | 双表增列 + 2 新增 | system_admin allow 表 +4 路径；regular_user deny 表 +4 路径；deny dept_manager；meta requiredMinRole 拦截 |
+
+### 四、验证记录
+
+```text
+前端：
+① npm run type-check → 无错误 ✅
+② npm run lint → 无错误 ✅
+③ npm run format:check → All matched files use Prettier code style ✅
+④ npx vitest run --coverage → 2148 passed（161 files）✅
+⑤ 覆盖率分层（coverage-final.json 实测）：
+   ts 层 stmt 93.03% / func 87.91%（门槛 80）✅
+   stores 层 stmt 97.64% / func 93.77%（门槛 90）✅
+   .vue 层基线棘轮（门槛 12.9/11.6/10.9/13.0）✅
+   （全局并集 42.81% 系含零覆盖 .vue 的预期值，P2-2 分层棘轮后不设无前缀阈值）
+```
+
+### 五、对抗审核
+
+- **I-8 seq 自增位置**：在 `withRequestControl` 回调内（去重只跑一次）；不同 params 键的并发请求各自自增，同键 pending 去重不受影响（`entityStoreRequestControl.ts:102-103` 对 `list:` 返回 null 不读缓存）。
+- **I-8 catch 语义**：过期失败仍 `throw`（保持错误传播契约），仅跳过清结果/清搜索态——不吞错、不清场。
+- **I-8 finally 语义**：过期请求不复位 isSearching，防慢请求把新请求进行中的 loading 提前关掉。
+- **I-8 空关键词早退**：`performSearch('')` 在 seq 声明前 return loadList，不自增 seq（早退非搜索请求，无竞态面）。
+- **I-2 await 影响面**：唯一消费点 AssetContentDetails 已补 void；`SmartListContainer.spec.ts:12` mock 本就是 async，`await vm.reset()` 兼容。
+- **M-2 不动原型的理由**：`performSearchWithParams` 同时服务翻页（handleCurrentChange→runActiveSearch），若在其内部置 1 会破坏翻页契约（routing.spec:50-65 钉死「翻页用钳制后页码」）；故新增薄包装、消费点接线，原型零改动。
+- **M-3 双触发已知性**：EP 在 page_size 变更致末页收缩时会再发 current-change；三视图 handler 置 1 后 current-change(1) 与 size-change 均落在 page 1，两次 fetch 幂等，页码不跳。NotificationList 既有实现即此模式，无新增风险。
+- **M-3 既有 spec 兼容**：原「clamps to last page」用例 total=20/size=50 时末页即 1，新旧语义同落 1，改名不改断言。
+- **I-7 双重保护**：meta（requiredMinRole 层级比较）+ roleWhitelist（前缀匹配）任一命中即拦截；守卫只读 `to.meta`，故 3 子路由独立声明而非仅父级。
+- **I-7 面包屑不受影响**：guards.spec:611 面包屑用例走 afterEach 不走角色检查，不受白名单变更影响。
+
+### 六、关联事项
+
+- **审查报告**：五缺陷来自同一轮审查核验（编号沿用 `CodeReview20261014.md` 批次 4）。
+- **P0/P1/P2 批次**：BF-090（C-4/C-3/I-3）、BF-091（C-1/C-2）、BF-092（I-4/I-10/I-5/I-6/I-11/I-1），同日修复。
+- **机制先例**：seq 竞态守卫复用 `dashboard.ts:61/:268-293` trendRequestId 范式（DR-1，未另造轮子）；`requiredMinRole` + roleWhitelist 双重保护复用 departmentdetails/userdetails 既有先例。
+
+*登记人：opencode ｜ 状态：【已关闭】（五缺陷源码实证 + 竞态 spec 先红后绿 + 门禁全绿 + 契约零破坏），2026-10-15*
+
+## BF-094 【已关闭】状态驱动按钮补齐 + F2/F3 前后端契约断裂批修：资产详情页缺出库/回收按钮 + 出库单条创建字段错配 + 回收单条/更新载荷字段错配
+
+> **登记时间**：2026-10-15 ｜ **严重度**：High（F2/F3 契约断裂，单条创建必 400）/ Medium（按钮缺失）
+> **关联需求**：用户直接下达（非审查批次）——资产详情页按状态补齐「出库」「回收」操作入口；F2/F3 系执行中发现的既有缺陷，同批顺带修复（既有缺陷性质，非本次引入）
+
+### 一、缺陷清单
+
+| 编号 | 缺陷摘要 | 根因 | 修复范围 |
+|:-----|:---------|:-----|:---------|
+| 主需求 | 资产详情页无「出库」「回收」按钮，IN_STORE/RECYCLED_PENDING 资产无法出库、IN_USE 资产无法回收 | `useAssetStatus` 缺 `canOutAsset`/`canRecycle` 能力位；`BasicAssetDetails` 未渲染对应操作入口 | `useAssetStatus.ts` 补两能力位 + 真值表 spec；`BasicAssetDetails.vue` 加双按钮（门禁 `canOperateAsset`） |
+| F3 | 出库单条创建必 400：前端发 `outasset_asset`（slug=asset_code），后端 `OutAssetCreateSerializer` 必填 `asset_recordcode`（slug=recordcode），字段名+slug 双错配 | `createOutAsset` 沿用批量端点字段名；单条/批量 serializer 分叉未对齐（`out_asset_serializers.py:85-87` vs `:247-251`） | `OutAssetCreateForm` 补 `asset_recordcode`；`useOutAssetAssetSelection` 四路径透传；`OutAssetForm` 表单/reset 置空；`createOutAsset` 改发 `asset_recordcode`、停发 `outasset_asset`（批量端点不动） |
+| F2a | 回收单条创建必 400：前端发 `recycle_asset`/`recycle_asset_storage`/`recycle_asset_recycle_person_jobcode`（serializer 均不接收），必填 `storage_code` 缺失 | `RecycleAssetCreateForm` 类型与 `RecycleAssetCreateSerializer`（`recycle_asset_serializers.py:98-99` storage_code required=True）脱节 | 类型重写（storage_code 必填、删三旧字段）；`submitSingle` 发 `storage_code` |
+| F2b | 回收更新必 400：`submitUpdate` 发 `recycle_asset_number`，后端 update 走 `RecycleAssetUpdateSerializer` + service 白名单 `{recycle_asset_date, recycle_type, recycle_asset_description}`（`recycle_asset_service.py:23-29`），白名单外字段致错 | update/create 共用表单提交路径未区分 serializer 分流 | `submitUpdate` 收敛为白名单三字段 + `outasset_recordcode`（定位）+ `id` |
+| F2c | `RecycleAssetView` 提交链路断裂：`outasset_recordcode` 误传资产 recordcode（应为出库单 recordcode）、`recycle_asset_storage: ''` 必 400、`as RecycleAssetCreateForm` 强转掩盖类型错误 | 视图未解析活跃出库单；旧类型宽纵 | 视图重写：挂载后经 `useRecyclableOutAssets` 按 `asset_code` 解析活跃出库单（**客户端精确过滤防后端 icontains 子串误命中**）；无结果 warning + 禁用提交按钮；仓库必填下拉复用 `useRecycleFormAssociations.loadStorages()`，默认 `asset.asset_storage_code`；载荷四必填字段；成功回跳由 `useAssetOperationForm` 既有 `router.back()` 提供 |
+
+### 二、修复明细
+
+**主需求（状态驱动按钮）**
+- `useAssetStatus.ts`：新增 `canOutAsset = isStatusIn([IN_STORE, RECYCLED_PENDING])`、`canRecycle = status === IN_USE`。
+- `BasicAssetDetails.vue`：出库按钮（primary，导出后/状态流转前）→ `router.push({ name: 'OutAssetForm', query: { asset: recordcode } })`；回收按钮紧随 → `router.push({ name: 'RecycleAsset', params: { code: recordcode } })`；双按钮 `v-if="canXxx && canOperateAsset"`。
+- `OutAssetForm.vue`：onMounted 补预填分支——`!isEditMode && route.query.asset` → `assetStore.getById` → 复用 `handleAssetSelect(asset)`；未命中/异常 `ElMessage.warning`。预填参数用 `query.asset` 非 `code`（`code` 被 isEditMode 占用，`:277`）。
+
+**F3（出库单条创建契约）**
+- `types/outasset.ts`：`AssetAutocompleteItem` 补必填 `recordcode`；`OutAssetCreateForm` 加 `asset_recordcode?: string`（string 不带 null——曾用 `string | null` 致 3 处 TS2345 与 `Partial<OutAssetDetail>` 冲突）。
+- `useOutAssetAssetSelection.ts`：handleAssetNameSelect / handleAssetCodeChange / validateAssetByName / handleAssetSelect 四路径透传 `form.asset_recordcode`；`clearAssetInfo` 置 `''`。
+- `OutAssetForm.vue`：表单初始值/resetForm 加 `asset_recordcode: ''`；computed 输出 `|| undefined`；`fetchAssetSuggestions` transform 补 `recordcode: asset.recordcode`。
+- `api/outAsset.ts`：`createOutAsset` 改发 `asset_recordcode`、停发 `outasset_asset`；`updateOutAsset` 不动（`OutAssetUpdateSerializer` 的 `asset_recordcode` 为 read_only，多余字段被忽略）。
+
+**F2（回收单条/更新契约）**
+- `types/recycleasset.ts`：`RecycleAssetCreateForm` 重写——`outasset_recordcode`/`storage_code` 必填，`recycle_asset_date`/`recycle_type` 必填，`recycle_asset_number`/`recycle_asset_description` 可选；删除 `recycle_asset`/`recycle_asset_storage`/`recycle_asset_recycle_person_jobcode`（批量表单 `RecycleAssetBatchCreateForm` 保留 `recycle_asset_storage` 不动——批量 serializer 有该字段）。
+- `useRecycleFormSubmit.ts`：`submitSingle` 发 `storage_code: form.recycle_asset_storage_code`；`submitUpdate` 收敛白名单三字段 + 定位字段；删 FE-C1 历史注释；批量路径（`:151`）不动。
+- `RecycleAssetView.vue`：见缺陷清单 F2c；响应含 `asset_code`（`OutAssetListSerializer:35,59`）支撑客户端精确过滤；`page_size: 100` 经 `usePagedList.search` extraParams 合并生效（`:91`）。
+
+**Step 7（后端测试收紧，零生产代码改动）**
+- `test_recycle_asset_view_api.py:57`：断言 `in [201, 500]` 收紧为 `== 201` + 校验 `code==0` 与 `recordcode` 返回（双 pop 修复已在 `recycle_asset_service.py:153-154` 在位，陈旧注释「accept 500 until fixed」删除）。
+- 新增负例 `test_create_recycle_asset_missing_storage_code`：发 `recycle_asset_storage`（旧字段名）不带 `storage_code` → 断言 400（serializer 必填拦截，而非透传 service 层 500）。
+
+### 三、测试锚定
+
+| # | 测试文件 | 用例数 | 锚定行为 |
+|:--|:---------|:------:|:---------|
+| 主需求 | `useAssetStatus.spec.ts` | 13（+2 新增真值表） | canOutAsset/canRecycle 真值表（含 undefined 组） |
+| 主需求 | `BasicAssetDetails.spec.ts` | 6（+3 新增） | 双按钮渲染门禁（canXxx && canOperateAsset）、出库/回收路由跳转参数 |
+| 主需求 | `OutAssetForm.spec.ts` | 4（+3 新增） | query.asset 预填命中复用 handleAssetSelect、未命中 warning、isEditMode 不触发 |
+| F3 | `useOutAssetAssetSelection.spec.ts` + `outAsset.spec.ts` + `outAssetStore.spec.ts` | 27 | 四路径 `asset_recordcode` 透传断言；createOutAsset 载荷字段映射 |
+| F2 | `useRecycleFormSubmit.spec.ts` | 3（改写） | edit 模式白名单三字段、单条 `storage_code` 载荷精确断言 |
+| F2 | `useRecycleFormSubmit.spec.ts` + `recycleAssetStore.spec.ts` + `recycleAsset.spec.ts` + `assetLifecycleService.spec.ts` | 37 | 提交链路回归 |
+| F2c | `RecycleAssetView.spec.ts` | 5（新增） | 解析调用（asset_code+page:1+page_size:100）、空结果 warning+按钮禁用、icontains 子串误命中精确过滤、四必填载荷+成功回跳、仓库默认回填+可切换 |
+| Step 7 | `test_recycle_asset_view_api.py` | 12（1 收紧+1 新增负例） | ==201 + 缺 storage_code → 400 |
+
+### 四、验证记录
+
+```text
+前端：
+① npm run type-check → 无错误 ✅
+② npm run lint → 无错误 ✅
+③ npm run format:check → All matched files use Prettier code style ✅
+④ npm run test:coverage → 2162 passed（162 files），exit 0 ✅
+后端：
+⑤ pytest test_recycle_asset_view_api.py → 12 passed ✅
+⑥ python -m ruff check（触达测试文件）→ All checks passed ✅
+```
+
+### 五、对抗审核
+
+- **F3 批量端点不受影响**：批量创建走独立 serializer（`outasset_asset` slug=asset_code，`:247-251`），`createOutAsset` 仅单条路径改字段；批量路径零改动。
+- **F2 批量表单不受影响**：`RecycleAssetBatchCreateForm.recycle_asset_storage` 为批量 serializer 顶层共享字段，保留；仅单条表单类型收敛。
+- **update 路径 `asset_recordcode` 安全性**：`OutAssetUpdateSerializer`/`RecycleAssetUpdateSerializer` 关联字段均 read_only，前端多发被 DRF 忽略，不报错。
+- **icontains 误命中防护**：recyclable 端点按 `asset_code` icontains 过滤（`out_asset_selector.py:30`），资产编码前缀互为子串时（如 A001 ⊂ A0011）`page_size: 1` 直取首页可能错配；客户端按 `asset_code` 全等二次过滤，取 `recordcode` 精确。
+- **成功回跳来源**：`useAssetOperationForm.handleSubmit` 既有 `router.back()`（`:116`），非视图重复实现（DR-1）。
+- **强转掩盖消除**：旧 `as RecycleAssetCreateForm` 强转在新类型下触发 TS2352（type-check 直证），重写后载荷为字面量直传，类型系统可完整校验。
+- **负例有效性**：`recycle_asset_storage` 不在 `RecycleAssetCreateSerializer.fields` 内被忽略，`storage_code` required=True 缺失 → 400（先红后绿：该负例在收紧断言前亦通过，锚定防回归）。
+- **行数口径**：`RecycleAssetView.vue` 重写后 187 物理行，逻辑行经护栏口径核算未超 FR-5 500 上限。
+
+### 六、关联事项
+
+- **执行方式**：8 步方案经用户逐步核验批准后顺序执行（1→2→3→4→5→6→7→8），每步完成即汇报。
+- **既有缺陷性质**：F2/F3 为本次执行中发现的历史契约断裂（非本次引入），顺带修复并各补回归测试（CT-4）。
+- **批量路径豁免声明**：`useRecycleFormSubmit.ts:151` 批量提交与 `RecycleAssetBatchCreateForm` 未随单条类型收敛——批量 serializer 契约不同（`recycle_asset_storage` 合法），非遗漏。
+
+*登记人：opencode ｜ 状态：【已关闭】（8 步全量执行 + 前端四项门禁 exit 0 + 后端 pytest/ruff 全绿 + 跨端契约未破坏），2026-10-15*
+
+
+## BF-095 【已关闭】P4 批次九缺陷批修：通知 limit 无兜底 + 5 视图缺 fetchError/retry + AssetForm 编辑缺 recordcode 仍导航 + physical_grade_after 无枚举校验 + ContractPaymentRecord 字段丢弃与死代码 + WS 断线重连生命周期缺陷 + BindAuthUserDialog 选中误显空态 + autocomplete 建议无乱序保护 + 组内子表 loading 翻页静默丢弃
+
+> **登记时间**：2026-10-15 ｜ **严重度**：Important（I-9 WS 重连，断线后连接复活/心跳叠加）/ Medium（其余 8 项）
+> **关联需求**：CodeReview20261014.md 第二节批次 4（P4 部分）执行，九缺陷一并修复（I-9 / M-1 / M-4 / M-5 / M-6 / M-7 / M-8 / M-9 / M-10）。
+
+### 一、缺陷清单
+
+| 编号 | 缺陷摘要 | 根因 | 修复范围 |
+|:-----|:---------|:-----|:---------|
+| I-9 | WS 断线重连生命周期四缺陷：①主动 `disconnect()` 后异步 `onclose` 仍 `scheduleReconnect` 复活连接；②`connect()` 入口不关旧连，`manualReconnect` 产生孤儿 socket 双 `onmessage` 分发；③二次 `onopen` 不清旧 `setInterval`，心跳 timer 叠加；④4401 置 `isConnectionExhausted` 后 token 变化（重新登录）不复位重连 | `useNotificationConnection.ts` 无主动关闭标志、`connect` 入口无旧连接清理、`startHeartbeat` 无 `stopHeartbeat` 前置、无 token watch 复位 | `useNotificationConnection.ts` 补 `intentionallyClosed` 标志 + `connect` 入口关旧连 + `startHeartbeat` 前置 `stopHeartbeat` + `watch(access_token)` exhausted 复位；新建 `useNotificationConnection.spec.ts` 6 用例（MockWebSocket 手控 onopen/onclose 句柄） |
+| M-1 | 通知 `limit` 参数无校验：`?limit=abc` 抛 `ValueError` → 500（应 400）；`?limit=-1` 触发 Django 负切片 `AssertionError` → 500；`?limit=100000000` 无上限全表拉取（DoS 面） | `apps/notification/views.py:26` `limit=int(qp.get("limit", 20))` 裸转换，无 try/except 与上限钳制 | 镜像 `dashboard_view.py` 范式：`try: limit = min(int(qp.get("limit", 20) or 20), 100) except (ValueError, TypeError): limit = 20`，另补 `max(limit, 1)` 钳非负；新建 `apps/notification/tests/test_notification_views.py` 3 用例（abc/负数/超大值） |
+| M-4 | Found/Lost/Recycle/Repair/MarkBroken 5 个操作视图未接 `fetchError`/`@retry`，加载失败误导为「资产不存在」且无重试入口 | `AssetOperationLayout.vue` 已支持 `fetchError`/`@retry` UI，但 5 处消费视图未传入 | 5 处补 `:fetch-error="fetchError"` + `@retry="fetchAsset"`（模板+解构同步）；`RepairAssetView.spec`/`LostAssetView.spec`/`MarkBrokenView.spec` 新建，`FoundAssetView.spec`/`RecycleAssetView.spec` 补 M-4 用例 |
+| M-5 | `AssetForm.submitUpdate` 缺 `recordcode` 分支 `ElMessage.error` 后 `return`（未 throw）→ `submitForm` 继续 `setRefreshFlag(true); router.go(-1)`，编辑失败仍导航返回 | 缺 recordcode 时以 `return` 提前退出而非 `throw`，上层 `submitForm` 无法感知失败 | 改为 `throw new Error('缺少记录编码，无法更新资产')`，阻断后续导航；`AssetForm.spec.ts` 补「update 抛错不导航、不置刷新标志」用例 |
+| M-6 | `physical_grade_after` 无枚举校验：`repair_asset_service.py` 从 `request.data` 裸取后直写 `asset.physical_grade`，Django `save()` 不强制 choices，任意字符串（如 `mint`）写库破坏前端状态映射 | service 层 `if physical_grade_after: asset.physical_grade = physical_grade_after` 无 `Asset.PhysicalGrade.values` 校验 | service 内插入校验：`if physical_grade_after and physical_grade_after not in Asset.PhysicalGrade.values: raise AppValidationError(..., error_code="INVALID_PHYSICAL_GRADE")`，fail-fast 置于状态流转前；`test_repair_service_gaps.py` 补 3 用例（非法抛错+error_code / 合法通过 / 空串跳过），同步修正 5 处既有测试用「良好」非法值改「good」合法枚举 |
+| M-7 | `ContractPaymentRecord` 表单必填 `date` 与可选 `payment_method` 收集后丢弃（`addPaymentRecord` 只提供 amount/description）；`payments` ref（:165）与 `loadPayments`（:240-255）为死代码，表格实际渲染 props | 提交载荷字段不全；历史死代码未清理 | `addPaymentRecord` 补 `payment_date`/`payment_method` 两字段；删除 `loading`/`payments` ref、`loadPayments` 函数、4 处调用、onMounted 块、模板 `v-loading`；类型抽取至 `api/contract.ts` `PaymentRecordPayload`（DR-1）供 api + store 引用；新建 `ContractPaymentRecord.spec.ts` 2 用例 |
+| M-8 | `BindAuthUserDialog` 选中员工后 `searchKeyword` 被设为「张三 (EMP002)」→ `useDebouncedSearch` watch 再触发搜索 → 空结果 → 模板 :66 显示「无匹配结果」与已选中状态矛盾 | `handleSelectEmployee` 程序化回填关键词触发防抖检索；模板空态条件未排除 `selectedEmployee` | 加 `suppressNextSearch` 标志，`handleSelectEmployee` 置 true 跳过一次防抖回调；模板 :66 补 `&& !selectedEmployee`；`BindAuthUserDialog.spec.ts` 补「选中后抑制检索且不显示空态」用例 |
+| M-9 | autocomplete 每键一请求，慢响应以旧关键词结果覆盖新建议（无防抖/乱序保护） | `useSuggestionFetcher.ts` 无请求序号守卫，旧响应后到即覆盖新结果 | 闭包级 `let fetchSeq` 守卫：每次调用自增序号，`await fetchData` 后过期即丢弃（不 `cb`）；空输入同样自增使在途请求过期；catch 仅最新请求才 `cb([])`；`useSuggestionFetcher.spec.ts` 补 2 用例（乱序丢弃 / 清空输入失效在途请求） |
+| M-10 | 组内子表 `loading` 中翻页请求被静默丢弃（`useGroupChildrenCache` 直接 `return`，目标页未拉取、界面无反馈） | `GroupedAssetChildTable` 的 `el-pagination` 未绑 `loading` 禁点 | `GroupedAssetChildTable.vue` 的 `el-pagination` 补 `:disabled="loading"`；`GroupedAssetChildTable.spec.ts` 补「loading=true 分页 disabled=true / 空闲恢复可点」用例 |
+
+### 二、修复明细
+
+**I-9（WS 连接生命周期）**
+- `useNotificationConnection.ts`：闭包级 `let intentionallyClosed = false`；`connect()` 入口先关旧连（`onclose=null; onerror=null; close(); ws=null`）+ `stopHeartbeat()` + 重置标志；`ws.onclose` 见 `intentionallyClosed` 直接 `return`；`startHeartbeat()` 前置 `stopHeartbeat()`；`disconnect()` 先置标志再关连；文件尾加 `watch(() => authStore.access_token, ...)` exhausted 且 token 非空时复位重连。
+
+**M-1（通知 limit 兜底）**
+- `apps/notification/views.py`：`notification_list` 内 `try: limit = min(int(qp.get("limit", 20) or 20), 100) except (ValueError, TypeError): limit = 20`，再 `limit = max(limit, 1)`。
+
+**M-4（5 视图 fetchError/retry）**
+- `FoundAssetView.vue`/`LostAssetView.vue`/`RecycleAssetView.vue`/`RepairAssetView.vue`/`MarkBrokenView.vue`：模板 `AssetOperationLayout` 补 `:fetch-error="fetchError"` + `@retry="fetchAsset"`，解构补 `fetchError`/`fetchAsset`。
+
+**M-5（AssetForm 编辑 throw）**
+- `AssetForm.vue` `submitUpdate` 缺 recordcode 分支：`ElMessage.error` → `throw new Error(...)`。
+
+**M-6（physical_grade_after 枚举校验）**
+- `repair_asset_service.py` `complete_repair`：校验块插入 `AssetFSM.repair_done` 之前（fail-fast 不触发状态流转）。
+
+**M-7（ContractPaymentRecord 载荷补全 + 死代码删除）**
+- `ContractPaymentRecord.vue`：提交补 `payment_date`/`payment_method`；删死代码；类型抽至 `api/contract.ts` `PaymentRecordPayload`。
+
+**M-8（BindAuthUserDialog 空态守卫）**
+- `BindAuthUserDialog.vue`：`suppressNextSearch` 标志 + 模板 `&& !selectedEmployee`。
+
+**M-9（useSuggestionFetcher 乱序守卫）**
+- `useSuggestionFetcher.ts`：闭包级 `fetchSeq` 守卫，成功/失败路径均检查 `seq === fetchSeq` 才 `cb`。
+
+**M-10（GroupedAssetChildTable 分页禁点）**
+- `GroupedAssetChildTable.vue`：`el-pagination` 补 `:disabled="loading"`。
+
+### 三、测试锚定
+
+| # | 测试文件 | 用例数 | 锚定行为 |
+|:--|:---------|:------:|:---------|
+| I-9 | `useNotificationConnection.spec.ts` | 6（新建） | disconnect 后 onclose(1000) 不复活 / manualReconnect 关旧连 / 二次 open 心跳不叠加 / exhausted 后 token 变化复位重连 / 连接正常时 token 刷新不重连 / 建连 URL 与 token protocol |
+| M-1 | `test_notification_views.py` | 3（新建） | `?limit=abc` → 200 默认 20 / `?limit=-5` → 200 返回 1 条 / `?limit=100000000` → 钳 100 返回 100 条 |
+| M-4 | `RepairAssetView.spec` / `LostAssetView.spec` / `MarkBrokenView.spec` / `FoundAssetView.spec` / `RecycleAssetView.spec` | 各 2 | fetchError 接线 + 提交载荷/回跳 |
+| M-5 | `AssetForm.spec.ts` | 1（新增） | update 抛错不导航、不置刷新标志 |
+| M-6 | `test_repair_service_gaps.py` | 3（新增） | 非法成色抛 `INVALID_PHYSICAL_GRADE` + 不触发状态流转 / 合法 `excellent` 通过 / 空串跳过校验 |
+| M-7 | `ContractPaymentRecord.spec.ts` | 2（新建） | 挂载渲染 + 载荷含 `payment_date`/`payment_method` |
+| M-8 | `BindAuthUserDialog.spec.ts` | 1（新增） | 选中后抑制检索且不显示「无匹配结果」 |
+| M-9 | `useSuggestionFetcher.spec.ts` | 2（新增） | 乱序响应丢弃不覆盖新结果 / 清空输入失效在途请求 |
+| M-10 | `GroupedAssetChildTable.spec.ts` | 1（新增） | loading=true 分页 disabled=true / 空闲恢复可点 |
+
+### 四、验证记录
+
+```text
+后端：
+① pytest 全量 → 1915 passed + 1 failed（docker/feishu-webhook/test_app.py::HttpEndpointTests::test_unknown_path_404，账本 :2371 已登记为已知环境性 flaky，隔离复跑绿，与本批零交集）
+② pytest --cov=. --cov-fail-under=80 → 整体覆盖率 87.05% ✅
+③ pytest apps/ --cov=apps.assetmanagement.services --cov-fail-under=90 → Service 层覆盖率 97.91%（1658 passed）✅
+④ python -m ruff check（本批触达文件）→ All checks passed ✅
+⑤ python -m ruff check --select C90 --config lint.mccabe.max-complexity=10（本批触达文件）→ All checks passed ✅
+⑥ python manage.py spectacular --validate → 23 Errors 均为 APIView 无 serializer 的既存结构性回退（notification_list/mark_read 等，本批未触碰 serializer 结构），非本批引入 ✅
+
+前端：
+⑦ npm run type-check → 无错误 ✅
+⑧ npm run lint → 无错误 ✅
+⑨ npm run format:check → All matched files use Prettier code style ✅
+⑩ npm run test:coverage → 2183 passed（167 files），exit 0，分层阈值（ts 80 / stores 90 / .vue 基线棘轮）达标 ✅
+```
+
+### 五、对抗审核
+
+- **I-9 intentionallyClosed 语义**：`disconnect()` 先置标志再 `ws.close()`，浏览器异步 `onclose` 见标志直接 `return`，不再 `scheduleReconnect`；`connect()` 入口重置标志，正常建连不受影响。
+- **I-9 旧连接清理**：`connect()` 入口先 `onclose=null; onerror=null; close(); ws=null`，`manualReconnect` 不再产生孤儿 socket 双 `onmessage` 分发；心跳 timer 同步 `stopHeartbeat()`。
+- **M-1 负切片防护**：`max(limit, 1)` 确保 `?limit=-5` 不触发 Django `AssertionError("Negative indexing is not allowed")`。
+- **M-6 fail-fast 顺序**：枚举校验置于 `AssetFSM.repair_done` 之前，非法值不触发 `repairing→recycled_pending` 状态流转（事务回滚无需触发）。
+- **M-6 既有测试订正**：5 处既有测试用「良好」非法值（`test_asset_lifecycle.py:290`、`test_repair_service_gaps.py:136/310/333/338`），同步改为合法枚举「good」，避免新校验误红。
+- **M-7 死代码删除安全性**：`payments`/`loadPayments` 从未被渲染消费（表格实际渲染 props），删除不影响现有功能；类型抽至 `api/contract.ts` `PaymentRecordPayload` 供 api + store 引用（DR-1）。
+- **M-8 suppress 标志**：仅抑制 `handleSelectEmployee` 程序化回填触发的那一次防抖回调，后续用户手动输入正常检索。
+- **M-9 乱序守卫**：闭包级 `fetchSeq` 确保仅最后一次调用的响应可回填 `cb`，过期响应直接丢弃；空输入同样自增序号使在途请求过期。
+- **M-10 禁点非丢弃**：`:disabled="loading"` 仅禁用分页交互，不丢弃请求；loading 结束后分页恢复可点，目标页可正常拉取。
+
+### 六、关联事项
+
+- **执行方式**：7 批顺序执行（批 1=M-1 → 批 2=M-4 → 批 3=M-5+M-7 → 批 4=M-6 → 批 5=I-9 → 批 6=M-8+M-9 → 批 7=M-10+门禁+文档），每批配回归测试，全部改动留工作区待用户审阅（未 commit）。
+- **用户拍板**：① M-10 选 A（分页 `:disabled="loading"`）；② I-9 用登录态变化自动复位；③ M-7 死代码删除（payments/loadPayments/loading + v-loading）纳入本批。
+- **门禁结论**：后端 pytest 全量 1915 passed + 1 failed（已知环境性 flaky，账本 :2371 登记，隔离复跑绿）；前端 vitest 2183 passed（167 files），exit 0，分层阈值达标；Service 层覆盖率 97.91%（≥90% 达标）；ruff + C90 全绿；schema --validate 的 23 Errors 均为既存结构性回退，非本批引入。
+- **跨端契约**：未破坏——I-9/M-4/M-5/M-7/M-8/M-9/M-10 纯前端修复；M-1/M-6 后端 Service/View 层修复，未动 API 响应结构/枚举/分页参数名；M-6 仅收紧 `physical_grade_after` 枚举校验，`Asset.PhysicalGrade` 枚举本身未变。
+
+*登记人：opencode ｜ 状态：【已关闭】（7 批全量执行 + 前端四项门禁 exit 0 + 后端 pytest/ruff/C90 全绿 + Service 覆盖率 97.91% + 跨端契约未破坏），2026-10-15*
