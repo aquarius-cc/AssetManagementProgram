@@ -7134,3 +7134,91 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 - **快照护栏**：`check_duplicate_invariants.py` G-1~G-3、G-5 未受扰（本批未动操作日志查询、前端状态映射改唯一来源为别名即收敛方向正确、无影子死文件新增）；`scripts/line_metrics.py` 口径未涉。
 
 *登记人：opencode ｜ 状态：【已关闭】（三批次代码 + 双端门禁全绿 + schema 重导 + 文档双向登记完成；mutmut/stryker 留 CI 如实标注），2026-10-17*
+
+---
+
+## BF-102 【已关闭】P3 批次 CI 取证闭环：Security 扫描红（twisted 新 CVE → 点名豁免）+ CI ruff format 红修复 + 双端变异门禁 CI 直证 + 触发/降噪双路径 job 级取证
+
+> **登记时间**：2026-10-17 ｜ **严重度**：Medium（两处 CI 红灯：安全扫描 fail-closed 正常拦截 + ruff format 本次改动引入；修复后全 run 绿）
+> **关联需求**：`docs/Review/codegraph-audit-2026-10-15.md` P2-07 修复追踪（CI 权威复核项）；BF-100（`--omit=dev` 门禁变更）、BF-101（P3 批次代码）的 push 后取证闭环。本条目为 `ci-gate-evidence-loop` SKILL 实施样本。
+
+### 一、问题现象
+
+推送三仓（后端 `61935b0` / 前端 `93dc588` / 根仓 `347983b`，含 BF-096~101 全部改动）后 CI 双红：
+
+1. **Dependency Security Scan failure**（run 39045715817，55s）：`Python 依赖安全审计 (pip-audit)` job failure → `Security 汇总` failure → **CD `安全门禁校验` failure**（run 39045782538，部署被正确拦截）。
+2. **CI Pipeline failure**（run 39045715708）：`后端 - 代码规范 (ruff)` job failure → `needs` 链级联 → `后端-测试+覆盖率`/`后端-变异测试`/`M-3 ×2`/`B4` 全部 **skipped** → `CI 汇总` failure。
+3. 附带状态：`前端-变异测试` 在红 run 内仍独立 success（stryker 首次直证）；`npm audit` 在触发路径内 success（BF-100 `--omit=dev` 首次 CI 执行）。
+
+### 二、根因（job/step 级定性，非 run 级一笔带过）
+
+| # | 红灯 | job | step 级证据 | 分类 |
+|---|---|---|---|---|
+| 1 | Security 扫描 | pip-audit（job 117433933918） | `Found 1 known vulnerability in 1 package` + `twisted 26.4.0 CVE-2026-106454` → exit 1 | **既存 DB 新增**（零代码变更；同 BF-067 axios 案型）。OSV API 明载 `No fixed release is available as of this review`；本地复现无豁免 exit 1 |
+| 2 | CI ruff | 后端-代码规范（job 117433904124） | step「Ruff 格式检查」：`3 files would be reformatted, 397 files already formatted` → exit 1；点名 `test_contract_view_api.py:423`、`test_create_throttle.py:29`、`audit_log_filters.py:76`（job 日志实录） | **本次改动引入**（分类1）：本地仅跑 `ruff check` 未跑 `ruff format --check`；CI 裸装 ruff **0.17.1** vs 本地 0.15.20，且 `requirements/dev.txt` **未钉 ruff** |
+| 3 | 级联 skip | 后端-测试/变异/M-3/B4 | ci.yml `needs: [backend-lint, ...]` 标准依赖行为（非缺陷），ruff 绿后自动恢复 | 非缺陷，随 #2 消失 |
+
+twisted 事实链：`requirements/base.txt:85 daphne==4.2.2 → twisted 26.4.0`（`pip show twisted` Required-by: daphne，生产链）；漏洞组件 `twisted.mail.imap4.wildcardToRegexp()` ReDoS 需已认证 IMAP LIST/LSUB 客户端触发，daphne 走 HTTP/WS，本项目不运行 IMAP 服务；CVSS 3.1 = `AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:L`（仅可用性低危）。
+
+### 三、修复方案
+
+| # | 变更 | 文件/位置 |
+|---|---|---|
+| 1 | pip-audit 门禁步**点名豁免单 CVE**：两条命令加 `--ignore-vuln CVE-2026-106454`（本地 help 实证标志名，非 `--ignore-vulnerability`），注释写明双依据 + 复审条件（上游发版即移除）+ 本地双证数字；**报告步骤刻意不豁免**（`audit-report*.json` 保留完整可见性，门禁豁免与报告可见性分离）。经用户批准（2026-10-17 决策，选项「点名豁免单 CVE」） | `.github/workflows/security-scan.yml:107-108` |
+| 2 | `ruff format .` 修 5 文件（覆盖 CI 点名 3 文件）；本地 ruff 对齐 CI 权威 **0.17.1** 复核 `400 files already formatted` + `check` 0；全量 1987 passed 后提交 | 后端 `test_contract_view_api.py` / `test_create_throttle.py` / `urls.py` / `notification/views.py` / `audit_log_filters.py`，commit `27dc403` |
+| 3 | 根仓子模块指针推进（27dc403 → 触发新 CI run）+ yml 豁免单独提交（拆两笔以分别取降噪/触发路径证据） | 根仓 `ce0a918`、`748da6d` |
+
+未触发 `[HALT]`：豁免为单 CVE 点名（窄于 BF-100 的 `--omit=dev` 范围缩放），经用户明示批准；报告可见性未削弱。
+
+### 四、对抗审核
+
+- **job 级取证纪律**：全部结论下钻到 job（必要时 step），run 级 `failure` 仅作索引；三处红灯定性分别为 DB 新增 / 本次引入 / 级联效应，无「大概无关」含糊归因。
+- **豁免不放水**：仅门禁步加 ignore；同漏洞在报告步骤（无豁免 flag）继续完整记录；豁免带复审条件与 BF-102 交叉引用；schedule 每周全量兜底持续跟进上游。
+- **版本漂移（CT-7 相关）**：CI `pip install ruff`（裸装最新 0.17.1）与本地 0.15.20 不一致曾使本地结论失真（本地 format --check 曾漏报）；处置=本地对齐 0.17.1 复核后下结论。**遗留**：`dev.txt` 未钉 ruff 版本，裸装漂移风险仍在（登记见六）。
+- **本地边界**：Windows GBK 控制台使 pip-audit 输出 `UnicodeDecodeError (cp936)` 崩溃，`PYTHONUTF8=1` 后复现成功——该崩溃为本地环境问题，CI Linux 不涉，未计入 CI 红灯归因。
+- **降噪路径易错点已证伪排除**：汇总 job 在 audit 双 `skipped` 时仍 success（ce0a918 实证），无「有意 skip 被误判红」缺陷。
+
+### 五、验证记录（全部 CI 实跑，run/job 级）
+
+```text
+【红-定性-绿 循环】
+① Security 红 @347983b：run 39045715817 — pip-audit failure（twisted 26.4.0 CVE-2026-106454, exit 1）+
+   npm audit success（BF-100 --omit=dev 首次 CI 执行即绿）+ Security 汇总 failure（正确阻断）+
+   CD run 39045782538 安全门禁校验 failure（正确拦截）✅门禁链生效
+② ruff 红 @347983b：run 39045715708 job 117433904124 step「Ruff 格式检查」
+   "3 files would be reformatted, 397 files already formatted" exit 1（job 日志原文）
+   → 本地 ruff==0.17.1 对齐复核：400 files already formatted + check 0；全量 1987 passed → 27dc403
+
+【降噪路径直证】@ce0a918 run 39048461356 → success（job 级）
+   依赖变更探测 success / pip-audit **skipped** / npm audit **skipped** / 密钥泄露扫描 success /
+   Security 汇总 **success**（audit 有意跳过不误红）/ 每周安全报告 skipped（schedule-only 预期）
+   → CD run 39048479857 success（部署解锁）
+
+【触发路径直证】@748da6d run 39050296550 → success（job 级）
+   依赖变更探测 success（正则含 .github/workflows/security-scan.yml$ 命中）/
+   pip-audit **success**（--ignore-vuln 生效，此前同链 exit 1）/ npm audit **success** /
+   密钥泄露扫描 success / Security 汇总 **success** → CD run 39050375035 success
+
+【CI Pipeline 全绿】@748da6d run 39050296530 → completed success（14 job 全绿）
+   后端 ruff success（0.17.1）/ mypy / C90 / M-6 / 前端 type-check+ESLint×2 /
+   后端测试+覆盖率 success / 前端测试+覆盖率 success / B4 + M-3 ×2 success（级联恢复）/
+   后端变异测试 success：**变异分 83.9012%**（红线 80.0% / 基线 83.2568%，差值 +0.6445pt，
+     killed=1699 survived=326 timeout=0 no_tests=0 suspicious=0 tested=2025）——push 后 CI 直证，闭 BF-101「留 CI」项 /
+   前端变异测试 success：**Final mutation score 82.11 ≥ 阈值 80**（stryker；红 run 39045715708 内亦 success，双 run 直证）/
+   CI 汇总 success
+
+【本地先证后提交】
+③ pip-audit 2.10.1（PYTHONUTF8=1）：带 --ignore-vuln → "No known vulnerabilities found, 1 ignored" exit 0；
+   不带 → "Found 1 known vulnerability" + twisted 表行 exit 1（复现 CI）
+④ Duplicate Code Regression Guard：run 39045715846 / 39048461373 / 39050296522 success ×3
+```
+
+### 六、遗留与关联事项
+
+- **[待决策] 依赖变更探测对子模块内依赖文件失配（新发现，登记不静默吞掉）**：探测正则 `^(asset_management_backend/requirements/|…|vue-assetmanagement/package(-lock)?\.json$|…)`（security-scan.yml:62）以**根仓路径**匹配，但根仓中两子模块为 gitlink——`git diff --name-only` 仅输出 `asset_management_backend` / `vue-assetmanagement` 单条路径，**永不带子目录后缀** → 纯 requirements/package.json 变更会被判 `deps-changed=false` 跳过审计，只能靠 schedule 每周兜底。**实证**：ce0a918（子模块指针单变）被判定未变更 → 恰好走了降噪路径（run 39048461356 双 audit skipped 即此现象）。兜底在（SC-8 schedule），非 fail-open 但属**漏触发**。候选修法（未实施，待批准）：gitlink 路径并入正则（改判 `true`，多审无害）或探测步对子模块内递归 diff。
+- **dev.txt 未钉 ruff 版本**：CI 裸装漂移（本次 0.15.20 本地 vs 0.17.1 CI 曾致本地漏报）；建议 dev.txt 增钉 ruff 并让 CI `pip install -r requirements/dev.txt`（与 mypy 同构），待批准后实施。
+- **未验证项（据实标注）**：① 每周安全报告 job 为 schedule 触发，本次 push 下 skipped，未执行；② 豁免后 `audit-report*.json` artifact 未下载核验 twisted 是否仍被记录（报告步骤无豁免 flag，逻辑应保留，未实证）；③ 密钥泄露扫描全程 success，其拦截力红路径需故意注入密钥，不测。
+- **关联**：BF-100（`--omit=dev` 本次获 CI 直证）、BF-101（其「mutmut/stryker 留 CI」项本次闭合）、BF-067（advisory DB 时序案型先例）、审查报告 P2-07「以 CI 为权威门禁复核」完成。
+- **工具链留痕**：ruff 本地已升 0.15.20 → 0.17.1（对齐 CI 权威）；`requests` 本地警告（urllib3/chardet 版本不匹配）为环境噪音，未处理。
+
+*登记人：opencode ｜ 状态：【已关闭】（双红定性→修复→三 run 全绿 job 级直证；双路径取证完成；变异双门禁 83.9012%/82.11 CI 直证；twisted 豁免经用户批准），2026-10-17*

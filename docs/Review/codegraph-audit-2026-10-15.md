@@ -182,6 +182,7 @@
 - **契约与 schema**：3 个新导出端点（harddisk-sn/export、audit-logs/export、unregisteredassets/export）入 `api-schema-baseline.json`，validate exit=0；根结构 `code/data/message`、状态枚举、分页参数、日期格式未变 → 跨端契约未破坏（新增非破坏性，M-3 已重导）。
 - **变异测试门禁**：后端 `mutmut`（≥80 且 ≥ 基线 83.2567）与前端 `stryker`（≥80）**未在本地执行**（留待 push 后 CI `backend-mutation` / `frontend-mutation` 阻断 job 取证），本条按 Fact-1 如实标注为未运行。
 - 修复登记：`docs/BugFixed/Bug修复活账本.md` **BF-098**（P2-03）、**BF-099**（P2-04）、**BF-100**（P2-07，本表与三条目双向交叉引用）。
+- **CI 权威复核直证（2026-10-17，活账本 BF-102）**：P2-07 `--omit=dev` 门禁触发路径 run `39050296550` job 级 success（npm audit + 汇总双绿）；降噪路径 run `39048461356`（audit 双 skipped + 汇总不误红）；附带修复同轮 CI ruff format 红（run `39045715708`，本批引入 3 文件）并全绿复跑（run `39050296530`，含后端变异 83.9012% / 前端变异 82.11 双门禁直证）；twisted 新 CVE（CVE-2026-106454，上游无修复版本）经批准点名豁免。
 
 **P3-01 / P3-02 / P3-03 / P3-04 验证结果小结**
 
