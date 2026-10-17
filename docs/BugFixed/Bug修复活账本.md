@@ -6692,3 +6692,445 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 - **跨端契约**：未破坏——I-9/M-4/M-5/M-7/M-8/M-9/M-10 纯前端修复；M-1/M-6 后端 Service/View 层修复，未动 API 响应结构/枚举/分页参数名；M-6 仅收紧 `physical_grade_after` 枚举校验，`Asset.PhysicalGrade` 枚举本身未变。
 
 *登记人：opencode ｜ 状态：【已关闭】（7 批全量执行 + 前端四项门禁 exit 0 + 后端 pytest/ruff/C90 全绿 + Service 覆盖率 97.91% + 跨端契约未破坏），2026-10-15*
+
+---
+
+## BF-096 【已关闭】双 P1 批修：P1-01 合同状态机 PUT 旁路（不过 FSM / 无审计落库 / 不重算）+ P1-03 回收页跨资产切换陈旧出库单可提交
+
+> **登记时间**：2026-10-16 ｜ **严重度**：High（P1-01：合同状态 8 态任意跳转 + `amount_unpaid` 滞留，数据完整性与审计合规双违规，且为真实生产路径）/ High（P1-03：以 A 的出库单为 B 创建回收记录，数据一致性破坏）
+> **关联需求**：`docs/Review/codegraph-audit-2026-10-15.md` §二 P1-01、P1-03（R2 增补轮同条目复核），本次一并修复；**P1-02（通知跨端契约）不在本批范围，仍待修**。审查报告 P 级行与「修复追踪」已同步标记，本条目与之双向交叉引用。
+
+### 一、问题现象
+
+1. **P1-01（合同状态机旁路）**：合同编辑接口 `PUT/PATCH /api/v1/contracts/<recordcode>/` 直写 `contract_status` 即被接受——`ContractUpdateSerializer` 将其列于 fields（`base_model_serializers.py:223`）而未列入 read_only（:243），8 个合法状态间任意跳转（如 `purchasing→project_finished`）均返回 200：不过 `ContractFSM.transition`、不落 `GenericAuditService.log_update`（仅 `LoggingMixin` logger.info 不入库）、状态变更不触发 `_recalc_paid_amounts` 致 `amount_unpaid` 沿用旧结算口径。前端 `ContractForm.vue:394` 编辑态恒提交该字段 → 真实生产路径必中。
+2. **P1-03（陈旧出库单可提交）**：`RecycleAssetView.vue` 的 `watch(asset)` 在无精确匹配出库单时仅 warning、**不重置** `recyclableRecordcode`（修复前全文件无 `= ''` 重置），`storage_code` 亦仅在表单值为空时回填 → 从「有出库单资产 A」切到「无出库单资产 B」后 `canSubmit` 仍为 true，提交将以 **A 的出库单 + A 的仓库**为 B 创建回收记录；快速切换时 A 的晚到响应还会把陈旧单号写回。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|---|---|
+| 1 | 序列化层未收口 | `apps/assetmanagement/serializers/base_model_serializers.py:223` `contract_status` 在 fields，:243 不在 read_only → DRF 默认 `serializer.save()` 直写任意枚举值 |
+| 2 | View 层无状态路由 | 修复前 `apps/assetmanagement/views/contract_view.py:123-133` `perform_update` 仅处理 `settlemented_price` 重算，状态字段走默认保存路径 |
+| 3 | 正规 FSM 入口成死端点 | `ContractService.update_settlement_status`（`contract_service.py:289`，含行锁+FSM+重算+审计）前端零调用（grep 直证）→ 旁路成为唯一被使用的写路径 |
+| 4 | 前端 watch 缺资产身份基线 | 修复前 `RecycleAssetView.vue:152-174` 以「空值才回填」为唯一策略，无跨资产切换判定，无 `await` 后竞态复核 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|---|---|
+| 1 | `perform_update` 检测 `contract_status` **实际变更**（`validated_data.get(...) != instance.contract_status`）时先 `pop` 该字段，改路由 `ContractService.update_settlement_status`（行锁 + `ContractFSM.transition` + `_recalc_paid_amounts` + `log_update` 一次收齐，**DR-1** 不在 View 层写第二份流转逻辑）；与其余字段同处一个 `transaction.atomic()`：非法跳转由 `AppValidationError(INVALID_CONTRACT_TRANSITION)` 抛 400 且整事务回滚，不留部分落库；`refresh_from_db()` 保证响应为 FSM 写入后的真实状态 | `apps/assetmanagement/views/contract_view.py:124-154` |
+| 2 | 状态未变更路径抽为私有方法 `_save_editable_fields`，保留 BF-092/I-10 的「`settlemented_price` 变更触发 `recalculate_amounts_for_update`」语义（DR-5/BR-4 规模控制） | 同上 `:156-160` |
+| 3 | 新增 `TestPutContractStatusRouting` **5 用例**：合法流转路由 + 状态审计 + `amount_unpaid 7000→5000` 重算 / 非法跳转 400 + `error_code=INVALID_CONTRACT_TRANSITION` + `contract_name` 未落库（回滚实证）/ 不含状态字段的纯编辑不触发审计 / 同状态提交跳过路由与审计 / **CT-3 全路径**：PUT 逐边走完 7 条合法转移并断言 7 条状态审计，终态 `project_finished` 再流转 400 | `apps/assetmanagement/tests/test_contract_view_api.py:364-506` |
+| 4 | `watch(asset)` 新增 `lastAssetCode` 身份基线：**跨资产切换**清空 `recyclableRecordcode` 并把 `storage_code` 重置为新资产的 `asset_storage_code ?? ''`；**同资产重载**保留用户已选仓库、仅空时回填；`await searchRecyclable` 后复核 `asset.value?.asset_code !== current.asset_code` 直接 return，拦截晚到响应写回 | `vue-assetmanagement/src/views/RecycleAssetView.vue:98,153-179` |
+| 5 | 新增 `switchAsset` helper（重置 mock + 点 `.retry-btn` 同实例切换资产）与 **4 用例**：A→B 清残留且 `canSubmit=false`、提交被拦截（`createRecycleMock` 零调用）/ A→B→A 往返后出库单与仓库恢复为 A（重置不误伤正常路径）/ 切换后 `storage_code` 为 B 的 `ST-002` / A 的晚到响应不写回且提交保持禁用 | `vue-assetmanagement/src/views/__tests__/RecycleAssetView.spec.ts:183,307-376` |
+
+未触发 `[HALT]`：未删改任何字段清单/枚举值/API 响应结构，无数据库迁移。
+
+### 四、对抗审核
+
+- **行号漂移**：本条目全部 `file:line` 于登记前 `rg` 实测（`perform_update:124`、`_save_editable_fields:156`、`TestPutContractStatusRouting:364`、`lastAssetCode:98`、`identityChanged:163`、spec `switchAsset:183` / 用例 :307/:324/:343/:353），非沿用审查报告旧行号。
+- **serializer 保持可写的决策边界**：未按审查报告「或设 read_only」的备选方案收紧——人工决策为「仅后端收口、前端状态下拉不收紧」，字段仍可写但**写入被 Service 定向接管**；契约字段清单零变更，故无需重导出 `api-schema-baseline.json`（实测剥除 `description` 后 JSON 全等，基线文件零改动；本机 `spectacular` 重导出的 113 行差异全为 zh-hans gettext 本地化回退，未提交）。
+- **事务原子性**：`pop` 属内存预处理置于事务外，两次写（其余字段 + 状态）在同一个 `atomic()` 内；非法跳转用例实证 `contract_name` 未落库，排除「部分落库」风险。
+- **同状态误判**：判定用「值实际变更」而非「字段存在」，`contract_status` 同值提交（前端恒提交行为）不产生无意义审计记录，已有专门用例锚定。
+- **前端重置不误伤**：同资产重载（A→A）保留用户已选仓库，往返用例（A→B→A）证明出库单与仓库均恢复，非「一刀切清空」。
+- **竞态面**：`await` 后复核身份即丢弃过期响应；与 BF-093/I-8（请求竞态丢弃过期响应）同型防线，独立实现在组件层，不引入新依赖。
+- **扫描对抗点**：本修复未掩盖更深缺陷；P1-02（通知 `limit` 契约错位）与 P2-01~P2-08、P3-01~P3-03 均未被本批触碰，仍在报告台账跟踪。
+- **登记遗漏核查**：已反向 `rg` 确认审查报告两份（基线 + r2）终态列与本条目互指成立；重复模式台账 `complete-patterns.md` 无同型新增需求（本次为缺陷修复非重复实现，G-1~G-5 护栏 PASS 未受扰）。
+
+### 五、验证记录
+
+```text
+后端（工具链版本均对齐 requirements/dev.txt，CT-7）：
+① python -m pytest apps/assetmanagement/tests/test_contract_view_api.py -q → 36 passed ✅
+② python -m pytest -q → 1934 passed ✅（CT-5 全量零失败）
+③ python -m pytest --cov=. --cov-fail-under=80 → 整体 87.12% ✅
+④ python -m pytest --cov=apps.assetmanagement.services --cov-fail-under=90 → Service 层 98.24% ✅
+⑤ python -m ruff check . → 0；--select C90 --config lint.mccabe.max-complexity=10 → 0 ✅
+⑥ python -m mypy . --strict → Success: no issues found in 226 source files（本地 mypy 2.1.0 = dev.txt）✅
+⑦ python scripts/check_function_length_guard.py → PASS（0 超限函数）；check_file_length_guard.py → PASS（BR-6，最大 475/500）✅
+⑧ python scripts/check_duplicate_invariants.py → PASS ✅
+
+前端：
+⑨ npx vitest run src/views/__tests__/RecycleAssetView.spec.ts → 10 passed ✅
+⑩ 先红后绿：git checkout -- RecycleAssetView.vue 还原旧 watch → 新用例 3 failed | 1 passed（ST-001≠ST-002、竞态 disabled undefined）→ 恢复修复 → 10/10 绿 ✅
+⑪ npx vitest run → 167 文件 2187 passed（CT-5）✅
+⑫ npm run type-check / format:check / npx eslint . / npm run lint(--fix) → 全 0，--fix 零额外改动 ✅
+⑬ npm run test:coverage → exit 0（ts 80 / stores 90 / .vue 基线棘轮分层阈值达标）✅
+⑭ python scripts/check_frontend_invariants.py → PASS（FR-6 54 composable / 0 孤儿；FR-8 31 store）✅
+
+未运行（如实标注，禁止视为通过）：
+⑮ mutmut run（后端双重门禁 ≥80 且 ≥83.2567 基线）/ stryker（前端 ≥80）→ 未在本地执行，人工决策留待 push 后由 CI backend-mutation / frontend-mutation 阻断 job 取证
+```
+
+### 六、关联事项
+
+- **关联既有条目**：P1-01 收口同时履行 BF-092/I-10 约定（结算价变更必须重算），本条目为其「状态变更路径」的补全；P1-03 与 BF-093/I-8（竞态丢弃过期响应）同型防线。
+- **P2-06 部分闭合**：合同 FSM 7 条合法转移已由 `test_put_walks_entire_contract_fsm` 经 PUT 生产入口逐边验证 + 终态拒绝；P2-06「非法跳转分支测试缺口」同步闭合。P2-06 的 Service 层直测是否可整体关闭，留待下一轮审计判定（本次不擅改 P2-06 终态）。
+- **Fact-1 事实基线**：后端 `73d6415` 与前端 `cef967d` 的提交信息自称已修 P1-01/P1-03，但 HEAD 代码实测两缺陷均在，两提交实际收口的是 P2-02/P2-08 —— 本次为**首次真正收口**，该差异已写入审查报告「修复追踪」。
+- **仍待修**：P1-02（通知跨端契约）为本批唯一未纳入的 P1；P2-01/03/04/05/06/07/08 与 P3-01~P3-03 维持原终态。
+- **已立项（P3-04）**：前端合同状态下拉收紧——后端在详情响应下发 `allowed_next_states`（`ContractFSM._CONTRACT_TRANSITIONS` 单源计算，DR-1 不在前端复制 FSM），前端下拉按其过滤。本轮人工决策不实施，立项条目登记于基线报告 `codegraph-audit-2026-10-15.md` §二 P3-04（2026-10-16），实施时需重导出 `api-schema-baseline.json`（响应新增非破坏性字段）。
+- **工作区状态**：改动共 4 文件（后端 2 + 前端 2），全部留工作区待用户审阅，**未 commit**。
+
+*登记人：opencode ｜ 状态：【已关闭】（双 P1 收口 + 先红后绿实证 + 后端 1934 passed / 87.12% / Service 98.24% + 前端 2187 passed + ruff/C90/mypy/四项前端门禁全绿 + 跨端契约未破坏；变异测试门禁留 CI 取证），2026-10-16*
+
+## BF-097 【已关闭】四缺陷批修：P1-02 通知分页/过滤契约错位 + P2-01 审批审计工号字段污染 + P2-05 操作日志路由 RBAC 三处口径统一 + P2-09 铃铛信封误解析恒失败
+
+> **登记时间**：2026-10-17 ｜ **严重度**：High（P1-02：通知列表分页 UI 失效、>20 条不可见、四类筛选全死，跨端契约错位）/ Medium（P2-01：审批审计 `operator_jobcode` 列存姓名，按工号检索全部失配）/ Medium（P2-05：regular_user 菜单可见但路由被拒、API 却放行，三处口径互斥）/ Medium（P2-09：铃铛面板 REST 拉取在生产恒失败）
+> **关联需求**：`docs/Review/codegraph-audit-2026-10-15.md` §二 P1-02、P2-01、P2-05（本批修复）+ P2-09（批修预核查新发现，同批修复）；P2-10（unread-count 同型）同日获用户批准后补修并闭合。审查报告 P 级行与「修复追踪」已同步标记，本条目与之双向交叉引用。
+
+### 一、问题现象
+
+1. **P1-02（通知跨端契约错位）**：后端 `notification_list` 仅识别 `limit`（默认 20、钳 100）与 `is_read`，返回裸数组；前端发送的 `page/page_size/notification_type/priority/keyword` 全部静默丢弃，store 数组分支 `pagination.total = data.length` → 分页 UI 失效、>20 条通知不可见、四类筛选全死。违反根级 §3 分页参数契约（`page`/`page_size`）。
+2. **P2-01（审计工号字段污染）**：未登记资产审批落审计时 `operator_jobcode` 传入 `Employee` **实例**，DRF CharField 对实例调 `str()`，而 `Employee.__str__` 返回 `employee_name`（姓名）→ `AssetOperationLog.operator_jobcode` 列存姓名不存工号，按工号过滤/检索该类审批日志全部失配。`_safe_call_audit` 吞异常 + `approver_employee: Any` 注解使 mypy 与运行时均不报错，测试无断言。
+3. **P2-05（RBAC 三处口径互斥）**：`operationlogdetails` 前端路由守卫 `requiredMinRole: 'auditor'` 拦截 regular_user，但 RBAC 矩阵（`backend-business-rules.md:146`）允许 regular_user 查看本部门操作日志、后端 `_scope_by_user` 亦放行、`AsideMenu.vue:93` 菜单无条件显示 → regular_user 菜单可见、点击被拒、API 却允许。
+4. **P2-09（铃铛信封误解析，批修预核查新发现）**：`unwrapResponse`（`api/request.ts:536-542`）已剥外层信封返回裸载荷，但 `useNotification.fetchNotifications` 仍按信封解析 `res.data` → 运行时 `data` 为 undefined → `data.results` 抛 TypeError 被 catch 吞为 fetchError → **铃铛面板 REST 拉取在生产恒失败**（列表仅靠 WebSocket unshift 维持）；spec 以 `{data:[...]}` envelope mock 替换整个 `getNotifications`（连 unwrap 一起换），mock 与生产分叉、测试恒绿。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|---|---|
+| 1 | 后端未接分页器 | 修复前 `apps/notification/views.py:22-55` 手写 `limit` 切片返回裸数组，未用 `CustomPageNumberPagination`（对照正确范式 `operation_log_views.py:133-141`） |
+| 2 | 过滤链写死在 View | 仅 `is_read` 一个过滤条件内联于 view，无 Selector 层（DR-3 违规），新增过滤须改 view |
+| 3 | 审计字段类型绕过 | `Employee.__str__`=employee_name（`usermanagement/models.py:253-254`）；实例传 CharField 时 Django 调 `str(instance)`；`_safe_call_audit`（`services.py:88-96`）吞掉一切异常 |
+| 4 | 守卫与矩阵脱节 | 修复前 `routes-main-system.ts:23` `'auditor'` 为手写值，未指向 RBAC 矩阵单一来源；矩阵与后端 `_scope_by_user` 早已允许 regular_user |
+| 5 | 信封解析双分叉 | `unwrapResponse` 返回 `res.data`（request.ts:536-542），而 useNotification 按 `{code,data,message}` 信封解析 `res.data`；返回类型 `Promise<NotificationListResponse>`（双层包裹）为类型级谎言；spec mock 连 unwrap 一起替换 → 测试无法暴露生产解析错误 |
+| 6 | limit 真实调用方 | `limit` 参数的唯一真实调用方即 `useNotification.ts`（修复前 :108 `getNotifications({limit: 20})`）；BF-095 批仅兜底钳制未对齐契约 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|---|---|
+| 1 | 新建 `NotificationSelector.list_for_user`：`recipient_jobcode` 身份约束 + `is_read` 逐字迁移 + 新增 `notification_type`/`priority` 精确匹配与 `keyword` icontains（参数化，SC-3），过滤链收敛 Selector（DR-3） | `apps/notification/selectors.py:47` |
+| 2 | `notification_list` 移除 M-1 `limit` 与裸数组返回（BF-095 该语义作废）；接 `CustomPageNumberPagination`（`page` 缺省兜底 page=1 恒出信封，对齐 operation_log 范式）；响应 7 键 `{count,total_pages,page,page_size,next,previous,results}`（信封包裹）；`_serialize_notification` 抽 helper（DR-1） | `apps/notification/views.py:22,39` |
+| 3 | `paginate_queryset` 返回注解 `object\|None` → `list[Any]\|None`（收窄以删 View 侧多余 `type: ignore[no-any-return]`，CT-7 工具链复核） | `core/pagination.py:39` |
+| 4 | `/api/v1/notifications/` GET description 定点同步（该端点 responses.200 无 response schema，结构 diff=0，非破坏性文档对齐，M-3） | `api-schema-baseline.json:10052` |
+| 5 | 重写 15 用例（删 3 条 limit 旧锚）：401 鉴权、信封 7 键断言、默认 20 条、第 2 页、page_size、钳 100、`page=abc`→404、limit 被忽略锚、四类过滤、跨用户隔离 | `apps/notification/tests/test_notification_views.py:42,118` |
+| 6 | **P2-09**：`fetchNotifications` 信封误解析改与 `notificationStore` 同构双分支（数组/对象直取载荷）；`page_size` 替代已删 `limit`；返回类型改 `Promise<NotificationItem[]\|NotificationPaginatedData>`；删孤儿 `NotificationListResponse` 与 `limit?` 字段 | `useNotification.ts:106`、`api/notification.ts:27`、`types/notification.ts` |
+| 7 | spec 对齐生产载荷形状：useNotification 3 处 envelope mock 改载荷；notificationStore `{limit:3}` → `{page,page_size:3}` + 新增 30 条第 2 页用例 | `useNotification.spec.ts`、`notificationStore.spec.ts:75` |
+| 8 | **P2-01**：`operator_jobcode=approver_employee` → `(approver_employee.employee_jobcode if approver_employee else None)`，姓名仍走 `operator_name` | `apps/unregisteredasset/services.py:196` |
+| 9 | 回归用例：断言 `log_operation` 收到字符串工号而非姓名（堵 `_safe_call_audit` 吞异常盲区） | `apps/unregisteredasset/tests/test_services.py:251` |
+| 10 | **P2-05**：守卫 `requiredMinRole: 'auditor'` → `'regular_user'`（对齐矩阵 :146 与后端 `_scope_by_user`；AsideMenu 本就无条件显示）+ 指向矩阵注释 | `routes-main-system.ts:25` |
+| 11 | 双锚用例：import `routesMainSystem` 断言真实路由 meta（防「回改 auditor 而旧测试仍绿」空转）+ 守卫放行断言 | `guards.spec.ts:863` |
+
+未触发 `[HALT]`：`limit` 参数删除属「未对外发布契约的参数收敛」（P1-02 修复建议明示「移除 limit」且用户终稿方案拍板），非删改已发布字段清单；无数据库迁移；跨端契约为**对齐修复**（后端向根级 §3 靠拢），非破坏。
+
+### 四、对抗审核
+
+- **行号漂移**：本条目全部 `file:line` 于登记前 `rg` 实测（`selectors.list_for_user:47`、`notification_list:39`、`_serialize_notification:22`、`paginate_queryset:39`、baseline `:10052`、`TestNotificationListPagination:42`、`TestNotificationListFilters:118`、`fetchNotifications:106`、`services.py:196`、`test_services.py:251`、`routes-main-system.ts:25`、`guards.spec.ts:863`、`notificationStore.spec.ts:75`），非沿用审查报告旧行号。
+- **「limit 零调用方」误判更正留痕**：批修前置核查时曾误判「limit 无前端调用方」（只 grep 了 `api/notification.ts` 本文件）；实为 `useNotification.ts` 调用（修复前 :108）。该更正已写入审查报告 P2-09 行与本条目。BF-095 当时的 limit 钳制兜底随参数移除一并作废。
+- **P2-09 先红后绿**：3 处 envelope mock 改载荷形状后 spec 红（旧断言依赖 `{data:[...]}`），恢复生产形状后绿——证明测试曾与生产分叉，非「测试天然通过」。
+- **schema 定点而非全量重导**：全量重导会产生 zh-hans gettext 本地化回退噪音（BF-096 已证 113 行），故做结构比对（改前快照 vs 改后、baseline vs 改后，剥除 description 后 JSON 全等，diff=0）后仅定点改 description 1 行；`--validate` exit=0。
+- **安全面**：`keyword` 过滤走 ORM `icontains`（参数化），无字符串拼接（SC-3 ✓）；跨用户隔离有专门用例（`recipient_jobcode` 强制注入，不信任请求参数）。
+- **扫描对抗点——P2-10 新发现**：按同型模式核查 `unread_count`/`mark_read`/`mark_all_read` 消费端：`fetchUnreadCount`（`useNotification.ts:131-136`）`res.data.count` 与 P2-09 完全同型（`unreadCount` 初始恒 0，TypeError 被 `catch{ignore}` 静默吞）→ 登记为 P2-10；同日用户批准「顺手修」后补修（1 行 + `UnreadCountResponse` 类型 + 3 处 mock，**先红后绿**：mock 改载荷后旧代码 FAILED 复现吞异常行为，改 `res.count` 后 37 绿）；`markAllRead`/`markRead` 返回类型同为信封谎言但消费端只 `await` 不解引用 → 无运行时影响，随 P2-10 一并处理类型层。
+- **P2-06 判定闭合**：BF-096 遗留「Service 层直测是否可整体关闭，留待下一轮审计判定」；本次实证 `test_contract_view_api.py:431/:439/:505` 源码命中（非法跳转 400 + CT-3 七边全路径集成断言），满足 P2-06 字面要求（7 条合法转移 + 非法跳转分支各至少 1 用例）→ 报告标记 ✅已闭·实证。Service 层直测缺口不再单独跟踪（集成层已覆盖生产入口）。
+- **范围边界**：`dashboard_view` 等其他端点的同款 limit 未逐一核验（不臆测，未列入）；`_scope_by_user` 后端逻辑、RBAC 矩阵本身均未改动（仅前端守卫向其对齐）；P2-03/04/07 维持原终态。
+- **登记遗漏核查**：重复模式台账 `complete-patterns.md` 无同型新增需求（缺陷修复非重复实现），G-1~G-5 护栏 PASS 未受扰；r2 增补轮报告按其自述「复核证据列保留 2026-10-15 轮原貌、不回溯改写」未改（与 BF-096 先例一致），交叉引用以基线报告为准。
+
+### 五、验证记录
+
+```text
+后端（工具链版本均对齐 requirements/dev.txt，CT-7）：
+① python -m pytest apps/notification -q → 15 用例全绿 ✅
+② python -m pytest apps/unregisteredasset -q → 143 passed ✅
+③ 先红后绿（P2-01）：还原 services.py:196 bug 行 → test_approve_audit_log_records_jobcode_not_name FAILED → 恢复 → 绿 ✅
+④ python -m pytest -q → 1947 passed ✅（CT-5 全量零失败；feishu-webhook 并行争抢 flaky 1 次，单跑 14 绿，最终干净复跑）
+⑤ python -m pytest --cov=. --cov-fail-under=80 → 整体 87.13% ✅
+⑥ python -m pytest --cov=apps.assetmanagement.services --cov-fail-under=90 → Service 层 98.24% ✅
+⑦ python -m ruff check . → 0；--select C90 --config lint.mccabe.max-complexity=10 → 0 ✅
+⑧ python -m mypy . --strict → Success: no issues found in 227 source files ✅
+⑨ python scripts/check_function_length_guard.py → PASS（0 超限）；check_file_length_guard.py → PASS（最大 asset_view.py 475/500）✅
+⑩ python scripts/check_duplicate_invariants.py → PASS；check_frontend_invariants.py → PASS ✅
+⑪ python manage.py spectacular --format openapi-json --file <tmp> --validate → exit=0；
+    结构比对（快照 vs 改后 / baseline vs 改后，剥 description）→ 两组 diff=0；baseline 实际改动仅 :10052 一行 ✅
+
+前端：
+⑫ npx vitest run src/composables/__tests__/useNotification.spec.ts → 全绿 ✅
+⑬ npx vitest run src/router/__tests__/guards.spec.ts → 72 passed ✅
+⑭ npx vitest run → 167 文件 2188 passed（CT-5）✅
+⑮ npm run type-check / format:check / npx eslint . / npm run lint(--fix) → 全 0，--fix 零额外改动 ✅
+⑯ npm run test:coverage → exit 0（ts 80 / stores 90 / .vue 基线棘轮分层阈值达标）✅
+⑰ P2-10 补修（2026-10-17 同日）：先红（mock 载荷后 fetches unread count FAILED 0≠3）→ 改 res.count → 37 绿；type-check/format:check/eslint → 0；全量 vitest → 167 文件 2189 passed；test:coverage → exit 0 ✅
+
+未运行（如实标注，禁止视为通过）：
+⑰ mutmut run（后端双重门禁 ≥80 且 ≥83.2567 基线）/ stryker（前端 ≥80）→ 未在本地执行，人工决策留待 push 后由 CI backend-mutation / frontend-mutation 阻断 job 取证
+```
+
+### 六、遗留与关联事项
+
+- **P2-10（已闭，同日补修）**：`fetchUnreadCount` 同型信封误解析（`useNotification.ts:134` `res.data.count` → `unreadCount` 初始恒 0）。2026-10-17 登记后同日获用户批准补修：1 行 `res.count` + `UnreadCountResponse` 类型改载荷形状（types:56-58）+ spec 3 处 mock 对齐（含 markAllRead 与 `notificationStore.spec` 既有形状统一）；先红后绿实证。审查报告 P2-10 行与修复追踪已同步标记。
+- **变异测试留 CI**：与 BF-096 同策略，本地不跑 mutmut/stryker，push 后由 CI 阻断 job 取证。
+- **关联既有条目**：P1-02 收口同时废止 BF-095 M-1 的 limit 兜底语义（参数本体移除）；P2-05 守卫降级不改矩阵（矩阵与后端本就正确，错在前端守卫手写值）；P2-06 闭合判定承接 BF-096 遗留项（见对抗审核）。
+- **工作区状态**：本批改动后端 6 文件 + 前端 8 文件 + 文档 3 文件，全部留工作区待用户审阅，**未 commit**（与前轮 P1-01/P1-03 改动累积于同一工作区）。
+
+*登记人：opencode ｜ 状态：【已关闭】（四缺陷收口 + P2-09 先红后绿实证 + P2-01 先红后绿实证 + 后端 1947 passed / 87.13% / Service 98.24% + 前端 2189 passed + ruff/C90/mypy/四项前端门禁全绿 + schema 结构 diff=0；变异测试门禁留 CI 取证；P2-10 同日批准补修并闭合），2026-10-17*
+
+
+---
+
+## BF-098 【已关闭】P2-03 注册限流口径对齐：AuthUserViewSet create 绕过 RegisterRateThrottle 5/min
+
+> **登记时间**：2026-10-17 ｜ **严重度**：Medium（注册端点未受 5/min IP 限流保护，与 `/auth/register/` 口径不一致；RegisterSerializer S8 校验在位，无提权，不及 P1）
+> **关联需求**：`docs/Review/codegraph-audit-2026-10-15.md` §二 P2-03（本批修复）；审查报告 P 级行已同步标记，本条目与之双向交叉引用。
+
+### 一、问题现象
+
+1. `POST /auth/users/`（DefaultRouter 注册的 `AuthUserViewSet` create，AllowAny）仅挂全局匿名 `AnonRateThrottle` 20/min，未挂 `RegisterRateThrottle` 5/min。
+2. `/auth/register/` 显式挂 `RegisterRateThrottle` 5/min，两注册入口限流口径不一致 → 攻击者改打 `/auth/users/` 即绕过 5/min 防爆破。
+3. `apps/authusermanagement/urls.py:24` 注释称「仅注册 list/retrieve/update/delete」，与实现不符（create 实际开放）。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|---|---|
+| 1 | DefaultRouter 未限 actions | `router.register("users", AuthUserViewSet)` 全 action 注册，create 暴露且 AllowAny |
+| 2 | throttle_classes 缺 create 分支 | 修复前 `AuthUserViewSet` 无 `get_throttles()` 覆写，create 与 list 同走全局 20/min |
+| 3 | 注释漂移 | urls.py:22-24 注释描述与路由实际行为不一致 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|---|---|
+| 1 | `AuthUserViewSet.get_throttles()`：create 前插 `RegisterRateThrottle()`（AnonRateThrottle 子类 scope=register，仅匿名 5/min/IP；已认证建号仍走 UserRateThrottle） | `apps/authusermanagement/views.py:74-82` |
+| 2 | urls.py 注释订正（含「P2-03 修复前本注释误称」留痕） | `apps/authusermanagement/urls.py:24` |
+| 3 | 新测试 4 用例：throttles 单元断言 create/list 各 1 + 匿名第 6 次 429 + 已认证不被限 | `apps/authusermanagement/tests/test_create_throttle.py` |
+
+未触发 `[HALT]`：限流收紧非删改已发布字段；schema 零变化（throttle 不进 OpenAPI）。
+
+### 四、对抗审核
+
+- **行号漂移**：`get_throttles:74`、`RegisterRateThrottle` import `:42`、urls 注释 `:24` 均于登记前 rg 实测。
+- **已认证建号不受误伤**：`RegisterRateThrottle` 为 AnonRateThrottle 子类，`allow_request` 对 authenticated 直接放行；测试 `test_authenticated_create_not_throttled` 断言。
+- **429 用例 cookie 清理**：APIClient 注册后 `client.cookies.clear()`（BF-056 CSRF 先例），否则下一请求走 cookie 通道触发 403 而非 429。
+- **schema 零变化**：`spectacular --validate` 未因本改动产生 diff（throttle 不进 schema）。
+
+### 五、验证记录
+
+```text
+① python -m pytest apps/authusermanagement/tests/test_create_throttle.py -q → 4 passed ✅
+② python -m pytest apps/authusermanagement -q → 87 passed ✅
+③ python -m ruff check apps/authusermanagement/ → 0 ✅
+④ python -m mypy apps/authusermanagement/views.py apps/authusermanagement/urls.py --strict → Success ✅
+⑤ python manage.py spectacular --format openapi-json --file <tmp> --validate → exit=0，零 diff ✅
+```
+
+### 六、遗留与关联事项
+
+- **无遗留**。P2-03 单点收口，不牵连其他端点。
+
+*登记人：opencode ｜ 状态：【已关闭】（4 用例先红后绿 + auth 域 87 passed + ruff/mypy/schema 全绿），2026-10-17*
+
+---
+
+## BF-099 【已关闭】P2-04 九处导出截断迁移：page_size=total 被 MAX_PAGE_SIZE=100 钳制 → 服务端流式导出
+
+> **登记时间**：2026-10-17 ｜ **严重度**：Medium（「导出全部」静默截断 100 条，用户以为拿到全量实则丢数据；BF-092/I-1 已知遗留同型，本批收口剩余 9 处）
+> **关联需求**：`docs/Review/codegraph-audit-2026-10-15.md` §二 P2-04（本批修复）；审查报告 P 级行已同步标记，本条目与之双向交叉引用。
+
+### 一、问题现象
+
+`componentsdetails/` 下 9 处客户端导出「导出全部」走 `fetchAllData → page_size: <store>.pagination.total`，后端 `MAX_PAGE_SIZE=100` 静默钳制 → 超 100 条数据集导出全部实际只拿到 100 条，无任何提示。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|---|---|
+| 1 | 钳制源 | `core/pagination.py:33-35` + `core/constants.py:12` MAX_PAGE_SIZE=100 |
+| 2 | 9 处残留 | AssetContentDetails、ContractDetails、DamagedAssetDetails、WasteAssetDetails、AuditLogDetails、HardDiskSNDetails、OutAssetDetails、RecycleAssetDetails、UnregisteredAssetDetails |
+| 3 | 已知遗留 | BF-092/I-1 上批仅迁 4 个生命周期页 + 操作日志/员工两域，本批收口剩余 9 处 |
+
+### 三、修复方案
+
+**后端（3 新导出端点 + Damaged 覆写）**：
+
+| # | 变更 | 文件 |
+|---|---|---|
+| 1 | HardDiskSN 挂 ExportExcelMixin + 7 列 export_columns | `apps/assetmanagement/views/hard_disk_sn_view.py:29` |
+| 2 | UnregisteredAsset 挂 ExportExcelMixin + 10 列 | `apps/unregisteredasset/views.py:77` |
+| 3 | DamagedAsset `get_export_queryset` 写死 `approval_status='pending'`（页面 :189/:251 双强制 pending，pagination.total 即 pending 行数） | `apps/assetmanagement/views/damaged_asset_view.py:97` |
+| 4 | AuditLogExportView（IsAuditorOrAdmin、7 参数、8 导出列）+ 共享 parser `parse_audit_log_filters`（DR-1）+ `query_logs_queryset`（未物化 QuerySet 供流式） | `core/audit_log_views.py:175`、`core/audit_log_filters.py`、`core/audit_query_service.py` |
+| 5 | schema 重导：3 新路径入基线（`/assets/harddisk-sn/export/`、`/audit-logs/export/`、`/unregisteredassets/unregistered-assets/export/`），validate exit=0 | `api-schema-baseline.json` |
+
+**前端（9 组件迁移）**：
+
+| # | 变更 | 文件 |
+|---|---|---|
+| 6 | 9 api 文件批量加 `exportExcel`（getBlob） | `src/api/{asset,damagedAsset,harddiskSn,auditLog,unregisteredAsset,contract,outAsset,recycleAsset,wasteAsset}.ts` |
+| 7 | 9 store 文件加 `xxxExportExcel` 中转函数（满足 no-restricted-imports 分层约束，经 store 消费 API） | `src/stores/*Store.ts` |
+| 8 | 9 组件「导出全部」迁 `exportFromServer`（保留「导出当前页」客户端路径）；AuditLog 带当前筛选参数；Damaged params={}（后端写死 pending） | `src/components/componentsdetails/*.vue` |
+
+### 四、对抗审核
+
+- **行号漂移**：`hard_disk_sn_view.py:29`、`unregisteredasset/views.py:77`、`damaged_asset_view.py:97`、`audit_log_views.py:175`、组件 `exportFromServer` 调用点均 rg 实测。
+- **Damaged pending 语义**：后端 `get_export_queryset` 写死 `approval_status='pending'` 而非读 query_params——无筛选 UI，写死优于假灵活；将来加筛选再升级。
+- **AuditLog 筛选透传**：前端组装 `filterParams`（app_label/operation_type/operator_jobcode/record_code/start_date/end_date）传给服务端，导出与页面查询口径一致（DR-1）。
+- **no-restricted-imports**：组件禁直引 `@/api/*`，9 个 API 调用经 store 层 `xxxExportExcel` 中转（与 `lostAssetExportExcel` 先例同构）。
+- **模板字面量**：Python f-string 生成 `${store.list.length}` 时踩双花括号坑（`${{{{{store}.list.length}}}}` 产出多余 `{}`），已修正为 `${{{store}.list.length}}`。
+- **Damaged 重复 if**：迁移脚本曾产生 `if (range === 'current') {` 重复行，已删除。
+
+### 五、验证记录
+
+```text
+后端：
+① python -m pytest apps/assetmanagement/tests/test_p2_04_export_endpoints.py apps/unregisteredasset/tests/test_p2_04_export.py core/tests/test_audit_log_export.py -q → 12 passed ✅
+② python -m pytest apps/assetmanagement/tests/test_export_excel.py apps/assetmanagement/tests/test_export_excel_rbac.py apps/assetmanagement/tests/test_operation_log_export_scope.py -q → 58 passed ✅
+③ python -m ruff check . → 0；--select C90 → 0 ✅
+④ python -m mypy . --strict → Success: no issues found in 228 source files ✅
+⑤ python manage.py spectacular --format openapi-json --file <tmp> --validate → exit=0 ✅
+⑥ python -m pytest -q → 1963 passed ✅（CT-5 全量零失败）
+
+前端：
+⑦ npm run type-check → 0 ✅
+⑧ npm run lint → 0 ✅
+⑨ npm run format:check → All matched files use Prettier code style ✅
+⑩ npx vitest run → 167 文件 2189 passed ✅
+```
+
+### 六、遗留与关联事项
+
+- **交叉引用**：BF-092/I-1 已知遗留同型点（账本已标注「8+ 同型点未迁移」），本批收口剩余 9 处，不重复立账。
+- **useAssetLifecycleActions 存量 6 处**：Broken/Lost/Found/Repair 等生命周期页已由 BF-092 迁移，`fetchExport` 参数注入模式不变，本批未动。
+- **工作区状态**：本批改动后端多文件 + 前端多文件 + schema + 文档，全部留工作区待用户审阅，**未 commit**。
+
+*登记人：opencode ｜ 状态：【已关闭】（后端 12 新用例 + 58 回归 + 全量 1963 passed + 前端四项门禁全绿 + schema validate exit=0），2026-10-17*
+
+---
+
+## BF-100 【已关闭】P2-07 npm audit 漏洞修复：shell-quote critical + vue XSS + source-map-js；braces 上游无补丁 → CI 改 --omit=dev
+
+> **登记时间**：2026-10-17 ｜ **严重度**：High（shell-quote critical 命令注入 + vue XSS + source-map-js DoS；braces high 仅 dev 链且上游无补丁）
+> **关联需求**：`docs/Review/codegraph-audit-2026-10-15.md` §二 P2-07（本批修复）；审查报告 P 级行已同步标记，本条目与之双向交叉引用。
+
+### 一、问题现象
+
+`npm audit --audit-level=high` exit 1，8 漏洞（7 high + 1 critical）：
+1. `shell-quote` 1.8.4-1.10.0 critical（GHSA-pqg4-j6r4-53mv，`quote()` 命令注入）
+2. `vue` 3.2.13-3.5.41 high（GHSA-g2v6-rqmx-r4w6，`@vue/server-renderer` XSS via missing CR in attribute-name blacklist）
+3. `source-map-js` 1.0.0-1.2.1 high（GHSA-68fv-2mgg-jv7q，event-loop DoS）
+4. `braces` ≤3.0.3 high（GHSA-vfj7-8cjw-p6xm / CVE-2026-93687，stack-exhaustion DoS）——**上游无补丁**
+
+### 二、根因
+
+| # | 漏洞 | 依赖链 | 可修性 |
+|---|---|---|---|
+| 1 | shell-quote critical | dev 链 | `npm audit fix` 可修 |
+| 2 | vue XSS high | prod（vue@3.5.34 → @vue/server-renderer@3.5.34） | 升级 vue@3.5.44 |
+| 3 | source-map-js high | prod | `npm audit fix` 可修 |
+| 4 | braces high | dev：`@vue/eslint-config-typescript → fast-glob → micromatch → braces` | **上游无补丁**（GitHub Advisory `first_patched_version: null`，npm latest=3.0.3 全版本受影响，主干最新提交 2025-01 无 CVE 修复） |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|---|---|
+| 1 | `npm audit fix`（非 force）修 shell-quote + source-map-js | `package-lock.json` |
+| 2 | `npm install vue@3.5.44 @vue/server-renderer@3.5.44` 修 XSS | `package.json:26,34`、`package-lock.json` |
+| 3 | CI `npm audit --audit-level=high` → `--audit-level=high --omit=dev`（仅审计生产依赖链），注释记录理由 + BF-100 交叉引用；报告生成步骤保留全量 `--json`（含 dev，仅记录不阻断） | `.github/workflows/security-scan.yml:134` |
+
+未触发 `[HALT]`：CI 门禁变更经用户明确批准（「改 CI 为 --omit=dev」，2026-10-17）；`--omit=dev` 使门禁聚焦可修项，避免不可修残留永久红灯；生产依赖零暴露（braces 仅在 dev 链）。
+
+### 四、对抗审核
+
+- **braces 不可修实证**：GitHub Advisory API `first_patched_version: null` + npm `latest=3.0.3`（所有 ≤3.0.3 受影响）+ 主干最新 commit `e53730e`（2025-01-19，修 unpaired quotes，非 CVE）→ 无版本可钉、无 git 补丁可引。
+- **--omit=dev 不降低生产安全**：braces 仅经 `@vue/eslint-config-typescript`（devDependency）引入，`npm ls braces` 确认生产依赖树零命中；`--omit=dev` 后 `found 0 vulnerabilities`。
+- **报告保留全量**：`npm audit --json` 步骤未加 `--omit=dev`，dev 链漏洞仍入报告 artifact 供审计，仅阻断门禁聚焦生产。
+- **vue 升级兼容**：3.5.34 → 3.5.44 为 patch 级，type-check + 2189 测试全绿。
+
+### 五、验证记录
+
+```text
+① npm audit fix → shell-quote critical + source-map-js high 归零 ✅
+② npm install vue@3.5.44 @vue/server-renderer@3.5.44 → vue XSS high 归零 ✅
+③ npm audit --audit-level=high --omit=dev → found 0 vulnerabilities, exit 0 ✅
+④ npm run type-check → 0 ✅
+⑤ npx vitest run → 167 文件 2189 passed ✅
+⑥ 全量 npm audit --audit-level=high → 仍报 braces 4 high（预期，上游无补丁，已在 CI 用 --omit=dev 排除）
+```
+
+### 六、遗留与关联事项
+
+- **braces 监控**：上游发布 3.0.4+ 后应撤销 `--omit=dev` 或至少回归验证；本条目作为撤销依据留档。
+- **关联**：BF-067 曾双 audit 归零，此后 advisory DB 新增所致，零代码变更。
+
+*登记人：opencode ｜ 状态：【已关闭】（shell-quote critical + vue XSS + source-map-js 归零 + CI --omit=dev 经用户批准 + 前端门禁全绿），2026-10-17*
+
+---
+
+## BF-101 【已关闭】P3 四项三批次批修：P3-04 合同状态出边下拉单源下发（allowed_next_states）+ P3-01 Excel 零值吞没 + P3-02 死类型与注释漂移 + P3-03 出库状态枚举扩 8
+
+> **登记时间**：2026-10-17 ｜ **严重度**：Low（P3 四项：1 项序列化缺陷 + 1 项 UX 改进立项 + 2 项降级/死代码瑕疵，均无数据损坏与安全暴露）
+> **关联需求**：`docs/Review/codegraph-audit-2026-10-15.md` §二 P3-01 ~ P3-04（本批修复）；审查报告 P3 行、优先级路线、修复追踪已同步标记，本条目与之双向交叉引用。
+> **批次结构**（用户拍板顺序）：批1 P3-04 → 批2 P3-01 → 批3 P3-02 + P3-03；每批独立过双端门禁。
+
+### 一、问题现象
+
+1. **P3-04**：P1-01 收口后后端已强校验非法状态跳转，但编辑态状态下拉仍列全部 8 态，用户须**提交后**才收到 400（`INVALID_CONTRACT_TRANSITION`），交互不友好；DR-1 禁止前端复制第二份 FSM → 立项「后端下发合法下一状态单源」。
+2. **P3-01**：`workbook.py` 导出取值 `return coerce_excel_value(value) or ""` 把 `0`/`False` 转空串 → 导出数值/布尔列丢 0。
+3. **P3-02**：`types/employee.d.ts` 为零引用死类型文件；`createEntityStore.ts` 分页 docstring 称兼容 `size/pageSize` 与实现不符（注释漂移）。
+4. **P3-03**：`OUTASSET_STATUS_MAP` 仅 4 键 + `OutAssetCurrentStatus` 枚举仅 4 值，4 种真实状态（`in_store`/`broken`/`repairing`/`lost`）在出库资产详情显示原始值 + logWarn（降级不崩溃的显示瑕疵）；`StatusTag` 无 default slot，`OutAssetBasicDetails.vue` 传入的 slot 默认内容从未渲染（死 children）。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|---|---|
+| 1 | 前端无合法下一状态数据源 | `contract_fsm.py` 仅后端持有 `_CONTRACT_TRANSITIONS`，详情 GET 不下发 → `ContractForm.vue` 状态下拉只能全列（修复前 `:127-129,394` 区域） |
+| 2 | Python 真值判空 | `core/excel_export/workbook.py:68`（修复前行号）`... or ""` 对 `0`/`False` 取假值分支 → 空串 |
+| 3 | 零引用死文件 | `src/types/employee.d.ts:62` `pageSize` 字段无任何 import（终核 `rg "types/employee"` → EXIT=1）；`createEntityStore.ts:156` 注释与 `page/page_size` 实现不符 |
+| 4 | 枚举/映射欠 4 态 | `src/types/outasset.ts` `OutAssetCurrentStatus` 仅 4 值（`recycled_pending`/`damaged`/`scrapped`/`in_use`），`statusMapping.ts:46-54`（修复前行号）`OUTASSET_STATUS_MAP` 遂仅 4 键；`StatusTag.vue` 无 `<slot>` 声明 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|---|---|
+| 1 | 批1：新增 `ContractFSM.allowed_next_states()` classmethod（未知值防御返回 `[]`），合法下一状态**唯一来源**（DR-1） | `apps/assetmanagement/state_machine/contract_fsm.py:76` |
+| 2 | 批1：`ContractDetailSerializer` 加 `allowed_next_states = SerializerMethodField()` + 入 `fields` + `get_allowed_next_states` 委托 FSM；`read_only_fields = fields` 自动覆盖 → **仅 GET 下发，PUT/PATCH 不可写** | `apps/assetmanagement/serializers/base_model_serializers.py:169,185,204-206` |
+| 3 | 批1：schema 重导出（响应新增非破坏性字段，根级 §3 M-3） | `api-schema-baseline.json:15608,15733` |
+| 4 | 批1：`Contract` 类型加 `allowed_next_states?: string[]`；`statusOptions` computed 按下发出边过滤、终态空数组 → 下拉禁用；`loadContractDetail` 字段缺失回退 `getById`（5min 缓存陈旧窗口靠后端 400 兜底） | `src/types/contract.ts:155`、`detils/ContractForm.vue:285,299` |
+| 5 | 批1：新建组件测试 5 例（shallow stub 下按 placeholder 定位状态下拉防串位、disabled 断言用 `"true"` 字符串口径） | `detils/__tests__/ContractForm.spec.ts:99` |
+| 6 | 批2：`resolve_cell_value` 判空改「`coerce_excel_value` 后仅 `None → ""`」，0/False 保留 + docstring 订正 | `core/excel_export/workbook.py:62,73` |
+| 7 | 批2：先红后绿测试——`0`/`False` 导出保留断言（空串 xlsx 回读为 `None` 属 openpyxl 语义，断言 `in (None, "")`） | `core/tests/test_excel_export.py:168` |
+| 8 | 批3：`git rm` 死类型文件 + 分页 docstring 订正为只读 `page/page_size` | `src/types/employee.d.ts`（已删）、`src/stores/createEntityStore.ts:156` |
+| 9 | 批3（用户拍板方案 A）：`OutAssetCurrentStatus` 扩 8 值；`OUTASSET_STATUS_MAP = ASSET_STATUS_MAP` 别名收敛（DR-1）；头注释删不存在的 `outassetStatusMapping`、枚举注释值订正 `recycled_pending` | `src/types/outasset.ts:48-55`、`src/utils/statusMapping.ts:48` |
+| 10 | 批3：spec 必红点改造 `toHaveLength(4)→8` + 别名 `toBe` + 8 态 property + unknown fallback；导入校验入口补 4 态（含 `broken`→valid 回归锚）；`StatusTag` 死 children 移除（同文件 `getAssetStatusText` 活用与 import 保留） | `utils/__tests__/statusMapping.spec.ts:191,204`、`detils/__tests__/outAssetBatchImport.config.spec.ts:98`、`detils/OutAssetBasicDetails.vue:16` |
+
+未触发 `[HALT]`：跨端契约仅**新增**非破坏性字段（M-3 已重导 schema）；资产状态枚举键名为根级 §3 既有 8 键，本次为前端 TS 枚举补齐对齐，后端未改枚举；无字段/表删除、无 `code` 语义变更、无状态机节点增删。
+
+### 四、对抗审核
+
+- **行号漂移**：报告旧行号（`workbook.py:68`、`statusMapping.ts:46-54`、`contract_fsm.py:31-54`）已随修复移动，本条目全部登记**实测新行号**（`workbook.py:62,73`、`statusMapping.ts:48`、`contract_fsm.py:76`，均经 `rg` 逐条命中核对）。
+- **PUT/PATCH 写入面**：新字段虽入 `fields`，但被 `read_only_fields = fields` 覆盖 → 只读；`test_contract_view_api.py::TestAllowedNextStatesField` 含**口径锁定用例**（PUT 响应不含该字段），防未来 serializer 字段清单调整时静默放行。
+- **扫描对抗点（防掩盖）**：清死 slot 时 `rg` 实测 `getAssetStatusText` 在同文件 `:165` formatter **仍活用** → 按实测仅删死 children、保留 import（未按原设想连 import 删除，避免引入未定义引用）。
+- **契约影响**：合同详情 GET 响应新增 `allowed_next_states`（非破坏性，schema 已重导 `--validate` exit 0）；API 根结构、状态枚举键名、分页参数、日期格式未变 → 跨端契约未破坏。PUT/PATCH 行为未变。
+- **虚报验证防护**：验证记录全部为本会话实际执行命令；P3-02 批后端首现 `test_unknown_path_404` 失败 → 如实记录为环境性抖动（单跑 14 passed + 复跑全量绿）；`mutmut`/`stryker` 本地未运行，如实标注留 CI。
+
+### 五、验证记录
+
+```text
+批1（P3-04）
+① python -m pytest 全量 → 1985 passed（CT-5 零失败）
+② python -m pytest apps/assetmanagement/tests/test_contract_fsm.py → 22 passed；test_contract_view_api.py::TestAllowedNextStatesField → 参数化/终态/settlement/PUT 口径全过
+③ ruff check . → 0；python -m mypy . --strict → Success（CT-7 按 requirements/dev.txt 声明版本）
+④ python manage.py spectacular --format openapi-json --file api-schema-baseline.json --validate → exit 0（allowed_next_states 2 处入基线）
+⑤ npx vitest run → 167 文件 2194 passed；ContractForm.spec → 5 passed
+⑥ npm run type-check / lint / format:check → 全 0
+
+批2（P3-01）
+⑦ 先红：test_write_export_workbook_preserves_zero_and_false 先证红 → 绿（先红后绿）
+⑧ python -m pytest core/tests/test_excel_export.py → 30 passed；全量 → 1987 passed
+   （test_unknown_path_404 首轮失败 → 单跑 14 passed + 复跑全量绿，环境性抖动）
+
+批3（P3-02 + P3-03）
+⑨ rg "types/employee" src/ → 0 命中 EXIT=1（死类型清除终核）
+⑩ npx vitest run → 168 文件 2196 passed（statusMapping.spec 8 态改造 + 导入回归锚）
+⑪ npm run type-check / lint / format:check → 全 0；npm run test:coverage → exit 0（阈值 vitest.config.ts 强制：整体 80 / stores 90）
+⑫ python ../scripts/check_frontend_invariants.py → PASS（FR-6 54 文件/0 超限；FR-8 31 文件/0 超限）；ContractForm.vue 物理 489 行 < FR-5 红线 500
+
+未执行（如实标注）：后端 mutmut（≥80 且 ≥ 基线 83.2567）/ 前端 stryker（≥80）——留待 push 后 CI backend-mutation / frontend-mutation 阻断 job 取证。
+```
+
+### 六、遗留与关联事项
+
+- **注释债（登记不入批）**：`src/utils/Format.ts:19/:22` 同型 `//` 位置注释漂移（skip/register 语义与实际不符），零运行时影响，依用户复核修订③ 不入本批，挂账待下轮注释清理统一处置。
+- **P3-04 陈旧缓存窗口**：`createEntityStore` 详情请求缓存 5min，期间合同状态被他人变更时下拉基于旧出边渲染 → 提交时由后端 400（`INVALID_CONTRACT_TRANSITION`）兜底，已记录为可接受残余（非缺陷）。
+- **关联条目**：BF-096（P1-01 状态机收口，本批为其 UX 收口遗留项）、BF-092/I-10（状态流转审计约定）。
+- **快照护栏**：`check_duplicate_invariants.py` G-1~G-3、G-5 未受扰（本批未动操作日志查询、前端状态映射改唯一来源为别名即收敛方向正确、无影子死文件新增）；`scripts/line_metrics.py` 口径未涉。
+
+*登记人：opencode ｜ 状态：【已关闭】（三批次代码 + 双端门禁全绿 + schema 重导 + 文档双向登记完成；mutmut/stryker 留 CI 如实标注），2026-10-17*

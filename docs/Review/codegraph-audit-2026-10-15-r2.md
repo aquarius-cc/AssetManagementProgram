@@ -43,13 +43,16 @@
 
 | ID | 级 | 现状复核证据 | 终态 |
 |---|---|---|---|
-| P1-01 | P1 | `base_model_serializers.py:223` 仍含 `contract_status` 可写；`contract_view.py:123-133` `perform_update` 仅处理 `settlemented_price`，无 FSM 路由、无审计落库 | 待修（继承） |
+| P1-01 | P1 | `base_model_serializers.py:223` 仍含 `contract_status` 可写；`contract_view.py:123-133` `perform_update` 仅处理 `settlemented_price`，无 FSM 路由、无审计落库 | ✅ **已修复 2026-10-16**（详见基线报告「修复追踪」+ 活账本 BF-096） |
 | P1-02 | P1 | `apps/notification/views.py:28-38` 仍仅识别 `limit`（默认 20 钳 100），裸数组返回；`page/page_size/type/priority/keyword` 过滤仍缺 | 待修（继承） |
-| P1-03 | P1 | `views/RecycleAssetView.vue:163-174` watch 无匹配分支仍不清空 `recyclableRecordcode`（全文件无 `= ''` 重置），`canSubmit` 残留 true | 待修（继承） |
+| P1-03 | P1 | `views/RecycleAssetView.vue:163-174` watch 无匹配分支仍不清空 `recyclableRecordcode`（全文件无 `= ''` 重置），`canSubmit` 残留 true | ✅ **已修复 2026-10-16**（详见基线报告「修复追踪」+ 活账本 BF-096） |
 
 > 三条 P1 的完整描述、修复建议、影响面见基线报告 §二，本表不重复展开；回查命令不变。
 > 注意：P1-01/P1-02/P1-03 涉及文件**均在未提交改动中**（contract_view.py / notification/views.py / RecycleAssetView.vue），
 > 即改动方向未覆盖这三处缺陷，修复时注意与未提交工作合并。
+>
+> **2026-10-16 更新**：P1-01、P1-03 已修复（基线报告 `codegraph-audit-2026-10-15.md`「修复追踪」+ 活账本 BF-096），
+> 上表终态列已同步；**P1-02（通知跨端契约）仍待修**。本表「现状复核证据」列保留 2026-10-15 轮复核原貌，不回溯改写。
 
 ### 继承待修 — P2（6 条）
 
