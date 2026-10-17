@@ -94,8 +94,18 @@ jobs:
         #    以 exit 2 失败（2026-09-30 实测，usage 列表中无任何 severity 门禁开关）。
         #    pip-audit 的默认行为即「发现任意漏洞即 exit 1」，故不再传该参数。
         run: |
-          pip-audit --requirement requirements/base.txt
-          pip-audit --requirement requirements/dev.txt
+          # 【豁免 2026-10-17，经用户批准（决策记录见 BF-102）】
+          # CVE-2026-106454 twisted 26.4.0 IMAP wildcardToRegexp() ReDoS（CWE-1333）：
+          # ① OSV 明载 "No fixed release is available as of this review"——无修复版本，
+          #    升级无法消除（修复提交 2f8a3c2 尚未进入任何 PyPI 发布）；
+          # ② 攻击面未暴露：twisted 仅经 daphne==4.2.2（requirements/base.txt）引入，
+          #    daphne 走 HTTP/WS，漏洞组件 twisted.mail.imap4 需已认证 IMAP LIST/LSUB 客户端触发，
+          #    本项目不运行 IMAP 服务；CVSS 3.1 为 C:N/I:N/A:L（仅可用性低危）。
+          # 本地双证（pip-audit 2.10.1）：带豁免 exit 0（1 ignored）；不带 exit 1 复现 CI 红。
+          # 复审条件：上游 twisted 发布含修复的版本后，升级并移除本豁免（schedule 每周全量兜底会持续跟进）。
+          # 报告步骤刻意不豁免：audit-report*.json 仍完整记录该漏洞，门禁豁免与报告可见性分离。
+          pip-audit --requirement requirements/base.txt --ignore-vuln CVE-2026-106454
+          pip-audit --requirement requirements/dev.txt --ignore-vuln CVE-2026-106454
       - name: 生成安全报告
         if: always()
         run: |
