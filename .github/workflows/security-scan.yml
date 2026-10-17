@@ -131,8 +131,15 @@ jobs:
           cache-dependency-path: vue-assetmanagement/package-lock.json
       - run: npm ci
       - name: 执行安全审计（高危阻断）
-        run: npm audit --audit-level=high
-      - name: 生成安全报告
+        # P2-07/SC-7: --omit=dev 仅审计生产依赖链。
+        # 依据：braces (GHSA-vfj7-8cjw-p6xm / CVE-2026-93687, high) 仅在 dev 链
+        #   (@vue/eslint-config-typescript → fast-glob → micromatch → braces)，
+        #   上游截至 2026-10-17 无补丁 (GitHub Advisory first_patched_version=null,
+        #   npm latest=3.0.3 全版本受影响, 主干最新提交 2025-01 无 CVE 修复)，
+        #   生产依赖零暴露；--omit=dev 使门禁聚焦可修项，避免不可修残留永久红灯。
+        # 依据根级 §5.2 经人工审批（2026-10-17）。完整理由见 BF-100。
+        run: npm audit --audit-level=high --omit=dev
+      - name: 生成安全报告（含 dev 链，仅记录不阻断）
         if: always()
         run: npm audit --json > audit-report.json || true
       - name: 上传安全报告
