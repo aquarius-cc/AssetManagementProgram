@@ -7215,10 +7215,87 @@ twisted 事实链：`requirements/base.txt:85 daphne==4.2.2 → twisted 26.4.0`�
 
 ### 六、遗留与关联事项
 
-- **[待决策] 依赖变更探测对子模块内依赖文件失配（新发现，登记不静默吞掉）**：探测正则 `^(asset_management_backend/requirements/|…|vue-assetmanagement/package(-lock)?\.json$|…)`（security-scan.yml:62）以**根仓路径**匹配，但根仓中两子模块为 gitlink——`git diff --name-only` 仅输出 `asset_management_backend` / `vue-assetmanagement` 单条路径，**永不带子目录后缀** → 纯 requirements/package.json 变更会被判 `deps-changed=false` 跳过审计，只能靠 schedule 每周兜底。**实证**：ce0a918（子模块指针单变）被判定未变更 → 恰好走了降噪路径（run 39048461356 双 audit skipped 即此现象）。兜底在（SC-8 schedule），非 fail-open 但属**漏触发**。候选修法（未实施，待批准）：gitlink 路径并入正则（改判 `true`，多审无害）或探测步对子模块内递归 diff。
-- **dev.txt 未钉 ruff 版本**：CI 裸装漂移（本次 0.15.20 本地 vs 0.17.1 CI 曾致本地漏报）；建议 dev.txt 增钉 ruff 并让 CI `pip install -r requirements/dev.txt`（与 mypy 同构），待批准后实施。
+- **[已决策 2026-10-17 → 已修复，见 BF-103] 依赖变更探测对子模块内依赖文件失配（新发现，登记不静默吞掉）**：探测正则 `^(asset_management_backend/requirements/|…|vue-assetmanagement/package(-lock)?\.json$|…)`（security-scan.yml:62）以**根仓路径**匹配，但根仓中两子模块为 gitlink——`git diff --name-only` 仅输出 `asset_management_backend` / `vue-assetmanagement` 单条路径，**永不带子目录后缀** → 纯 requirements/package.json 变更会被判 `deps-changed=false` 跳过审计，只能靠 schedule 每周兜底。**实证**：ce0a918（子模块指针单变）被判定未变更 → 恰好走了降噪路径（run 39048461356 双 audit skipped 即此现象）。兜底在（SC-8 schedule），非 fail-open 但属**漏触发**。候选修法（未实施，待批准）：gitlink 路径并入正则（改判 `true`，多审无害）或探测步对子模块内递归 diff。**【订正 2026-10-17】**最终采纳第二候选的精确版（子模块内 deps glob 精确 diff + 全链 fail-closed，「gitlink 并入正则」被否决——其失败模式劣于精确比对，详见 BF-103 选项2 支配论证）。
+- **[已修复，见 BF-103] dev.txt 未钉 ruff 版本**：CI 裸装漂移（本次 0.15.20 本地 vs 0.17.1 CI 曾致本地漏报）；建议 dev.txt 增钉 ruff 并让 CI `pip install -r requirements/dev.txt`（与 mypy 同构），待批准后实施。**【2026-10-17 已按此落地】**`ruff==0.17.1` 钉版 + ci.yml 两处（backend-lint/C90）强制读 dev.txt，升级机制=注释常设指令（暂不配 bot，触发条件与预设计见 BF-103）。
 - **未验证项（据实标注）**：① 每周安全报告 job 为 schedule 触发，本次 push 下 skipped，未执行；② 豁免后 `audit-report*.json` artifact 未下载核验 twisted 是否仍被记录（报告步骤无豁免 flag，逻辑应保留，未实证）；③ 密钥泄露扫描全程 success，其拦截力红路径需故意注入密钥，不测。
 - **关联**：BF-100（`--omit=dev` 本次获 CI 直证）、BF-101（其「mutmut/stryker 留 CI」项本次闭合）、BF-067（advisory DB 时序案型先例）、审查报告 P2-07「以 CI 为权威门禁复核」完成。
 - **工具链留痕**：ruff 本地已升 0.15.20 → 0.17.1（对齐 CI 权威）；`requests` 本地警告（urllib3/chardet 版本不匹配）为环境噪音，未处理。
 
 *登记人：opencode ｜ 状态：【已关闭】（双红定性→修复→三 run 全绿 job 级直证；双路径取证完成；变异双门禁 83.9012%/82.11 CI 直证；twisted 豁免经用户批准），2026-10-17*
+
+---
+
+## BF-103 【已关闭】deps 探测链精确化（gitlink→子模块内 deps glob 精确 diff + 全链 fail-closed）+ ruff==0.17.1 钉版与 CI 强制读 dev.txt + ruff 显式升级机制决策（暂不配 bot）
+
+> **登记时间**：2026-10-18 ｜ **严重度**：Medium（门禁漏触发面 + 工具链版本漂移，非线上事故）
+> **关联需求**：闭合 BF-102 §六 两条 `[待决策]` 遗留；两项均经用户明示决策（2026-10-17：探测修法选**选项2 精确比对**；升级机制选 **3 骨架 + 2 注释机制组合**）。配套根级 `AGENTS.md` §6 SC-8 注记同步改词（§5.2 审批随方案一并通过）。
+
+### 一、问题现象
+
+1. **探测盲区（漏触发）**：根仓 deps 正则 `^(asset_management_backend/requirements/|…)` 永不可达——根仓中两子模块为 gitlink，`git diff --name-only` 只输出裸路径 `asset_management_backend` / `vue-assetmanagement`，子模块内 requirements/package.json 提交一律判 `deps-changed=false`，审计被跳过，仅靠 schedule 每周兜底（实证见 BF-102 §六 ce0a918 案）。
+2. **ruff 版本漂移（CI 红灯根因）**：`requirements/dev.txt` 的 ruff 是注释行（根本未声明）；`ci.yml` 两处（backend-lint、C90）`pip install ruff` 裸装最新 → 本地 0.15.20 vs CI 0.17.1 漂移，`ruff format --check` 本地漏报而 CI 红（ce0a918 灯源，BF-102）。
+
+### 二、根因与修法决策（用户 2026-10-17 拍板）
+
+| 决策点 | 落定 | 支配论证（用户原逻辑要点） |
+|---|---|---|
+| 探测修法 | **选项2：子模块内 deps glob 精确比对**，否决「gitlink 并入正则」（选项1） | 选项2 的失败模式恒等于选项1——链路任一环节（rev-parse/cat-file/fetch/diff）失败即 fail-closed 判 true → 退化为全审计；正常态只审真依赖变更（省 CI、避 advisory 时序红灯）。选项1 则每次子模块 push 必付 +2~3min 与时序红灯成本。**同样安全下限，正常态更便宜 → 2 支配 1**。 |
+| 升级机制 | **3 骨架 + 2 注释机制**：现在不配 bot，ruff 常设指令落 dev.txt 注释 | ① ruff 是 formatter，周更 bump = 反复暴露 format churn 红灯，按需/至多月度才对；② 安全补丁提速价值已被「schedule 周扫 + 响应式修复会话」（BF-100 实证闭环）覆盖大半；③ 门禁手术中不引入三层机器人层（过早自动化）。触发条件与预设计见 §六。 |
+
+### 三、修复方案
+
+| # | 变更 | 位置 |
+|---|---|---|
+| 1 | **B 分支（新）**：根 diff 命中已知 gitlink 裸路径（`grep -qx` 精确匹配）→ `git rev-parse <BASE\|SHA>:<sub>` 取新旧指针 sha → `cat-file -e` 校验对象、缺失 `git -C <sub> fetch origin` 兜底、仍缺失 fail-closed → `git -C <sub> diff --name-only <old> <new> -- <globs>`，globs：backend `requirements/ pyproject.toml Dockerfile`、vue `package.json package-lock.json`，非空 → true（变更文件名打进 job 日志） | `security-scan.yml:78-116` |
+| 2 | **A 分支：根仓正则一字未动**（diff 核验：regex 行为 context 行，零改动；含 workflow 自身路径与 submodule 反注册形态兜底）；A/B **OR 合并不早退**，单 run 双分支出证 | `security-scan.yml:118-125` |
+| 3 | **fail-closed 总则**：BASE 空/全零、根 diff 失败、rev-parse/fetch/内部 diff 失败 → `fail_closed()` 判 true；注释引用 2026-10-01 修正与本次决策 | `security-scan.yml:53-77` |
+| 4 | `changes` job checkout `submodules: false → recursive`（B 分支需读子模块对象）；python-audit / node-audit 两处 `true → recursive`（扫描前确保锁文件可达，防未来嵌套——现状两子模块均无自身 `.gitmodules`） | `security-scan.yml:47,146,201` |
+| 5 | `dev.txt` `# ruff` 注释行 → **`ruff==0.17.1`** + 常设指令（按需或至多月度、升级=单独可审计提交、本地 `ruff check`+`format --check` 双绿后提交并落账、暂不配 bot→本条目） | `requirements/dev.txt:57` |
+| 6 | `ci.yml` 两处裸装 → `pip install -r requirements/dev.txt` + **`ruff --version` 取证行**（backend-lint、C90；pytest 本就在 dev.txt） | `ci.yml:32-33,88-89` |
+| 7 | 根 `AGENTS.md` §6 SC-8 执行状态注记②同步：「依赖文件」定义补「根仓正则命中 **或** 已知子模块 gitlink 变更且内部 deps glob diff 非空，链路失败 fail-closed」 | `AGENTS.md:241` |
+
+未触发 `[HALT]`：探测为安全下限不变的精度化、钉版为既声明版本落地，均经用户明示批准；§5.4 不触发沙盒（无阈值收紧，失败态安全下限恒等于全审计）。
+
+### 四、对抗审核
+
+- **正则零改动核验**：`git diff` 中 regex 字面量行 0 删除 0 新增（context 行），grep 现文件 `security-scan.yml:122` 与原字节一致。
+- **仿真 harness 纪律**：从生产 yml 程序化提取 run 块，仅两处桩替换（BASE 的 GitHub 表达式行、git diff 注入点），其余与生产一字不差；harness 不入库。**坑留痕**：系统 `bash.exe` 是 WSL（路径不可见，首轮 0/10 假红），改用 `C:\Program Files\Git\bin\bash.exe` 后 11/11；`GITHUB_OUTPUT` 双行残留系本地文件未清（GitHub runner 每 step 新文件，无此问题）。
+- **防误触**：裸名 `grep -qx` 全行匹配——合成 `asset_management_backend_old` 不进 B、不中 A（Case 6 false）；「指针未变」防御分支覆盖（Case 7）。
+- **不早退设计**：真实提交对上 A、B 两分支各自打印命中证据后合并输出（本地 Case 11 与 CI Run A changes job 日志均双证）。
+- **升级机制反向收益识别**：formatter 钉版后再配周更 bot 会自我拆台（format churn），故 ruff 刻意排除在 version-updates 之外——决策理由入 §二，防未来「补 dependabot」顺手误配。
+
+### 五、验证记录（本地先证 + CI job 级直证）
+
+```text
+【本地仿真 11/11 PASS】（harness 提取生产 run 块）
+  B-clean(347983b..ce0a918 纯 gitlink,内部仅 format)->false ／ B-true(根提交..HEAD 内部 deps 大 diff)->true
+  A-hit(workflow yml / 合成路径 / 根仓式 deps 路径)->true ×3 ／ zero-base->true
+  git-diff-fail->fail-closed true ／ rev-parse-fail->fail-closed true
+  prefix-decoy(asset_management_backend_old)->false ／ pointer-unchanged->false
+【本地 Case 11：真实待推提交对 87da3c6..4610676 跑生产脚本本体】
+  命中 gitlink: asset_management_backend → 内部依赖文件变更：requirements/dev.txt
+  命中根仓依赖文件路径 → deps-changed=true（A/B 双分支真链路）
+【静态】yaml.safe_load ×3 合法（ci 15 jobs / security 6 / ci-cd 3）；
+  python -m ruff 0.17.1 check 0 + format --check 400 files already formatted（=钉版=CI）
+【CI Run A @4610676（backend 先推 724213d，根仓门禁提交随后）】
+  Security run 39098922710 success（job 级）：依赖变更探测日志直证
+    「命中 gitlink: asset_management_backend…内部依赖文件变更：requirements/dev.txt」
+    +「命中根仓依赖文件路径」+「Set output deps-changed」→
+    pip-audit success（豁免保持）／ npm audit success ／ 密钥扫描 success ／ 汇总 success ／ 周报 skipped(schedule)
+  CI run 39098922684 completed success（15/15 含汇总）：
+    backend-lint「Collecting ruff==0.17.1 (from -r requirements/dev.txt (line 57))」→「ruff 0.17.1」→ success
+    C90 同证「ruff 0.17.1」→ success；护栏自测/后端测试+覆盖率/双变异/M-3×2/B4/前端三项全 success
+  CD @4610676 completed success
+【Run B（本条目所在 docs push）】预期降噪路径：无 gitlink/无 yml → deps-changed=false → 双 audit skipped
+  + 汇总 success——push 后核对，结果不回写本行（防自我引用循环），见审计票。
+```
+
+### 六、遗留与关联事项
+
+- **未验证项（据实标注）**：① `B-clean → false` 的 **CI 直证**待下一次纯代码 backend push（本地 Case 1 同型历史对已证 347983b..ce0a918）；② `cat-file` 缺失→fetch 兜底分支仅代码审查（rev-parse-fail / git-diff-fail 两 fail-closed 分支已仿真直证；cat-file 失败态本地难以构造——对象全在）；③ schedule 每周全量周扫从未执行过；④ 安全报告 artifact（豁免下是否仍记录 twisted）仍未下载核验（承 BF-102）。
+- **ruff 显式升级机制（决策落档）**：现在**不配** dependabot/bot；常设指令在 `dev.txt:57` 注释区。**启用触发条件（任一命中即启用 bot）**：(a) 8 周内 ≥2 次安全周扫红灯需响应式修复；(b) 再现「无修复版 CVE」（twisted 先例，豁免流程成本高）；(c) 4 周内生产依赖新增 ≥2 条 advisory。
+- **预置启用设计（3 落点，可行性已核——dependabot 只能更新配置所在仓的文件，而 requirements 在 backend 子模块仓、package.json 在 vue 子模块仓、两子模块仓均无自带 CI）**：① `vue-assetmanagement` 仓 npm（**security-updates only**，历史热点优先）→ ② `asset_management_backend` 仓 pip（**security-updates only**）→ ③ 根仓 github-actions（version updates）。**跨仓 gitlink bump 为生效前置**（子模块仓合并后须根仓推进指针才进本仓门禁）。ruff 若启用须排除 version-updates（§四 末条防自我拆台）。
+- **关联**：BF-102（§六 双遗留本条闭合）、BF-067（fail-closed 修正与 advisory 时序案型先例）、BF-100（响应式修复闭环先例）、根级 AGENTS §6 SC-8 注记（已同步，v3.7.x 系列内联注记非正文版本变更）。
+- **工具链留痕**：Git Bash 实体 = `C:\Program Files\Git\bin\bash.exe`（系统 PATH 的 `bash.exe` 是 WSL，脚本类任务勿再踩）；本地 ruff 于系统 Python（`python -m ruff`，非 backend .venv）。
+
+*登记人：opencode ｜ 状态：【已关闭】（用户双决策落定→本地仿真 11/11 + 真实对双分支 → Run A 三 workflow 全绿 job 级直证；升级触发条件与 3 落点预设计已落档），2026-10-18*
