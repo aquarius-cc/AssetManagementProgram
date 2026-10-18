@@ -26,7 +26,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - run: pip install ruff pytest
+      # 【BF-103】原 `pip install ruff pytest` 裸装最新版 → 本地/CI 版本漂移
+      # （ruff format --check 本地漏报而 CI 红）。改强制读 dev.txt：ruff==0.17.1
+      # 钉版（pytest 本就在 dev.txt），CT-7 门禁结论与声明版本对齐。
+      - run: pip install -r requirements/dev.txt
+      - run: ruff --version
       - name: Ruff 代码规范检查
         run: ruff check .
       - name: Ruff 格式检查
@@ -79,7 +83,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - run: pip install ruff
+      # 【BF-103】同 backend-lint：禁裸装 ruff，钉版统一走 dev.txt（C90 只用 ruff，
+      # 装完整 dev 树是接受的代价，日后嫌重再抽 lint.txt，不在本次范围）
+      - run: pip install -r requirements/dev.txt
+      - run: ruff --version
       - name: 圈复杂度检查（上限10）
         run: ruff check . --select C90 --config lint.mccabe.max-complexity=10
 

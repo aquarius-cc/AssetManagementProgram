@@ -23,6 +23,18 @@ jobs:
   # workflow 不运行 → check 永不出现 → 日后一旦列入 GitHub required checks，
   # PR 将永久挂起（GitHub 不把「未上报」视为通过）。job 级 if: 下 workflow
   # 每次都运行，Security 汇总必定上报结论。
+  # 【检测链改造 2026-10-17，经用户批准（选项2，BF-103）】原实现只在根仓 diff 上
+  # 跑一条 deps 正则，但根仓中两子模块是 gitlink——子模块内任何变更（含其
+  # requirements/package.json 提交）在根 diff 里只输出裸路径 `asset_management_backend`
+  # / `vue-assetmanagement`，正则里 `asset_management_backend/requirements/` 一类前缀
+  # 永不可达 → 纯子模块依赖提交曾被整体漏判（ce0a918 案，BF-102 §六）。新链路：
+  #   A. 根仓 deps 正则（原正则一字不动，含 workflow 自身路径）；或
+  #   B. 命中已知 gitlink 裸路径时，rev-parse 取新旧指针 sha，进子模块内对 deps
+  #      glob 精确 diff（backend: requirements/ pyproject.toml Dockerfile；
+  #      vue: package.json package-lock.json），非空才算变更。
+  #   链路任何异常（rev-parse / cat-file / fetch / 内部 diff 失败）→ fail-closed
+  #   判 true，退化为全量审计——即「失败态恒等于 gitlink 即触发」的安全下限。
+  # 设计取舍：正常态只审计真依赖变更（省 CI、避 advisory 时序红灯），失败态不漏。
   changes:
     name: "依赖变更探测"
     runs-on: ubuntu-latest
@@ -31,12 +43,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0        # base.sha 须可达（PR 默认浅克隆只有 merge commit）
-          submodules: false     # 仅比对路径，无需子模块内容
+          fetch-depth: 0         # base.sha 须可达（PR 默认浅克隆只有 merge commit）
+          submodules: recursive  # B 分支须读子模块内部对象（rev-parse/cat-file/内部 diff）
       - name: 比对依赖文件
         id: detect
         run: |
           set -euo pipefail
+
+          fail_closed() {
+            echo "⚠️ $1 → 按全量审计处理（fail-closed）"
+            echo "deps-changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+
           BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
           # schedule / workflow_dispatch 无 before；仓库首个推送的 before 亦为全 0
           if [ -z "${BASE}" ] || [ "${BASE}" = "0000000000000000000000000000000000000000" ]; then
@@ -50,21 +69,67 @@ jobs:
           # 落入 else → deps-changed=false → 审计被静默跳过而汇总仍报 success，
           # 等于给门禁开了 fail-open 后门。改为把 git 的退出码与 grep 的匹配
           # 结果彻底分开：git 失败即按全量审计处理。
-          #
+          if ! DIFF_OUT="$(git diff --name-only "$BASE" "$GITHUB_SHA")"; then
+            fail_closed "无法比对基线（git diff 失败）"
+          fi
+
+          FOUND=false
+
+          # ============ B 分支：已知子模块 gitlink → 内部 deps 精确比对 ============
+          for sub in asset_management_backend vue-assetmanagement; do
+            printf '%s\n' "$DIFF_OUT" | grep -qx "$sub" || continue
+            echo "命中 gitlink: $sub → 进入子模块内部精确比对"
+            # 用树对象查询取指针 sha（不解析 diff 文本，稳）；新子模块(BASE无)或
+            # 已删子模块(HEAD无)解析失败，按 parse 异常 fail-closed。
+            OLD_SHA="$(git rev-parse "$BASE:$sub" 2>/dev/null)" \
+              || fail_closed "rev-parse 旧指针失败 ($BASE:$sub)"
+            NEW_SHA="$(git rev-parse "$GITHUB_SHA:$sub" 2>/dev/null)" \
+              || fail_closed "rev-parse 新指针失败 ($GITHUB_SHA:$sub)"
+            if [ "$OLD_SHA" = "$NEW_SHA" ]; then
+              echo "指针未变 → 跳过 $sub"
+              continue
+            fi
+            # checkout(submodules: recursive) 按新指针检出，旧指针对象大概率已随
+            # fetch-depth: 0 历史在本地；缺失则 fetch 兜底，仍缺失 fail-closed。
+            for sha in "$OLD_SHA" "$NEW_SHA"; do
+              if ! git -C "$sub" cat-file -e "$sha^{commit}" 2>/dev/null; then
+                echo "$sub 缺少对象 $sha → fetch 兜底"
+                git -C "$sub" fetch origin || true
+                git -C "$sub" cat-file -e "$sha^{commit}" 2>/dev/null \
+                  || fail_closed "$sub 对象 $sha fetch 后仍不可达"
+              fi
+            done
+            case "$sub" in
+              asset_management_backend) GLOBS=(requirements/ pyproject.toml Dockerfile) ;;
+              vue-assetmanagement)      GLOBS=(package.json package-lock.json) ;;
+            esac
+            if ! CHANGED="$(git -C "$sub" diff --name-only "$OLD_SHA" "$NEW_SHA" -- "${GLOBS[@]}")"; then
+              fail_closed "$sub 内部 diff 失败"
+            fi
+            if [ -n "$CHANGED" ]; then
+              echo "子模块 $sub 内部依赖文件变更："
+              printf '%s\n' "$CHANGED"
+              FOUND=true
+            else
+              echo "子模块 $sub 指针变更，内部依赖文件干净 → 不因该子模块触发"
+            fi
+          done
+
+          # ============ A 分支：根仓 deps 正则（原正则保留，一字未动）============
           # Dockerfile 入选依据：它 FROM python:3.12.8-slim-bookworm 钉了基础镜像
           # tag，改动会改变镜像内依赖集合（实测它只装 base.txt、不装 dev.txt）
-          if ! DIFF_OUT="$(git diff --name-only "$BASE" "$GITHUB_SHA")"; then
-            echo "⚠️ 无法比对基线（git 失败）→ 按全量审计处理（fail-closed）"
-            echo "deps-changed=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           if printf '%s\n' "$DIFF_OUT" | grep -qE \
             '^(asset_management_backend/requirements/|asset_management_backend/(pyproject\.toml|Dockerfile)|vue-assetmanagement/package(-lock)?\.json$|\.github/workflows/security-scan\.yml$)'; then
-            echo "依赖文件有变更 → 需审计"
+            echo "命中根仓依赖文件路径"
+            FOUND=true
+          fi
+
+          if [ "$FOUND" = true ]; then
             echo "deps-changed=true" >> "$GITHUB_OUTPUT"
+            echo "依赖有变更 → 需审计"
           else
-            echo "依赖文件无变更 → 跳过 audit（schedule 仍全量）"
             echo "deps-changed=false" >> "$GITHUB_OUTPUT"
+            echo "依赖文件无变更 → 跳过 audit（schedule 仍全量）"
           fi
 
   python-audit:
@@ -78,7 +143,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive  # 扫描前确保子模块内锁文件可达（含未来嵌套）
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -133,7 +198,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive  # 扫描前确保子模块内锁文件可达（含未来嵌套）
       - uses: actions/setup-node@v4
         with:
           node-version: "20"

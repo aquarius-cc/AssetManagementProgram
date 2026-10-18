@@ -238,7 +238,11 @@ AI 在任务完成后，必须输出以下审计票：
 >    severity 字段大量为空，按 severity 过滤会静默放行一批漏洞，属安全回退。
 > ② **触发降噪**。audit 为重活（解析全依赖树 / `npm ci` 全量安装），而 advisory DB 持续新增条目——
 >    axios 在 run 102 为绿、run 103 因 DB 新增转红，同一 lockfile 零代码变更。故 PR/push 仅在依赖文件
->    变更时执行 audit，**schedule 每周全量兜底**（SC-8），另设 `workflow_dispatch` 供手动全量重扫。
+>    变更时执行 audit——【2026-10-17 检测精确化，BF-103】此处「依赖文件」定义为：根仓 deps 正则
+>    命中 **或** 已知子模块 gitlink 变更且子模块内部 deps glob diff 非空（原正则的
+>    `子模块路径/` 前缀在根 diff 中永不可达，纯子模块依赖提交曾被漏判）；探测链任一环节
+>    失败 fail-closed 按全量审计，安全下限恒等于「变更即全审」。**schedule 每周全量兜底**（SC-8），
+>    另设 `workflow_dispatch` 供手动全量重扫。
 >    实现用 job 级 `if:` 而非触发级 `paths:`，否则 workflow 不运行、check 永不出现，日后列入
 >    required checks 将使 PR 永久挂起。依赖探测的 `git diff` 失败按 fail-closed 处理（按全量审计），
 >    不得静默跳过。
