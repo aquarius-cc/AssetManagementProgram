@@ -1635,7 +1635,14 @@ ruff check                    → 0（两目标文件）✅
 跨端契约                      → 未破坏；api-schema-baseline.json 无需重导出 ✅
 ```
 
-*登记人：big-pickle ｜ 状态：已关闭（纯文档 + 零删码 + 门禁绿），2026-09-21*
+### 五、裁定反转（2026-10-19，随批次 C / BF-113 执行）
+
+- **反转结论**：本条 #32 的「零删码」裁定被**推翻**——用户拍板②A：删除 5 个 0-caller 具名方法（`broken_lost_repair` 的 `reject_to_broken`/`reject_to_lost`、`scrapping` 的 `reject_to_in_use`/`reject_to_recycled_pending`/`reject_to_repairing`），`transitions.py` DAMAGED 块 5 行名值改指 `reject_to_original`（键=边集不动）。
+- **反转依据**：原裁定二.2 已自认「值字符串仅为文档元数据、全仓无方法名分派」，二.3 已证 5 方法 0 生产调用——具名实现面的价值主张在 AUD-08 复核中被判定为零功能消费，且 `reject_to_in_use` docstring 内嵌 `transitions.py:63` 行号引用为持续漂移源；回退全集由 `_REJECT_TARGETS` 白名单 + `reject_to_original(original_status)` 承载，二.3 的「5 目标已测试锚定」事实**仍然成立且用例未删**（`test_damaged_asset_service.py` 98 passed 直证）。
+- **历史保全**：上文一~四段为 2026-09-21 时点裁定原文，不作回溯改写（留痕口径先例：BF-069「非缺陷改判」）。
+- **双向互指**：执行条目见 **BF-113**（改动清单与验证记录）。
+
+*登记人：big-pickle ｜ 状态：已关闭（纯文档 + 零删码 + 门禁绿），2026-09-21 ｜ **2026-10-19 反转**（批次 C 删 5 具名方法，见五 / BF-113）*
 
 ## BF-029 【已关闭】安全加固 + DRY 收口批量（审查报告 #33~#37）
 
@@ -7746,3 +7753,263 @@ twisted 事实链：`requirements/base.txt:85 daphne==4.2.2 → twisted 26.4.0`�
 - **代码未提交**：随批次一提交。
 
 *登记人：opencode ｜ 状态：【已关闭】（死列整列移除 + 颜色单源收敛 + 红 7×/变异红绿双证 + 前端 2196 tests exit 0 + 门禁全绿），2026-10-19*
+
+## BF-111 【已关闭】AUD-06 操作日志第二套写入：5 处 `AssetOperationLog.objects.create` 直写收敛至 `OperationLogService.log_operation`（登记来源：codegraph-audit-2026-10-18 #AUD-06 P2）
+
+> **登记时间**：2026-10-19 ｜ **严重级别**：Medium（P2，批次 C 五条之一）
+> **登记来源**：`docs/Review/codegraph-audit-2026-10-18.md` #AUD-06（2.2 表已划线标记 + 「修复追踪」双向互指）
+> **影响范围**：`services/asset_lifecycle_mixin.py`（审计时点 `:71`/`:204` → 修后 `:72`/`:205`）、`services/repair_asset_service.py`（审计时点 `:108`/`:125`/`:289`，批次 A 插码后本批改前实测 `:121`/`:138`/`:308` → 修后 `:122`/`:139`/`:309`）+ 两文件各 1 模块级 import；**无契约变更**（操作日志字段与值 1:1）
+
+### 一、问题现象
+
+操作日志唯一写入入口应为 `operation_log_service._insert_operation_log`（`:77`，内含 `_validate_operation_params` 参数校验 + `_to_json_safe` JSON 归一化）；维修域 3 处 + broken/lost 生命周期域 2 处直接 `objects.create` 绕过两者，并重复 7 字段赋值模板——日后新增字段/嵌套对象时校验与归一化会被静默跳过（DR-1）。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 双实现成因 | `log_operation` 收敛层晚于写点引入，存量直写未回迁 |
+| 2 | 字段模板重复 | 5 处各自内联 `asset_code/operation_type/description/asset_name/asset_specification/operator_jobcode/operator_name` 7 字段字面量 |
+
+### 三、修复方案（用户拍板：直接复用既有 `OperationLogService.log_operation`，不新抽 helper）
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | mixin 2 处直写 → `OperationLogService.log_operation(...)`（`_run_lifecycle_transition` broken/lost 共用 helper 的 `operation_type` 透传点 修后 `:72` + 找回 FOUND 点 修后 `:205`） | `asset_lifecycle_mixin.py` |
+| 2 | repair 3 处直写 → 同上（REPAIR / REPAIR_DONE / REPAIR_FAILED 三操作类型） | `repair_asset_service.py` |
+| 3 | 两文件补 `from apps.assetmanagement.services.operation_log_service import OperationLogService`（模块级导入，先例 `audit.py:33`） | 同上 |
+
+kwargs 按 `log_operation` 签名序重排（asset_code → operation_type → description → asset_name → asset_specification → operator_jobcode → operator_name）。未触发 `[HALT]`：不改 API 响应结构/枚举值/状态机路径。
+
+### 四、对抗审核
+
+- **字段 1:1 零漂移**：5 个写点修前均不传 `ip_address`，`log_operation` 亦无 ip 兜底 → NULL 语义不变；操作类型与描述逐字保留（三域 262 passed 直证）。
+- **无循环导入**：`operation_log_service` 仅依赖 models/selectors；mixin/repair → service 单向（mypy + pytest 实证）。
+- **事务语义不劣化**：`log_operation` 为 `@classmethod @transaction.atomic`，嵌套于调用方事务时降级为 savepoint，原子性与原直写等价。
+- **收敛验收**：`rg -n "AssetOperationLog.objects.create" apps -g "!**/test*"` → 唯一命中 `operation_log_service.py:77`（唯一合法直写点）。
+
+### 五、验证记录
+
+```text
+rg（非测试）                          → 仅 operation_log_service.py:77 ✅
+靶向 pytest（repair/lifecycle/operation_log 三域 11 文件）→ 262 passed / 0 failed（130.84s）✅
+mypy（两目标文件）                    → Success: no issues ✅
+ruff check（两目标文件）              → All checks passed ✅
+批次矩阵（全量/覆盖率/静态门禁）      → 见报告「修复追踪」批次 C 段
+```
+
+### 六、遗留与关联事项
+
+- 无新增遗留；mutmut 留 CI（同批次先例），批次级验证统一记录于报告「修复追踪」。
+
+*登记人：opencode ｜ 状态：【已关闭】（5 直写点收敛 + 字段 1:1 + rg 单点 + 三域 262 passed），2026-10-19*
+
+## BF-112 【已关闭】AUD-07 `get_operations_by_type` 行级隔离潜伏后门：拍板①整方法删除（登记来源：codegraph-audit-2026-10-18 #AUD-07 P2）
+
+> **登记时间**：2026-10-19 ｜ **严重级别**：Medium（P2，批次 C 五条之一）
+> **登记来源**：`docs/Review/codegraph-audit-2026-10-18.md` #AUD-07（2.2 表已划线 + 「修复追踪」双向互指）
+> **影响范围**：`selectors/operation_log_selector.py`（模块 docstring 修前 `:8` + 方法修前 `:66-69`）、`services/operation_log_service.py`（透传修前 `:442-445`）、`tests/test_operation_log_service.py`（用例修前 `:226-230`）、`tests/test_operation_log_mutants.py`（`TestGetOperationsByTypeMutants` 整类修前 `:640-648`）；**无契约变更**（无端点接线）
+
+### 一、问题现象
+
+`OperationLogSelector.get_operations_by_type(operation_type)` **无 `user` 参数、不套 `_scope_by_user`**，与同文件 `build_operation_logs_queryset` 自身声明的「【安全 - 不可省略 user】本方法内强制套用 `_scope_by_user`」（修前 `:123` 附近，审计时点 `:129-134`）口径直接矛盾。生产调用仅 service 薄封装一层、**无 View 接线**，当前不可达——属「日后有人直接接线即越权」的潜伏后门。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 隔离口径缺口 | 历史方法未随 `_scope_by_user` 行级隔离体系补齐 user 维度 |
+| 2 | 死代码 | `codegraph callers` + `rg` 双证：0 生产调用，仅 2 个测试经 service 薄封装调用 |
+
+### 三、修复方案（用户拍板：①整方法删除，取代原「补 user 参数改作用域」备选）
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | 删方法 `get_operations_by_type`（修前 `:66-69`）+ 模块 docstring 方法清单行（修前 `:8`） | `operation_log_selector.py` |
+| 2 | 删 service 薄封装透传（修前 `:442-445`） | `operation_log_service.py` |
+| 3 | 删用例 `test_get_operations_by_type`（修前 `:226-230`） | `tests/test_operation_log_service.py` |
+| 4 | 删 mutants 测试整类 `TestGetOperationsByTypeMutants`（修前 `:640-648`） | `tests/test_operation_log_mutants.py` |
+
+类型维度过滤能力不丢失：由带强制隔离的 `build_operation_logs_queryset`（`:113`，`operation_type` 参数 `:116`、过滤 `:139-140`、返回前强制 `_scope_by_user:148`）经 `query_operation_logs`（`:151`）出面承载。未触发 `[HALT]`：删死代码、无对外 API 变化。
+
+### 四、对抗审核
+
+- **删除安全性**：`rg -n "get_operations_by_type" .`（backend 全仓含 docs）修前枚举 = 恰 4 落点 8 命中、0 生产调用；修后 **0 命中（RG-CLEAN）**。
+- **能力替代实证**：`build_operation_logs_queryset` 的 `operation_type` 过滤 + 强制隔离逐行核实（`:116/:139/:148`），按类型查日志的合法需求有带隔离的入口，删除不产生能力空洞。
+- **测试删减对账**：本条删 2 用例（1 直调 + mutants 1 整类）；批次矩阵全量 1998 = 2009 − 11（AUD-11 的 9 + 本条 2），无 collateral loss。
+
+### 五、验证记录
+
+```text
+rg -n "get_operations_by_type" .        → RG-CLEAN 0 命中（全仓含 docs）✅
+pytest 两测试文件                       → 73 passed / 0 failed（46.32s）✅
+ruff check（4 目标文件）                → All checks passed ✅
+批次矩阵                                → 见报告「修复追踪」批次 C 段
+```
+
+### 六、遗留与关联事项
+
+- 无新增遗留；原建议「补 user 参数」路径随拍板①作废，报告「修复建议」列保留审计时点原文，取代关系见报告「修复追踪」。
+
+*登记人：opencode ｜ 状态：【已关闭】（整方法删除 + 全仓 0 命中 + 能力替代实证 + 73 passed），2026-10-19*
+
+## BF-113 【已关闭】AUD-08 转发表-实现断裂：5 个 0-caller `reject_to_*` 具名方法删除 + 表项改指 `reject_to_original`（拍板②A，推翻 BF-028）（登记来源：codegraph-audit-2026-10-18 #AUD-08 P2）
+
+> **登记时间**：2026-10-19 ｜ **严重级别**：Medium（P2，批次 C 五条之一）
+> **登记来源**：`docs/Review/codegraph-audit-2026-10-18.md` #AUD-08（2.2 表已划线 + 「修复追踪」双向互指）
+> **影响范围**：`state_machine/broken_lost_repair.py`（删修前 `:74-104` 两方法 + 类 docstring `:18` 订正）、`state_machine/scrapping.py`（删修前 `:135-191` 三方法 + 注释块 `:20-26` 重写 + 类 docstring `:18` 订正）、`state_machine/transitions.py`（DAMAGED 块修后 `:59-71`，5 名值改指）；**无契约变更**（键集与值域不变，8 态枚举/22 边/端点零变化）
+
+### 一、问题现象
+
+`VALID_TRANSITIONS[DAMAGED]` 转发表 5 行声称 `reject_to_broken/lost/in_use/recycled_pending/repairing` 具名转换，但 5 方法 `codegraph callers` 全部 **0 caller**；回退实际由 `reject_to_original(asset, original_status)`（自校验 + `_REJECT_TARGETS` 白名单 + 直接赋值）承载。`scrapping.py:23-26` 防误报注释引用的测试名与真实调用链不符；`reject_to_in_use` docstring 内嵌 `transitions.py:63` 行号引用随任何编辑必漂移。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 无方法名分派 | `core.py:67` 仅 `if target_state not in VALID_TRANSITIONS.get(current, {})` 消费**键**；全仓 `VALID_TRANSITIONS` 消费方 = core import + 注释，值字符串零 `getattr` 分派（与 BF-028 二.2 自认事实一致） |
+| 2 | 双轨校验语义 | 具名方法走 `_transition`（拒绝非 damaged 源），`reject_to_original` 自校验——两套语义并存即漂移点，且前者零消费 |
+
+### 三、修复方案（用户拍板：②A 删除 5 方法 + 表项改指，取代原「保留并补直调用例」备选；推翻 BF-028「零删码」裁定）
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | 删 `reject_to_broken`/`reject_to_lost`（修前 `:74-104`）；类 docstring 删 `reject_to_broken/lost` 清单项 | `broken_lost_repair.py` |
+| 2 | 删 `reject_to_in_use`/`reject_to_recycled_pending`/`reject_to_repairing`（修前 `:135-191` 至 EOF，含「防御性方法」注释） | `scrapping.py` |
+| 3 | `:20-26` 防误报注释块重写为变更留痕（BF-113 + 推翻 BF-028 + 「勿再补回具名包装方法」）；类 docstring `:18` → `to_damaged、cancel_damaged、approve、reject_to_original` | `scrapping.py` |
+| 4 | DAMAGED 块 5 行值 → `"reject_to_original"`（键=边集不动），块前补注「target 由 original_status 参数表达 / 值仅标注、无分派消费」 | `transitions.py:59-71` |
+| 5 | 账本 BF-028 追加 §五 反转段（双向互指本条） | `docs/BugFixed/Bug修复活账本.md` |
+
+未触发 `[HALT]`：状态机**主流转路径的边集（键）增删为零**——仅改值字符串（无行为消费方），8 态枚举、22 边、端点契约均不变。
+
+### 四、对抗审核
+
+- **零行为实证**：`core.py:67` 只消费键（修前/修后同构）；`rg VALID_TRANSITIONS` 消费方枚举确认值无分派；`_REJECT_TARGETS` 白名单（5 目标）与 `reject_to_original`/`cancel_damaged` 保留未动。
+- **测试名非调用**：`test_damaged_asset_service.py:244/:271` 为**函数名**（真实链路 View → `damaged_asset_service.py:250` → `reject_to_original`），不直调被删方法——98 passed 直证。
+- **rg 分层验收**：非测试（apps+core）`reject_to_` 仅 `reject_to_original` + 本批变更留痕注释；5 个具名方法名零命中。设计文档 `2026-06-29-broken-lost-status-design.md` 4 处为日期化历史快照（非现况声明），按批次惯例保留不改。
+
+### 五、验证记录
+
+```text
+rg "reject_to_" apps core -g "!**/test*"   → 仅 reject_to_original + 变更留痕 ✅
+pytest test_state_machine + test_damaged_asset_service → 98 passed / 0 failed（25.08s）✅
+mypy state_machine/（9 文件）               → Success ✅
+ruff check state_machine/                   → All checks passed ✅
+批次矩阵                                    → 见报告「修复追踪」批次 C 段
+```
+
+### 六、遗留与关联事项
+
+- **DAMAGED→IN_USE 表边业务不可达漂移**（`original_status` 永不为 in_use、`reject_to_original` 对其兜底 recycled_pending）——原登记项不变，批次 D 候选（表边语义 vs 业务可达性裁决，涉转发表键集变化，须独立拍板）。
+- **BF-028 反转段**已写入账本 BF-028 §五（原一~四段 2026-09-21 时点裁定原文保全不改写）。
+
+*登记人：opencode ｜ 状态：【已关闭】（5 方法删除 + 表 5 名值改指 + 注释/docstring 订正 + BF-028 反转 + 98 passed），2026-10-19*
+
+## BF-114 【已关闭】AUD-11 死代码簇：adapter/querysets 整文件删除 + waste 创建×2 删除（④`outasset_selector` 聚合门面拍板③保留·误判订正）（登记来源：codegraph-audit-2026-10-18 #AUD-11 P2）
+
+> **登记时间**：2026-10-19 ｜ **严重级别**：Medium（P2，批次 C 五条之一）
+> **登记来源**：`docs/Review/codegraph-audit-2026-10-18.md` #AUD-11（2.2 表已划线 + 「修复追踪」双向互指）
+> **影响范围**：`apps/unregisteredasset/state_machine_adapter.py`（整文件删，151 行）、`apps/assetmanagement/querysets.py`（整文件删）、`services/waste_asset_service.py`（删修前 `:25-62`/`:64-107` 两方法 + 死 import，修后 `cancel_waste_asset:25`/`batch_delete_waste_assets:57`）、`tests/test_waste_asset_service.py`（删 9 用例 + fixture + 死导入，存 3 用例）、`docs/compose/specs/2026-06-29-model-split-refactor-design.md:482`、`docs/CODE_KNOWLEDGE_GRAPH.md`（4 行）；**④`selectors/outasset_selector.py` 保留未动**；无契约变更
+
+### 一、问题现象
+
+① `state_machine_adapter.py` 151 行第二套 FSM 封装，全仓引用**仅其自身 docstring**，生产直连 `AssetFSM`；② `WasteAssetService.create_waste_asset`/`create_from_damaged_asset` 生产零调用（View 已 405 禁止直建，WasteAsset 实由 `damaged_asset_service.py` 内联创建），`AssetFSM.approve` 成不可达路径；③ `querysets.py` 遗留未删、设计文档完成清单勾选框未销（审计「三处勾选框」实核为 **1 处真勾选框 `:482`** + 2 处计划表记录 `:54`/`:365`——步骤表无状态列，系历史计划不改）；④ 审计称 `outasset_selector.py`「仅再导出 `OutAssetSelector`」双名并存——**实测该文件为 8 个 Selector 类的向后兼容聚合门面（`__all__` 8 项）**，表述不准。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | adapter | unregistered 域历史包装层，`handlers.py` 改直连 `AssetFSM` 后整文件失去消费方 |
+| 2 | waste 创建×2 | 报废创建路径统一收敛至 `DamagedAssetService.approve`（`:166` 区内联建 WasteAsset），服务端双轨废弃 |
+| 3 | querysets | model-split 重构遗留物；设计文档勾选框忘销 |
+| 4 | ④ shim | 审计时点仅抓 `OutAssetSelector` 一例，漏看 `__all__` 其余 7 类——**非重复定义而是聚合门面** |
+
+### 三、修复方案（用户拍板：①②③删除 + ④保留与误判订正）
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `git rm` adapter（删前全仓引用复核=仅自身 docstring） | `apps/unregisteredasset/state_machine_adapter.py` |
+| 2 | `git rm` querysets（0 导入引用；`models/asset.py` 自有活 `AssetQuerySet` 系另一模块不受影响） | `apps/assetmanagement/querysets.py` |
+| 3 | 删 `create_waste_asset`/`create_from_damaged_asset` + 死 import（timezone/Asset/DamagedAsset/AssetFSM/InvalidTransitionError）；docstring 更新为「创建路径见 DamagedAssetService.approve 内联」 | `waste_asset_service.py` |
+| 4 | 删 `TestCreateWasteAsset` + `TestCreateFromDamagedAsset` 9 用例 + `pending_damaged_asset` fixture + 死导入（Any/AssetType/Storage）；保留 `TestCancelWasteAsset` 3 用例 | `tests/test_waste_asset_service.py` |
+| 5 | 设计文档勾选框 → `- [x] querysets.py已删除（BF-114，2026-10-19 批次 C 执行）` | `model-split-refactor-design.md:482` |
+| 6 | 知识图谱 3 处失效引用 4 行修复（明细见四） | `docs/CODE_KNOWLEDGE_GRAPH.md` |
+| 7 | ④ **保留**，本条登记误判订正 | `selectors/outasset_selector.py`（未动） |
+
+未触发 `[HALT]`：删死代码（0 生产调用双证），不动数据库字段/枚举值/状态机路径。
+
+### 四、对抗审核
+
+- **删前引用复核**：adapter `rg` 全仓仅自身 docstring；querysets 0 导入；waste 两方法 0 生产调用（View 405 + `rg` 双证）；`cancel_waste_asset` 同文件活调用（修后 `:72` 批量删除依赖）与 `batch_delete_waste_assets` 保留。
+- **图谱修复明细（新发现，不静默）**：`:216` 表行 → `cancel_waste_asset(), batch_delete_waste_assets()`；删 S9 节点（原 `:441`）；`S6 --> S9` → `S6 --> M6`；删 S9 两入边（原 `:504/:505`）；删原 `:570` 幽灵调用行 `WasteAssetService.create_from_damaged_asset()`（邻接原 `:571` 的 Model 行才是真实机制——approve 内联创建）。
+- **误删防护**：waste 3 用例全绿；`models/asset.py` 的 `AssetQuerySet` 与被删 `querysets.py` 同名不同源未受连累（unregisteredasset 146 passed 含相关回归）。
+- **④保留依据**：实读 `outasset_selector.py` = 27 行、re-export 8 类 + `__all__`（Broken/Damaged/Found/Lost/Out/Recycle/Repair/WasteAssetSelector），系向后兼容聚合层（与「删除聚合层」建议相反，拍板③保留）。
+
+### 五、验证记录
+
+```text
+rg 残留（adapter / querysets / waste 两方法名）→ 0 命中 ✅
+pytest test_waste_asset_service.py → 3 passed（10.2s）✅
+pytest apps/unregisteredasset      → 146 passed（320s，首跑冷启动）✅
+ruff check 目标文件                → All checks passed ✅
+批次矩阵                           → 见报告「修复追踪」批次 C 段
+```
+
+### 六、遗留与关联事项
+
+- **`docs/CODE_KNOWLEDGE_GRAPH.md` 既有失真 6 处**（本次顺带发现、未修，属图谱快照与代码的既有漂移）：`:567` 旧方法名（approve_damaged_asset vs 实际 approve_asset_recordcode）、`:568` 错 selector、`:573` 幽灵 `AssetStateManager.on_damaged_approved`（全仓 0 命中）、`:575` `log_asset_approve`、图 S6 旧名、SEL5 无入边——批次外待清或加注快照日期。
+- **报告「修复建议」列保留审计时点原文**（4 件套删除），实际执行为 3 删 + 1 保留订正（拍板③），取代关系已在报告「修复追踪」注明。
+
+*登记人：opencode ｜ 状态：【已关闭】（2 整文件 + waste 创建×2 删除 + 文档销项 + 图谱 4 行修复 + ④保留订正 + 146/3 passed），2026-10-19*
+
+## BF-115 【已关闭】AUD-23 notification app 布局三件：测试移位 `tests/` + `service.py`→`services/` 包 + view 平行序列化收敛 `NotificationSerializer`（登记来源：codegraph-audit-2026-10-18 #AUD-23 P3）
+
+> **登记时间**：2026-10-19 ｜ **严重级别**：Low（P3，批次 C 五条之一）
+> **登记来源**：`docs/Review/codegraph-audit-2026-10-18.md` #AUD-23（2.3 表已划线 + 「修复追踪」双向互指）
+> **影响范围**：`apps/notification/`——`git mv service.py → services/notification_service.py`、`git mv test_notification.py → tests/test_notification.py`、新建 `services/__init__.py`、`helpers.py:13`、测试内 5 处 `@patch` 路径、`views.py`（删修前 `:22-34` 手写序列化，修后 `:18` import + `:42/:46` 消费）；**无契约变更**（schema diff=0）
+
+### 一、问题现象
+
+① 测试文件平铺 app 根，偏离全仓 `tests/` 收集约定；② 单数 `service.py` 与全仓 `services/` 复数包约定不一致；③ `views.py:22-34` 手写 `_serialize_notification` 字典与 `serializers.NotificationSerializer` 平行定义——字段漂移风险（DR-1）。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 布局历史 | notification 为后补建 app，未随其余 app 的 tests/services 包化演进 |
+| 2 | 序列化双轨 | view 层手写 dict 先于 serializer 引入，未回迁 |
+
+### 三、修复方案（批次 C 批准的三件布局，一次落地）
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `git mv` 测试 → `tests/test_notification.py`；`git mv` → `services/notification_service.py`；新建 `services/__init__.py` re-export（`send_notification_sync` / `send_notification` / `database_create_notification`，ruff I001 自动归序） | `apps/notification/` |
+| 2 | `helpers.py:13` → `from apps.notification.services import send_notification_sync` | `helpers.py` |
+| 3 | 测试 import + **5 处 `@patch`** → `apps.notification.services.notification_service.get_channel_layer` | `tests/test_notification.py` |
+| 4 | 删 `_serialize_notification`（修前 `:22-34`），`:42/:46` → `[NotificationSerializer(x).data for ...]` | `views.py` |
+
+未触发 `[HALT]`：纯布局与 view 层序列化复用，端点响应形状不变。
+
+### 四、对抗审核
+
+- **字段等价**：`NotificationSerializer.Meta.fields` 9 字段（`id/type/title/message/priority/is_read/related_asset_code/related_url/created_at`，`type` 由 `notification_type` 映射、`created_at` iso-8601）与被删手写 dict 逐字段同序核对（前序会话实读对照），响应 JSON 形状不变。
+- **收集数对账**：移位 + 新包后 `pytest apps/notification` 收集 **51 = 修前 51**（无丢收/双收）。
+- **patch 链完整性**：5 处 `@patch` 路径改错即 AttributeError——51 passed 直证全绿；外部消费方（damaged/repair 4 处函数内 import `send_notification_on_commit` from helpers）不受影响。
+- **schema 门禁**：`spectacular --validate` exit 0；重导与基线 **git diff 空（diff=0）**，25 warnings / 23 errors 与批次 B 重导基线一致（存量）。
+- **docstring 调用链**：serializer 模块头「本模块被 views.py 依赖」方向本就正确，实读核对后无需改字（由虚转实）。
+
+### 五、验证记录
+
+```text
+旧路径 rg（平铺 import / 5 处 patch 旧路径）→ 0 命中 ✅
+pytest apps/notification → 收集 51 不变，51 passed（76.31s）✅
+ruff check + format（services/__init__ I001 --fix）→ 0 ✅
+spectacular --validate + 重导 → exit 0，与基线 git diff 空 ✅
+批次矩阵 → 见报告「修复追踪」批次 C 段
+```
+
+### 六、遗留与关联事项
+
+- **async `send_notification` 生产 0 调用方**——本批只搬不删（`services` 包内公开 API，删除须独立评估），登记遗留待核查。
+
+*登记人：opencode ｜ 状态：【已关闭】（三件布局 + 序列化单源 + 收集 51 不变 + schema diff=0），2026-10-19*
