@@ -7299,3 +7299,450 @@ twisted 事实链：`requirements/base.txt:85 daphne==4.2.2 → twisted 26.4.0`�
 - **工具链留痕**：Git Bash 实体 = `C:\Program Files\Git\bin\bash.exe`（系统 PATH 的 `bash.exe` 是 WSL，脚本类任务勿再踩）；本地 ruff 于系统 Python（`python -m ruff`，非 backend .venv）。
 
 *登记人：opencode ｜ 状态：【已关闭】（用户双决策落定→本地仿真 11/11 + 真实对双分支 → Run A 三 workflow 全绿 job 级直证；升级触发条件与 3 落点预设计已落档），2026-10-18*
+
+---
+
+## BF-104 【已关闭】AUD-01 维修完成/失败裸调 FSM：非 repairing 源态 500 + 合法边静默错转，前置断言收口（登记来源：codegraph-audit-2026-10-18 #AUD-01 P1）
+
+> **登记时间**：2026-10-19 ｜ **严重级别**：High（P1，批次 A 三条之一）
+> **登记来源**：`docs/Review/codegraph-audit-2026-10-18.md` #AUD-01（2.1 P1 表已划线标记 + 「修复追踪」双向互指）；修复流程 = bug-surgical-fix（红灯 3× + pre/post-fix 边界副本 + 差值自审）
+> **影响范围**：`apps/assetmanagement/services/repair_asset_service.py`、`apps/assetmanagement/tests/test_repair_service_gaps.py`；**无契约变更**——错误路径 500→400+`error_code` 属行为修复，响应根结构不变，schema 基线 byte-equal 实测 ×2，无需重导出
+
+### 一、问题现象
+
+1. 资产被 `change_status`（`asset_service.py:323`，权限 `IsSystemAdmin`）或 `force_recycle_from_any` 移出 `repairing`、而 RepairAsset 记录仍 `in_progress` 时，`complete_repair`/`fail_repair` 裸调 `AssetFSM.repair_done/repair_failed` → 裸 `Exception`（`state_machine/constants.py:72`）→ `exception_handler.py:101-105` → **HTTP 500**。
+2. 更隐蔽的一面（红灯阶段实测揭示，比审计描述更宽）：`damaged` 源态到目标态存在转发表**合法边**——前置只查「有无 in_progress 维修记录」（修前 `:208-212`/`:260-264`），不查 `asset_current_status == repairing` → 不报错、**静默错转**。
+3. `fail_repair` 可能以错误 `from_state` 写 `DamagedAsset.original_status`（异常先抛则回滚，但无断言防护）。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | complete 路径 | 修前 `repair_asset_service.py:223` 裸调 `AssetFSM.repair_done`，无状态断言、无捕获 |
+| 2 | fail 路径 | 修前 `:267` 同构裸调 `AssetFSM.repair_failed` |
+| 3 | 同文件范式漂移 | 送修路径已有捕获映射范式（修前 `:83-86`，现 `:86-88`），全仓既有 11 处 `except InvalidTransitionError` 均映射 `INVALID_STATE_TRANSITION`——complete/fail 两处未复用（DR-1 漂移点） |
+| 4 | 复核遗漏（关联） | 本账本 `:384` D3 曾结论「全仓 11 处已统一、无裸 raise 残留」——该复核只数既有 except 点，未覆盖 complete/fail 的**裸调用**点（本条为补登更正，历史行不改写） |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | 新增 `_ensure_repairing(asset, target_state)` 静态断言：≠`repairing` → `AppValidationError(detail="状态转换不合法…", error_code="INVALID_STATE_TRANSITION")`（400） | `repair_asset_service.py:101` |
+| 2 | `complete_repair` 调用点（目标 `RECYCLED_PENDING`） | `repair_asset_service.py:236` |
+| 3 | `fail_repair` 调用点（目标 `DAMAGED`） | `repair_asset_service.py:283` |
+| 4 | 回归 2 用例：damaged 源态 complete/fail 断言 400 + error_code | `test_repair_service_gaps.py:556` |
+
+未触发 `[HALT]`：未删改字段/表、未改 API 响应格式、未增删状态机主流转边（只补入边前置校验）。
+
+### 四、对抗审核
+
+- **行号漂移**：全部 `file:line` 登记前 `rg` 实测（`:101`/`:236`/`:283`/`:556`）；修前行号一律显式标注「修前」。
+- **先红后绿**：2 用例补丁前连续 3 次 FAILED，补丁后转绿，非事后补测。
+- **方案取舍**：红灯揭示 damaged 源态存在合法边 → 仅 try/except 拦不住静默错转，故取前置断言（审计原「或 try/except」建议按实测修正执行）。
+- **BR-4 联动**：内联断言版使 `fail_repair` 52>50 逻辑行（护栏红）→ 抽 `_ensure_repairing` helper，双实现收敛为一处（DR-1 正向），复跑 PASS（0 超限/0 未登记）。
+- **契约影响**：500→400+`error_code` 与全仓既有映射同构；`{code,data,message}` 根结构不变；schema `--validate` exit 0 + 基线 byte-equal ×2 → 无需重导出（M-3 非破坏性）。
+- **扫描对抗点**：修复未掩盖新独立 bug；同类缺口 `create_repair_asset` 送修侧为独立新发现，入「六」，不静默吞掉。
+
+### 五、验证记录
+
+```text
+（本地实跑；pytest 环境漂移见 AUD-12，ruff/mypy 与 dev.txt 对齐）
+红灯（补丁前连续 3 次）：
+✗ python -m pytest apps/assetmanagement/tests/test_repair_service_gaps.py::TestRepairInvalidStateTransition -q → 2 failed ×3
+补丁后：
+✓ 上述两用例 → 2 passed
+✓ python -m pytest apps/assetmanagement/tests/test_repair_service_gaps.py apps/assetmanagement/tests/test_repair_service_mutants.py apps/assetmanagement/tests/test_damaged_asset_service.py apps/assetmanagement/tests/test_admin_config.py -q → 86 passed
+✓ python -m pytest -q → 1992 passed / 0 failed（1948.60s，CT-5 零失败）
+✓ python -m pytest --cov=. --cov-fail-under=80 → 87.27% exit 0；Service 层 --include="*/services/*,*/services.py" → 98% ≥90
+✓ python -m ruff check . → 0；python -m ruff format --check . → 401 files；python -m mypy . --strict → Success: 228 source files
+✓ python scripts/check_function_length_guard.py → PASS（内联版曾 52>50 红 → helper 化后 0 超限/0 未登记）
+✓ python manage.py spectacular --format openapi-json --file <tmp> --validate → exit 0，与 api-schema-baseline.json byte-equal（×2）
+未运行（如实标注，禁止当通过）：mutmut run——重活，留 push 后 CI backend-mutation job 取证（基线 83.25676365492598）
+```
+
+### 六、遗留与关联事项
+
+- **同类缺口未修 [待决策]**：`create_repair_asset`（送修侧）同样不查源态；damaged→repairing 为合法边故无 500，但「非 in_store 资产可送修」语义需业务拍板——批次 A 范围外。
+- **D3 复核结论矛盾（留痕不改史）**：本账本 `:384` 结论与本条冲突，属历史快照（强制检查项④），不改写原文，以本条 + BF-105 为补登更正。
+- **feishu-webhook flaky**：`test_unknown_path_404` 批次 A 三轮中 2 红 1 绿（pre-fix 已现），既有间歇失败，与本修复无关，未修。
+- **完整模式台账**：本条不新增重复模式（helper 反而收敛双实现），`check_duplicate_invariants.py` PASS，complete-patterns 不新增条目。
+- **代码未提交**：改动在 backend 工作区（5 M + 1 ??），随批次 A 一并提交；本登记不含 commit。
+
+*登记人：opencode ｜ 状态：【已关闭】（根因实测 + 先红后绿 3× + 全量 1992 passed / 0 failed + 门禁全绿 + schema byte-equal 契约零破坏），2026-10-19*
+
+---
+
+## BF-105 【已关闭】AUD-02 未登记审批链 InvalidTransitionError 裸冒泡 500：_execute_handle 单点映射 400（登记来源：codegraph-audit-2026-10-18 #AUD-02 P1）
+
+> **登记时间**：2026-10-19 ｜ **严重级别**：High（P1，批次 A 三条之一）
+> **登记来源**：`docs/Review/codegraph-audit-2026-10-18.md` #AUD-02（2.1 P1 表已划线标记 + 「修复追踪」双向互指）
+> **影响范围**：`apps/unregisteredasset/services.py`、`apps/unregisteredasset/tests/test_services.py`；**无契约变更**（错误路径 500→400，结构不变；schema byte-equal ×2，无需重导出）
+
+### 一、问题现象
+
+1. S2/S3 审批走 `force_recycle_from_any`，关联资产已是 `scrapped`（`state_machine/unregistered.py:122-124` 为表内合法触发条件）→ `InvalidTransitionError` 从 `approve_and_handle` 冒泡：`views.py` 该异常 0 命中、无捕获 → **HTTP 500**。
+2. 类 docstring 自述可能抛 `InvalidTransitionError`，但 `Raises` 块只列 `AppValidationError`（文档漂移）。
+3. `unregisteredasset/tests/` 中 `scrapped`/`InvalidTransitionError` 0 命中——零覆盖。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 调用点无捕获 | 修前 `services.py:407` `_execute_handle` 内 `AssetFSM.*` 调用裸抛，`InvalidTransitionError` 无任何 try/except |
+| 2 | 三路径共用 | `handlers.py:128`/`:150`/`:183` 三条 handler 裸调均经 `_execute_handle` 收口，修前一处未捕获即三条全裸 |
+| 3 | 文档漂移 | 修前 `services.py:222` 类 docstring 与 `Raises` 块表述不一致 |
+| 4 | 覆盖缺口 | 测试域 `scrapped`/`InvalidTransitionError` 检索 0 命中（审计实测） |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | import `InvalidTransitionError` | `services.py:39` |
+| 2 | 类 docstring `Raises` 条目订正：声明该异常在 `approve_and_handle` 内捕获并转换 | `services.py:223` |
+| 3 | `_execute_handle` 调用点单点 try/except：`InvalidTransitionError` → `AppValidationError(error_code="INVALID_STATE_TRANSITION")`（400），一处收口三条路径（DR-1） | `services.py:411-414` |
+| 4 | 回归用例：S2 关联资产 scrapped → 审批断言 400 + error_code | `test_services.py:329` |
+
+未触发 `[HALT]`：错误码为既有枚举值，响应结构不变，状态机表未动。
+
+### 四、对抗审核
+
+- **行号漂移**：`:39`/`:223`/`:411-414`/`test:329` 均 `rg` 实测；修前引用显式标注（修前 `:407`）。
+- **先红后绿**：用例补丁前连续 3 次 FAILED（异常裸穿 → 500 断言失败），补丁后转绿。
+- **单点收口边界**：handlers 三处 FSM 调用本身仍无独立 try/except——由 `_execute_handle` 统一收口，属设计取舍非遗漏（审计原建议即「一处收口三条路径」）；若日后 handler 改为绕过 `_execute_handle` 直调，护栏无强制——记入「六」。
+- **契约影响**：S2/S3 失败路径 500→400+`INVALID_STATE_TRANSITION`（全仓既有错误码）；schema byte-equal ×2，无需重导出。
+- **扫描对抗点**：S3 路径与 S2 共享 `_execute_handle` 收口，未单独立用例（见「六」）——如实标注，不虚报覆盖。
+
+### 五、验证记录
+
+```text
+红灯（补丁前连续 3 次）：
+✗ python -m pytest apps/unregisteredasset/tests/test_services.py::TestApproveAndHandle::test_approve_s2_scrapped_asset_raises_mapped_error -q → 1 failed ×3
+补丁后：
+✓ python -m pytest apps/unregisteredasset/tests/test_services.py -q（含新用例）→ 域内全绿（146 passed 口径含并发等全域）
+✓ python -m pytest -q → 1992 passed / 0 failed（1948.60s）
+✓ python -m pytest --cov=. --cov-fail-under=80 → 87.27% exit 0；Service 层 → 98% ≥90
+✓ python -m ruff check . → 0；ruff format --check . → 401 files（首次 1 失败：def 单行化后转 0，已计入失败计数 1/2）；mypy . --strict → Success 228 files
+✓ schema --validate exit 0 + byte-equal ×2
+未运行（如实标注）：mutmut run——留 CI backend-mutation job 取证
+```
+
+### 六、遗留与关联事项
+
+- **S3 未单独立用例**：S3 与 S2 共享 `_execute_handle` 收口，仅 S2 锚定；若要 CT-3 字面级全覆盖需补 S3 scrapped 用例 [待决策]。
+- **test_concurrent 未覆盖该路径**：并发 5 例不触 scrapped 关联资产场景。
+- **D3 关联**：与 BF-104 同属「D3 复核遗漏」补登（本账本 `:384`），历史行不改写。
+- **代码未提交**：同 BF-104，随批次 A 一并提交。
+
+*登记人：opencode ｜ 状态：【已关闭】（单点收口 + 先红后绿 3× + 全量 1992 passed / 0 failed + 门禁全绿 + schema byte-equal），2026-10-19*
+
+---
+
+## BF-106 【已关闭】AUD-03 Django Admin 直改资产/合同状态旁路：readonly_fields 收口（登记来源：codegraph-audit-2026-10-18 #AUD-03 P1）
+
+> **登记时间**：2026-10-19 ｜ **严重级别**：High（P1，批次 A 三条之一）
+> **登记来源**：`docs/Review/codegraph-audit-2026-10-18.md` #AUD-03（2.1 P1 表已划线标记 + 「修复追踪」双向互指）
+> **影响范围**：`apps/assetmanagement/admin/asset_admin.py`、`apps/assetmanagement/tests/test_admin_config.py`（新建）；**无契约变更**（仅后台表单渲染，无 API 端点/schema 变化，schema 基线不动）
+
+### 一、问题现象
+
+1. `AssetAdmin` 的 fieldsets「Status」显式列出 `asset_current_status` 且不在 `readonly_fields` → 后台表单可直接改资产状态。
+2. `ContractAdmin` 无 fieldsets、`readonly_fields` 不含 `contract_status` → 合同状态整字段可编辑。
+3. 两处直写均不经 `AssetFSM._transition`/`ContractFSM.transition`，不产生 `AssetOperationLog`/`AssetStateLog`/`GenericAuditService.log_update`——产出「状态与子记录不一致、回退依据失效」的数据组合，FSM 无法复现。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 资产侧 | 修前 `asset_admin.py:95` `readonly_fields` 无状态字段，fieldsets `:111-113` 显式列出（可编辑） |
+| 2 | 合同侧 | 修前 `:76` `readonly_fields` 无 `contract_status`，无 fieldsets 时全字段渲染为可编辑 |
+| 3 | 所有权冲突 | `asset_service.py:27` 声明「状态变更所有权归 FSM」；BF-096 已收口 `contract_view.perform_update` 旁路——Admin 侧为同向缺口 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `ContractAdmin.readonly_fields` +`contract_status` + 状态所有权归 FSM 注释 | `asset_admin.py:77` |
+| 2 | `AssetAdmin.readonly_fields` +`asset_current_status` + 注释 | `asset_admin.py:97` |
+| 3 | 新建 `TestAdminStatusReadonly` 2 用例：断言两 Admin 的 `readonly_fields` 含状态字段 | `tests/test_admin_config.py:14` |
+
+未触发 `[HALT]`：不删改字段、不改 API、不动状态机流转路径；仅收紧后台可编辑面（与既有 12 个全 readonly/无状态字段的 Admin 口径对齐）。
+
+### 四、对抗审核
+
+- **行号漂移**：`:77`/`:97`/`test:14` 均 `rg` 实测；修前引用显式标注。
+- **先红后绿**：2 用例补丁前连续 3 次 FAILED，补丁后转绿。
+- **fieldsets 兼容性**：字段列入 `readonly_fields` 后 Django 将其在 fieldsets 中渲染为只读文本，`manage.py check` 实测 no issues（1 silenced 为既有项）——无系统检查冲突。
+- **边界核对**：Step 6 差值自审确认全部改动 ⊆ 6 文件边界；另 12 个 ModelAdmin 无状态字段可改，无需处理。
+- **契约影响**：仅 `/admin/` 站内表单，无 API 请求/响应形状变化 → schema 基线不动，无需重导出。
+- **扫描对抗点**：Admin 直改收口后，`change_status` 端点（AUD-05 待业务拍板）成为唯一合法人工改态入口，二者独立、无掩盖。
+
+### 五、验证记录
+
+```text
+红灯（补丁前连续 3 次）：
+✗ python -m pytest apps/assetmanagement/tests/test_admin_config.py -q → 2 failed ×3
+补丁后：
+✓ python -m pytest apps/assetmanagement/tests/test_admin_config.py -q → 2 passed
+✓ python manage.py check → no issues (1 silenced)
+✓ python -m pytest -q → 1992 passed / 0 failed（1948.60s）
+✓ python -m pytest --cov=. --cov-fail-under=80 → 87.27% exit 0；Service 层 → 98% ≥90
+✓ python -m ruff check . → 0；ruff format --check . → 401 files；mypy . --strict → Success 228 files
+✓ python scripts/check_function_length_guard.py → PASS；check_file_length_guard.py → PASS；check_duplicate_invariants.py → PASS
+未运行（如实标注）：mutmut run——留 CI backend-mutation job 取证
+```
+
+### 六、遗留与关联事项
+
+- **`admin/__init__.py` docstring 过时**：其描述的模块结构（storage.py/asset.py）与实际（asset_admin.py 单文件）不符——纯文档漂移，批次外待修。
+- **DB 直改旁路**：绕过 Django Admin 的直改（SQL/ORM shell）超出本条范畴，属部署侧权限控制，记录不处理。
+- **代码未提交**：同 BF-104/105，随批次 A 一并提交。
+
+*登记人：opencode ｜ 状态：【已关闭】（readonly 收口 + 先红后绿 3× + manage.py check no issues + 全量 1992 passed / 0 failed + 门禁全绿），2026-10-19*
+
+## BF-107 【已关闭】AUD-04 合同创建期状态旁路：create_contract 状态单闸 + 创建状态审计（登记来源：codegraph-audit-2026-10-18 #AUD-04 P2）
+
+> **登记时间**：2026-10-19 ｜ **严重级别**：Medium（P2，批次 B 四条之一）
+> **登记来源**：`docs/Review/codegraph-audit-2026-10-18.md` #AUD-04（2.2 P2 表已划线标记 + 「修复追踪」双向互指）
+> **影响范围**：`apps/assetmanagement/services/contract_service.py`、`apps/assetmanagement/tests/test_contract_service.py`、`apps/assetmanagement/tests/test_contract_view_api.py`；**无契约变更**（服务层校验 + 审计载荷，API 请求/响应形状不变，schema 基线不动）
+
+### 一、问题现象
+
+1. `Contract.objects.create(**contract_data)` 不经 `ContractFSM.transition`，创建可一次落入 8 个任意状态（含终态）。
+2. `_CONTRACT_TRANSITIONS` 校验、状态审计、`_recalc_paid_amounts` 均不参与创建——对照更新路径已由 BF-096 收口（`contract_view.py:144` → `contract_service.py:321/:326/:329`），创建路径为对称缺口。
+3. 终态创建的合同 `allowed_next_states` 返回 `[]`，前端下拉禁用 → 永久不可流转，且无任何创建痕迹可追溯「为何落在此态」。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 创建路径 | 修前 `contract_service.py:165` 直接 create，状态字段来自 serializer 原值，无服务层闸 |
+| 2 | 校验层级 | serializer `ChoiceField`（`base_model_serializers.py:136/:159`）只挡格式非法，8 态全部放行；语义层（允许创建哪些态）无约束 |
+| 3 | 审计缺口 | `log_create` 的 after_data 不含 `contract_status`，创建落了何状态无审计记录 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | 创建期状态单闸：`contract_status` 非空但 ∉ `CONTRACT_STATUS_CHOICES` → `AppValidationError(INVALID_CONTRACT_STATUS)`（复用同文件 `:323` 范式，DR-1）；缺键放行走模型 default=`purchasing` | `contract_service.py:169-170` |
+| 2 | docstring 声明创建期状态语义；`log_create` after_data 增 `contract_status`（创建审计可追溯所落状态） | `contract_service.py`（create_contract 段） |
+| 3 | 新增 `TestCreateContractStatusGate` 4 用例（非法态 400+error_code / 缺键落 purchasing / 终态创建审计含状态 / 批量共享路径） | `test_contract_service.py:480` |
+| 4 | 新增 `TestCreateContractStatusGateHTTP` 3 用例（终态 201+审计 / 非法 400 / 批量端点） | `test_contract_view_api.py:364` |
+
+未触发 `[HALT]`：不删改字段、不改 API 响应格式、不动状态机流转路径——方案②（保留 8 态导入 + 服务层单闸 + 创建审计）经用户拍板。
+
+### 四、对抗审核
+
+- **行号漂移**：`:169`/`:170`/`:480`/`:364` 均 `rg` 实测；修前引用（`:165`）为审计时点显式标注。
+- **先红后绿**：补丁前连续 3 次红（3 failed 1 passed），恢复后合同域 4 文件 122 passed。
+- **兼容性**：缺 `contract_status` 的存量导入路径不受影响（放行 + 模型 default），仅显式非法值被拒——不收紧既有数据入口。
+- **范围核对**：serializer 层未改；闸为 service 单点，批量 `batch_create_contract` 经 `create_contract` 共享（用例锚定，DR-1 无双实现）。
+- **契约影响**：无请求/响应形状变化 → 本条自身不产生 schema 变化，无需重导（本批 `api-schema-baseline.json` 重导系 AUD-05 所需，见 BF-108）。
+- **对抗点（有意保留）**：方案②保留 8 态导入 → 终态创建仍可能，但已留创建审计可追溯；原建议②「Project_Requirements 明示该能力」为文档动作 → 登记遗留（见六）。
+
+### 五、验证记录
+
+```text
+红灯（补丁前连续 3 次）：
+✗ python -m pytest apps/assetmanagement/tests/test_contract_service.py -q → 3 failed 1 passed ×3
+补丁后：
+✓ python -m pytest apps/assetmanagement/tests/test_contract_service.py test_contract_view_api.py -q → 122 passed
+✓ python -m ruff check <目标文件> → 0；ruff format --check → 0；check_function_length_guard → PASS
+✓ python -m pytest -q → 2009 passed / 0 failed（480.95s）
+✓ python -m pytest --cov=. --cov-fail-under=80 → 87.31% exit 0（本地漂移环境，AUD-12 标注「不代表 CI」）；coverage report --fail-under=90 --include services → 98% exit 0
+✓ python -m mypy . --strict → Success 228 files；ruff check . → 0；ruff format --check . → 402 files
+未运行（如实标注）：mutmut run——留 CI backend-mutation job 取证
+```
+
+### 六、遗留与关联事项
+
+- **Project_Requirements 明示「终态导入能力」**：原修复建议②的文档半句，批次外待办。
+- **代码未提交**：随批次一（与 BF-104~106 同窗）一并提交。
+
+*登记人：opencode ｜ 状态：【已关闭】（状态单闸 + 创建审计 + 先红后绿 3× + 全量 2009 passed / 0 failed + 门禁全绿），2026-10-19*
+
+## BF-108 【已关闭】AUD-05 手动改状态端点语义旁路：description 必填三层透传激活 + 副作用文档声明 + schema 基线重导（登记来源：codegraph-audit-2026-10-18 #AUD-05 P2）
+
+> **登记时间**：2026-10-19 ｜ **严重级别**：Medium（P2，批次 B 四条之一）
+> **登记来源**：`docs/Review/codegraph-audit-2026-10-18.md` #AUD-05（2.2 P2 表已划线标记 + 「修复追踪」双向互指）
+> **影响范围**：`apps/assetmanagement/audit.py`、`services/asset_service.py`、`views/asset_view.py`、`tests/test_asset_view_api.py`、`api-schema-baseline.json`；**有 schema 基线变化**（`change_status` description：`minLength:1` + help_text + required 增补 + operation description 更新，随代码同 commit 重导）
+
+### 一、问题现象
+
+1. `change_status` 的 description 可选（原文案「默认空串」），数据修复无原因可查；service 调 `log_state_change` 时 `description` 为死参数（签名预留、调用链未透传）。
+2. 端点直调 FSM 私有 `_transition` 可执行任意合法边（含 `DAMAGED→IN_USE`），不建四类子记录、不写 `DamagedAsset.original_status`，与 `state_machine/scrapping.py:141-146` 「该入边业务不可达」假设矛盾——而端点文档零副作用声明。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 透传链断裂 | 修前 View（`asset_view.py:303-310`）未把 description 传给 service；`asset_service.py` 调 `log_state_change` 未传该参数（`audit.py:165` 签名已预留） |
+| 2 | 语义未声明 | extend_schema 仅泛述「修改状态」；子记录/original_status/不可达态副作用零文档 |
+| 3 | 校验层级 | description 空值放行，运行时无必填校验 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `log_state_change` 增可选 `description: str = ""`；detail 基础串不变，非空时尾部追加「原因: …」（空值路径逐字节不变） | `audit.py:165/:173`（签名+参数）、`:181-182`（非空尾追） |
+| 2 | service 调用点透传 `description=description`（激活死参数） | `asset_service.py:332` |
+| 3 | View：extend_schema 声明副作用清单（不建四类子记录、不写 original_status、可产不可达态与 scrapping 假设矛盾、正式改态走业务端点）；inline serializer 改必填（`minLength:1`+help_text）；运行时空/纯空格 → 400 明确文案 | `asset_view.py:304`（serializer）、`:319`（运行时 400）、extend_schema 段 |
+| 4 | 重导 schema 基线 | `api-schema-baseline.json`（diff 3 处全落 change_status） |
+| 5 | 新增 4 用例：空 400 / 纯空格 400 / 原因入日志（`ends with "原因: …"`） / `damaged→in_use` 200 且 DamagedAsset 计数与 original_status 不变 | `test_asset_view_api.py:284/290/296` |
+
+未触发 `[HALT]`：不删改字段/表、不改响应 `code` 含义、不动状态机主流转路径；description 可选→必填经用户拍板（端点定位「数据修复工具」）。
+
+### 四、对抗审核
+
+- **既有断言兼容**：`test_asset_service_gaps.py:239` 为 **exact equality** 断言（`== "状态从 in_store 变更为 broken (触发: manual_change)"`）——空 description 路径拼接逐字节不变，双绿实证。
+- **oasdiff 门禁**：`ci.yml:139` 左=committed baseline、右=当前代码生成；本批基线与代码**同 commit** 重导 → 左右同源，`breaking` 无输入差异。**本地未装 oasdiff（如实标注），CI 直证待推送后回填**（见六）。
+- **schema diff 复核**：`git diff api-schema-baseline.json` 仅 3 处（operation description / `minLength:1`+help_text / `required` 增 `"description"`），全落 change_status。
+- **调用方影响**：端点已标「[已废弃]，UI 已切换至专用状态接点」——前端无活跃调用方，入参收紧不破坏存量客户端。
+- **扫描对抗点**：必填为文档级缓解，端点仍可产不可达态（**有意保留**为数据修复工具）；正式改态已有专用业务端点（出库/回收/送修/报废审批），无掩盖。
+
+### 五、验证记录
+
+```text
+红灯（补丁前连续 3 次）：
+✗ python -m pytest apps/assetmanagement/tests/test_asset_view_api.py -q → 3 failed 1 passed ×3（1 passed 为无子记录双态锚，双态恒真）
+补丁后：
+✓ python -m pytest <log_state_change 调用域 7 个测试文件> -q → 234 passed
+✓ python -m ruff format --check <目标> → 修 2 行折叠后复检 0
+✓ python manage.py spectacular --format openapi-json --file api-schema-baseline.json --validate → exit 0；git diff 仅 3 处
+✓ python -m mypy <4 目标文件> → 0 errors；全量 mypy . --strict → Success 228 files
+✓ python -m pytest -q → 2009 passed / 0 failed；--cov-fail-under=80 → 87.31% exit 0；Service → 98% exit 0
+未运行（如实标注）：mutmut run；oasdiff 本地未装——留 CI api-schema-check job 取证
+```
+
+### 六、遗留与关联事项
+
+- **CI `api-schema-check` 直证待回填**：推送后以 `api-schema-check` job 结果回填本条（oasdiff 本地不可用，比对方向读自 `ci.yml:139`）。
+- **代码与基线必须同 commit**：若基线漏提交，CI `oasdiff breaking` 必红——批次一提交时已核对（见审计票）。
+
+*登记人：opencode ｜ 状态：【已关闭】（description 三层透传 + 必填校验 + 副作用文档 + 基线同批重导 + 先红后绿 3× + 全量 2009 passed / 0 failed），2026-10-19*
+
+## BF-109 【已关闭】AUD-10 文档端点匿名可读：SERVE_PERMISSIONS 收紧 + 附带修复全局异常处理器响应头丢失（登记来源：codegraph-audit-2026-10-18 #AUD-10 P2）
+
+> **登记时间**：2026-10-19 ｜ **严重级别**：Medium（P2，批次 B 四条之一；附带修复为全局面，增益性）
+> **登记来源**：`docs/Review/codegraph-audit-2026-10-18.md` #AUD-10（2.2 P2 表已划线标记 + 「修复追踪」双向互指）
+> **影响范围**：`config/settings/base.py`、`core/exception_handler.py`、`docs/API.md`、`apps/assetmanagement/tests/test_schema_serving.py`（新建）；**无 schema 内容变化**（`SERVE_PERMISSIONS` 为视图级权限，且三文档路径不入基线；本批基线重导系 AUD-05，见 BF-108）
+
+### 一、问题现象
+
+1. `/api/v1/schema/`、`/api/v1/swagger/`、`/api/v1/redoc/` 匿名可读全部 191 条端点结构（请求/响应字段、枚举、错误码）——攻击面测绘便利。
+2. 【附带发现】**全部 401 响应缺 `WWW-Authenticate`、429 缺 `Retry-After`**：自定义全局异常处理器重包时丢弃 DRF 原生响应头（RFC 6750 要求 Bearer 401 携带挑战头）。
+3. 实测匿名响应为 **401**（非 403）——simplejwt `authenticate_header` 提供 `Bearer realm="api"`（订正审计时点「401/403」不确定表述）。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 配置缺口 | `base.py` `SPECTACULAR_SETTINGS` 未覆盖 `SERVE_PERMISSIONS`，走 drf-spectacular 默认 `AllowAny`（该默认见其 `views.py:124-125` 权限类属性） |
+| 2 | 头丢失 | `core/exception_handler.py` 调 DRF 默认 handler 后**新建** `error_response` 返回，未透传原 `response.headers` |
+| 3 | 链路止点 | DRF `views.py:459-465` 已按 authenticator 填 `exc.auth_header`、默认 handler 亦写入 headers——止步于自定义 handler 的重包 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `SPECTACULAR_SETTINGS` 增 `"SERVE_PERMISSIONS": ["rest_framework.permissions.IsAuthenticated"]` + 注释 | `base.py:354-358` |
+| 2 | 自定义 handler 重包后逐键透传 DRF 原生 headers（首版 `update()` 实测 `AttributeError: ResponseHeaders has no attribute update` → 改 `for ... headers.items()` 写入） | `core/exception_handler.py:92` |
+| 3 | `docs/API.md` 访问前置说明（三端点需登录、匿名 401、`persistAuthorization` 记 token） | `docs/API.md:16-17` |
+| 4 | 新建 `TestSchemaServingPermissions` 6 用例：匿名 schema/redoc/swagger 401（swagger 断言 `WWW-Authenticate` 含 Bearer）/ 登录 200 / 业务端点匿名 401 挑战头回归 | `test_schema_serving.py:19` |
+
+未触发 `[HALT]`：不删改字段、不改响应 `code` 含义、不动状态机；收紧为用户拍板（否决内网豁免）。
+
+### 四、对抗审核
+
+- **先红后绿（双段）**：`SERVE_PERMISSIONS` 修复前匿名用例红 3×；头透传修复经历「红（KeyError: www-authenticate）→ 败（AttributeError: update）→ 绿」全留痕。
+- **全局面影响面**：`exception_handler` 是全部错误响应出口——以**全量 2009 passed** 直证无回归；头新增为纯增益（此前恒缺失，无消费方依赖缺失态）。
+- **401 恒定性**：JWT authenticator 提供 `authenticate_header` → 恒 401；DRF 仅在 auth_header 为空时降级 403——本项目不触发。
+- **契约影响**：`SERVE_PERMISSIONS` 不改 schema 文档内容（基线亦不含三文档路径）→ **不因本条重导**；报告 §三批次 B 验证行已订正为「重导系 AUD-05 所需」。
+- **扫描对抗点**：先读 drf-spectacular `views.py:38-41/124-125` 证实权限/认证类属性链后才落闸（无臆测）；`persistAuthorization: True` 实测存在于 `base.py:373-374`（API.md 措辞有据）。
+
+### 五、验证记录
+
+```text
+红灯（SERVE_PERMISSIONS 补丁前连续 3 次）：
+✗ python -m pytest apps/assetmanagement/tests/test_schema_serving.py -q → 3 failed ×3（匿名用例）
+头透传红证：swagger 401 无 WWW-Authenticate → KeyError: 'www-authenticate'；首版 .update() → AttributeError
+补丁后：
+✓ python -m pytest apps/assetmanagement/tests/test_schema_serving.py -q → 6 passed
+✓ python -m ruff check <目标> → 0；ruff format --check → 0；mypy 2 文件 → 0 errors
+✓ python -m pytest -q → 2009 passed / 0 failed（异常处理器全局面直证）
+✓ python manage.py spectacular --validate → exit 0
+未运行（如实标注）：mutmut run——留 CI backend-mutation job 取证
+```
+
+### 六、遗留与关联事项
+
+- **`/metrics/` 无认证**（报告 AUD-19③，[待确认] 部署侧）与本条同族，另账处理。
+- **代码未提交**：随批次一提交。
+
+*登记人：opencode ｜ 状态：【已关闭】（SERVE_PERMISSIONS 收紧 + 异常处理器头透传附带修复 + 先红后绿 3×/2 段 + 全量 2009 passed / 0 failed），2026-10-19*
+
+## BF-110 【已关闭】AUD-09 前端状态维护面：asset/outasset 导入状态死列整列移除 + 分组颜色键漂移收敛（登记来源：codegraph-audit-2026-10-18 #AUD-09 P2）
+
+> **登记时间**：2026-10-19 ｜ **严重级别**：Medium（P2，批次 B 四条之一）
+> **登记来源**：`docs/Review/codegraph-audit-2026-10-18.md` #AUD-09（2.2 P2 表已划线标记 + 「修复追踪」双向互指）
+> **影响范围**：`assetBatchImport.config.ts`、`outAssetBatchImport.config.ts`、`AssetBatchImport.vue`、`OutAssetBatchImport.vue`、`types/batch-import.ts`、`stores/dashboardStatusGroups.ts`、`stores/dashboard.ts`、spec ×3（2 改 1 新建）、mock ×2；**无契约变更**（导入行类型与展示配置，提交形状本就不含状态字段）
+
+### 一、问题现象
+
+1. asset 导入：`当前状态` 表头映射 + **必填** + 枚举校验 + 卡片 + 示例整条链为幻影——`transformToApiData` 从不上抛该字段（必填却永不提交，用户填写后被丢弃）。
+2. outasset 导入：`资产状态` 同型死列；卡片 remark `'in_use/returned/lost/damaged'` 含**枚举外值 `returned`** 且缺 4 态；预览表列 `prop="data.outasset_status"` 恒空（映射键为 `outasset_current_status`，卡片/列/示例用第二套键名 `outasset_status`）。
+3. `STATUS_GROUPS` 3 处 hex 与 `dashboard.ts` 2 处 `|| '#909399'` 游离于 `STATUS_COLOR_MAP` 单一来源；`chartOrder` 8 键内联于 computed（键漂移风险）。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 死列成因 | 两 config 的 excelHeaderMap 曾映射状态字段，随后端 read_only/自动赋值演进 transform 不再上抛，表头/必填/校验/展示面未同步清理 |
+| 2 | 键名错位 | excelHeaderMap → `outasset_current_status`，而卡片/列/示例 → `outasset_status`（双键名），预览列因此恒空 |
+| 3 | 颜色多源 | 分组/回退色值为内联字面量，未引用 `utils/statusMapping.ts` 单一来源 |
+
+### 三、修复方案（用户拍板：②④**整列移除**，取代原「①remark 修正 / ②白名单 5/8 收窄确认」建议）
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | ② asset 死列 7 处移除（optionalEnum import、`ASSET_STATUSES`、表头映射、必填、validate 块、卡片、示例 ×2） | `assetBatchImport.config.ts:24` 起 |
+| 2 | ② `AssetExcelRow.asset_current_status` 死字段移除；notices 状态行、模板示例行移除 | `types/batch-import.ts`、`AssetBatchImport.vue:108/:231` |
+| 3 | ④ outasset 死列 6 处移除（表头映射、validate 块、卡片、示例列、示例行 ×2）；**`OutAssetType`/`optionalEnum` 保留**（`outasset_type` 校验依赖） | `outAssetBatchImport.config.ts:19` 起 |
+| 4 | ④ `OutAssetExcelRow.outasset_current_status` 死字段移除；notices 状态行、预览列 `:69`、模板示例行移除 | `types/batch-import.ts`、`OutAssetBatchImport.vue:41/:69/:150` |
+| 5 | ③ 颜色收敛：三组色 → `STATUS_COLOR_MAP.success/warning/info`；`CHART_ORDER` 提取导出；`dashboard.ts` 两处回退 → `STATUS_COLOR_MAP.info` | `dashboardStatusGroups.ts:15/25/31`、`dashboard.ts:140/:159` |
+| 6 | mock 工厂补 `STATUS_COLOR_MAP`（收敛后模块级新依赖） | `dashboard.spec.ts:47`、`dashboard.edge.spec.ts:36` |
+| 7 | 两 config spec 死列负锚替代被删用例（长度 19→18、7→6、6→5）；新建漂移守卫 3 断言 | 两 config spec、`dashboardStatusGroups.spec.ts:12` |
+
+未触发 `[HALT]`：不删改 API 字段/枚举值/状态机（前端内部解析与展示面；`types/outasset.ts` 8 态枚举本体未动）。
+
+### 四、对抗审核
+
+- **先红后绿**：spec 先行红 7×（两文件 7 failed | 49 passed）→ 生产移除后 56 passed；守卫变异敏感性实证——人为改 `normal.color: '#123456'` → 1 failed | 2 passed → 回滚 3 passed（红绿双证）。
+- **误删防护**：`optionalEnum`/`OutAssetType` 保留（出库类型校验依赖）；`OutAssetCreateForm.outasset_current_status` 保留（单条新建表单，非导入面）；`OutAssetCurrentStatus`/`ASSET_STATUS_MAP` 类型与映射本体保留（StatusTag map-type=outasset 消费）。
+- **范围核对**：`rg "asset_current_status|outasset_current_status"` 于两 config + `types/batch-import.ts` → 0 命中；`rg OutAssetCurrentStatus` 于 `detils/` → 0 命中。
+- **契约影响**：死列从未上抛 → 提交形状不变，API 零变化；schema 不涉。
+- **新发现（不静默）**：① `AssetBatchImport.vue` 模板示例存量 stale keys（质保年限/新旧状态/使用记录——不在 excelHeaderMap，历史遗留）；② `OutAssetBatchImport.vue:43` 出库类型 notice 文案 `normal/scrap/transfer` 与 `OutAssetType`（receive/borrow/reissue）不符——均登记遗留（见六）。
+- **护栏**：`check_frontend_invariants.py` PASS（FR-6 54 composable / FR-8 stores 31 文件 0 超限）、`check_duplicate_invariants.py` PASS（G-3 状态映射单源未受扰）。
+
+### 五、验证记录
+
+```text
+红灯：
+✗ npx vitest run 两 config spec → 7 failed | 49 passed（取证 1 次）
+✗ npx vitest run dashboardStatusGroups.spec → CHART_ORDER 未导出红
+✗ 变异证敏：normal.color 改 '#123456' → 1 failed | 2 passed → 回滚
+补丁后：
+✓ 两 config spec → 56 passed；dashboard 三 spec → 45 passed；守卫回滚 → 3 passed
+✓ npm run type-check → 0；npm run lint → 0；npm run format:check → 0
+✓ npm run test:coverage → 169 files / 2196 tests passed，exit 0；.ts 层 statements 92.79% / branches 86.77%（≥80）；src/stores 96.87% / 92.48%（≥90）
+✓ python scripts/check_frontend_invariants.py → PASS；check_duplicate_invariants.py → PASS
+未运行（如实标注）：npm run test:mutate——留 CI（同批次先例）
+```
+
+### 六、遗留与关联事项
+
+- **`OutAssetBatchImport.vue:43` 出库类型文案错位**（normal/scrap/transfer ≠ receive/borrow/reissue）——本次顺带发现、范围外，批次外待修。
+- **`AssetBatchImport.vue` 模板示例 3 个 stale key**（质保年限/新旧状态/使用记录）——历史存量，批次外待清理。
+- **报告「修复建议」列保留审计时点原文**（remark 修正/白名单收窄），实际执行为整列移除（用户拍板取代），取代关系已在报告「修复追踪」注明。
+- **代码未提交**：随批次一提交。
+
+*登记人：opencode ｜ 状态：【已关闭】（死列整列移除 + 颜色单源收敛 + 红 7×/变异红绿双证 + 前端 2196 tests exit 0 + 门禁全绿），2026-10-19*
