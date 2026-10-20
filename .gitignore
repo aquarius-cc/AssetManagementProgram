@@ -55,3 +55,6 @@ __pycache__/
 .codegraph/
 .mcp.json
 mcp.json
+
+# ripgrep 二进制发行包（13 文件，批次 D untrack，本地工具保留不删）
+ripgrep/
