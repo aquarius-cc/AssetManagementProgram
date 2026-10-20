@@ -8341,3 +8341,64 @@ mypy --strict → Success ✅
 - f-string 拼表名的 SC-4 白名单化留待后续独立评估（本批仅迁位+路径参数化，MySQL 语义保留）。
 
 *登记人：opencode ｜ 状态：【已关闭】（迁入 scripts/ + 路径参数化 + ruff/mypy 0），2026-10-19*
+
+
+## BF-123 【已关闭】AUD-20③ clear_database.py MySQL/PostgreSQL 错配收口：mysqldump→require_backup + FK 开关删除 + token_blacklist 顺序对调 + 恢复命令 pg_restore（登记来源：codegraph-audit-2026-10-18 #AUD-20 P3）
+
+> **登记时间**：2026-10-20 ｜ **严重级别**：Low（P3，BF-122 收口补丁）
+> **登记来源**：`docs/Review/codegraph-audit-2026-10-18.md` #AUD-20（2.3 表状态行补注③ + 「修复追踪」双向互指）
+> **影响范围**：`scripts/clear_database.py` 单文件（docstring / `list_all_tables` / `get_table_count` / `create_backup`→`require_backup` / `clear_table` / `main` 恢复提示与文案 / 白名单顺序）；**无契约变更**（本地手动脚本，非 API 端点）
+
+### 一、问题现象
+
+① 脚本整体按 MySQL 实现，与项目全链 PostgreSQL 部署错配——在真实 PG 运行时多处直接报错：`:125` `DATABASE()`（MySQL 函数，PG 应为 `current_schema()`）、`:144`/`:218` 反引号引标识符（PG 用双引号）、`:156-192` `mysqldump`+`MYSQL_PWD`+`.sql`（PG 应为 `pg_dump`+`PGPASSWORD`）、`:217/220/226` `SET FOREIGN_KEY_CHECKS`（PG 非法语句）、`:344`/`:363` `mysql -u … < backup.sql` 恢复命令（且 `-p` 后接的是库名非密码，即便 MySQL 语义下参数也是错的）；② 文档头 `:21`「可通过 MySQL 恢复」与项目 PG 事实矛盾；③ 白名单 `:80-81` token_blacklist 两表**父先子后**（`outstandingtoken` 在 `blacklistedtoken` 前），而 `BlacklistedToken → OutstandingToken` 是子引用父，正确顺序应为子表先清——原 MySQL 脚本靠 `SET FOREIGN_KEY_CHECKS=0` 把该顺序 bug 藏住，删 FK 开关后只要有黑名单 token 且 FK 为 RESTRICT/NO ACTION 即报错。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 迁移收口不全 | BF-122（AUD-20②）仅做迁入 `scripts/` + 路径参数化，未检测脚本体为 MySQL 实现 |
+| 2 | 历史错配 | 脚本按 MySQL 编写，与 PG 部署全链（`config/settings/base.py:136`、`scripts/backup.sh:42,46` pg_dump、`backup_verify.sh:13` pg_restore -l、`08-数据备份恢复方案.md:23`）不匹配 |
+| 3 | FK 开关掩盖顺序 bug | `SET FOREIGN_KEY_CHECKS=0` 使 token_blacklist 白名单父先子后的顺序错误在 MySQL 下不暴露 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | 文档头【回退方案】：MySQL 恢复 → `scripts/backup.sh`（pg_dump → `$BACKUP_DIR/full_*.dump`）+ `pg_restore -d <db> --clean --if-exists <dump>` | `scripts/clear_database.py:20-23` |
+| 2 | `list_all_tables()`：`DATABASE()` → `current_schema()` | `scripts/clear_database.py:126` |
+| 3 | `get_table_count()`：反引号 → 双引号 `"{table}"` | `scripts/clear_database.py:145` |
+| 4 | `create_backup()`（mysqldump 整删）→ `require_backup()`：三顺位（`$BACKUP_DIR` env → `/data/backups/postgres/` → `<项目根>/backups/`）查找最新 `full_*.dump`；打印时间戳 + 「建议先跑 scripts/backup.sh」提示；找不到直接 `RuntimeError` 终止；返回路径贯穿 `:325`/`:344` 恢复命令 | `scripts/clear_database.py:149-187` |
+| 5a | `clear_table()`：删 `SET FOREIGN_KEY_CHECKS` 及 try/except 恢复逻辑；反引号 DELETE → `DELETE FROM "表"`；`transaction.atomic()` 保留 | `scripts/clear_database.py:207-213` |
+| 5b | 白名单顺序对调：`token_blacklist_blacklistedtoken`（子）提到 `token_blacklist_outstandingtoken`（父）之前 | `scripts/clear_database.py:80-82` |
+| 6 | 恢复提示 `:325`/`:344`：`mysql -u …` → `pg_restore -U <user> -d <db> --clean --if-exists <dump路径>` | `scripts/clear_database.py:325,344` |
+| 7 | `main()` 步骤 1 文案：「创建数据库备份/备份已创建/备份失败」→「校验已有 PG 备份/已找到备份/未找到备份」，与 `require_backup()` 行为一致 | `scripts/clear_database.py:298-305` |
+
+未触发 `[HALT]`：本地手动脚本，非 API 端点；跨端契约未破坏；schema 基线无需重导出。
+
+### 四、对抗审核
+
+- **语义降级显式化**：原 `create_backup()` 清空前现做新备份（回滚=清空前精确状态）；新 `require_backup()` 只校验已存在的 `full_*.dump`（可能是上次 backup.sh 的旧备份）。"必须先备份"从"有新鲜备份"降为"有备份文件"。本地手动工具可接受，输出已打印时间戳 + 建议提示。max-age 校验留待后续评估。
+- **token_blacklist 顺序**：对调无条件更稳，不依赖查证 simplejwt FK 的 ON DELETE 行为（迁移随包分发、仓内查不到）。
+- **f-string 拼表名保留**：`_validate_table_name` 白名单硬校验已存在（SC-4 满足），表名非用户输入，SC-3 无违规。
+- **BF-122 引用订正**：BF-122 `:8305` 与审计报告 `:93` 引用的 `core/mysql_vs_postgres_backup_analysis.md` 在仓库中不存在（glob 零命中，2026-10-20 实测），系审查报告原始笔误，本条目据实订正。
+- **三顺位查找**：`$BACKUP_DIR` env 与 `scripts/backup.sh` 同源，本地回退 `<项目根>/backups/` 当前不存在属正常（首次 backup.sh 运行后创建）。
+
+### 五、验证记录
+
+```text
+ruff check scripts/clear_database.py → All checks passed! ✅
+py_compile scripts/clear_database.py → exit 0 ✅
+rg -in "mysqldump|MYSQL_PWD|FOREIGN_KEY_CHECKS|DATABASE\(\)|mysql" → 0 命中（exit 1）✅
+rg 正向锚点：current_schema :126 / require_backup :149,:301 / token_blacklist 顺序 :81-82（blacklistedtoken 先）✅
+本地 PG 开发库实跑 --force → 备份检查通过（打印时间戳+提示）→ 清表成功（含 token_blacklist 两表）→ pg_restore 命令可执行 → [PENDING: 待本地 PG 环境实跑取证]
+反向（清空备份路径后跑）→ require_backup 拒绝终止 → [PENDING: 待本地 PG 环境实跑取证]
+```
+
+### 六、遗留与关联事项
+
+- 本地 PG 实跑取证（正向 + 反向）待补：脚本「仅本地手动」、已被 mypy 排除、ruff 有 per-file-ignores，门禁有限，静态验证已全绿。
+- `core/mysql_vs_postgres_backup_analysis.md` 不存在：审计报告 `:93` 与 BF-122 `:8305` 的引用系原始笔误，本条目据实订正，两处原文不回溯改写。
+- max-age 校验（备份过期拒绝清空）留待后续评估。
+
+*登记人：opencode ｜ 状态：【已关闭】（ruff 0 + py_compile 0 + grep 残留归零 + 正向锚点全命中），2026-10-20*
