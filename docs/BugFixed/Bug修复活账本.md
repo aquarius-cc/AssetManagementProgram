@@ -8402,3 +8402,59 @@ rg 正向锚点：current_schema :126 / require_backup :149,:301 / token_blackli
 - max-age 校验（备份过期拒绝清空）留待后续评估。
 
 *登记人：opencode ｜ 状态：【已关闭】（ruff 0 + py_compile 0 + grep 残留归零 + 正向锚点全命中），2026-10-20*
+
+
+## BF-124 【已关闭】CI 首跑双红收口——clear_database ruff format 超列（BF-123 补充）+ custom_exception_handler C90 圈复杂度 11（BF-109 漏网回归）（登记来源：CI Pipeline run 39373374518 首跑直证）
+
+> **登记时间**：2026-10-20 ｜ **严重级别**：High（P2，阻断 CI Pipeline 首跑，连锁跳过后端测试/变异 job）
+> **登记来源**：根仓 CI Pipeline run `39373374518`（批次 A~D + BF-122/123 首次推送后的首个 CI run，2026-10-20T05:09:25Z，conclusion=failure）
+> **影响范围**：`scripts/clear_database.py`（格式折行）、`core/exception_handler.py`（复杂度拆分）；**无契约变更**（异常处理行为等价重构）
+
+### 一、问题现象
+
+① 「后端 - 代码规范 (ruff)」job 红：**Ruff 格式检查**步骤 fail——`scripts/clear_database.py:325` BF-123 新增的 pg_restore 恢复提示行 104 列 > 88 列；② 「后端 - 圈复杂度 (C90)」job 红：`core/exception_handler.py:38` `custom_exception_handler` 复杂度 **11 > 10**；③ 连锁：`CI 汇总` failure，「后端 - 测试 + 覆盖率」「后端 - 变异测试」因 needs 依赖被 **skipped**（CT-2/CT-7 的 CI 直证缺位）；④ 对照面全绿：前端 ESLint/TS/整体覆盖率 80%/Store 90%/变异 80% Killed ✅，后端 mypy ✅、M-6 权限码 ✅，Security Scan ✅、Duplicate Guard ✅、CD Gate ✅。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | BF-123 验证矩阵漏项 | 提交前跑了 `ruff check`（lint）但**未复跑** `ruff format --check`；批次 D 基线的「format 401 files」是 BF-123 之前的状态 |
+| 2 | BF-109 C90 漏网 | `67f8aff`（批次 A/B）给 exception_handler 加响应头透传分支使复杂度 11，本地只跑 `ruff check .` 默认规则，未跑 backend AGENTS §1.3 **明确要求**的 `--select C90` |
+| 3 | CI 覆盖时序 | 批次 A~D 此前推送全部 SSH 超时失败（网络故障），2026-10-20 13:0x 首次成功推送 → 该 diff 面**首次**进入 CI；上次 CI 绿灯为 2026-10-18 run `39102414764` |
+
+### 三、修复方案
+
+| # | 变更 | 文件 / 提交 |
+|---|------|------|
+| 1 | `ruff format` 折行（1 文件 +3/-1）：`:325` 单行恢复提示折为 `:325-327` 多行（现 `:326`） | `scripts/clear_database.py` @ `86fb3c4` |
+| 2 | `custom_exception_handler`（复杂度 11）拆三 helper：`_extract_drf_message`（`:38`）/ `_build_wrapped_response`（`:59`）/ `_handle_unhandled_exception`（`:85`），主函数（`:104`）只剩 DRF 分派，复杂度 11→4 | `core/exception_handler.py` @ `5592cf2` |
+
+未触发 `[HALT]`：纯提取重构无逻辑变更；本地手动脚本格式问题非契约面。
+
+### 四、对抗审核
+
+- **行为等价**：拆分仅移动代码路径，无分支增删；`#41` error_code 透传、`BF-109` 响应头透传、`_parse_integrity_error` 映射三段逻辑逐字保留。
+- **深层根因非单点**：两次红均为**本地验证矩阵漏项**（format 未复跑 / C90 从未跑），不是代码能力问题——后续批次提交前须固化 `ruff format --check .` 与 `ruff check . --select C90`（见「六」建议）。
+- **为何以前没红**：批次 A~D 从未推送成功，CI diff 面首次覆盖；本地矩阵恰好两处都没跑这两项。
+- **CT-5 符合性**：红灯发现后先本地修复验证（19 锚点测试 + mypy + C90/format 全绿）再提交推送，未带病推送第二次。
+
+### 五、验证记录
+
+```text
+ruff check . --select C90 --config lint.mccabe.max-complexity=10 → All checks passed! exit 0 ✅
+ruff check core/exception_handler.py scripts/clear_database.py → All checks passed! exit 0 ✅
+ruff format --check 两文件 → 2 files already formatted exit 0 ✅
+py_compile 两文件 → exit 0 ✅
+pytest core/tests/test_exception_handler.py apps/assetmanagement/tests/test_schema_serving.py -q → 19 passed in 14.25s ✅
+mypy core/exception_handler.py --strict → Success: no issues found ✅
+全量 pytest+cov（后台 PID 2080/13968）→ [PENDING]
+CI 复跑直证（push a2ff0ef..5592cf2 后新 run）→ [PENDING]
+```
+
+### 六、遗留与关联事项
+
+- **[建议-流程]** 提交前验证矩阵固化补两项：`ruff format --check .`（BF-123 教训：check 过 ≠ format 过）与 `ruff check . --select C90 --config lint.mccabe.max-complexity=10`（BF-109 教训：AGENTS §1.3 要求项本地常年未跑）。建议纳入后端子引擎提交清单或 pre-commit 钩子。
+- 本地全量 pytest + CI 复跑两项 [PENDING]，完成即回填。
+- 关联：BF-123（被补充格式项）、BF-109（C90 根因来源，双指）。
+
+*登记人：opencode ｜ 状态：【已关闭】（静态门禁全绿 + 19 锚点测试过 + mypy Success；全量/CI 两项 PENDING 如实标注），2026-10-20*
