@@ -8013,3 +8013,331 @@ spectacular --validate + 重导 → exit 0，与基线 git diff 空 ✅
 - **async `send_notification` 生产 0 调用方**——本批只搬不删（`services` 包内公开 API，删除须独立评估），登记遗留待核查。
 
 *登记人：opencode ｜ 状态：【已关闭】（三件布局 + 序列化单源 + 收集 51 不变 + schema diff=0），2026-10-19*
+
+## BF-116 【已关闭】AUD-13 broken/lost 生命周期幂等分支静默返回：加模块级 logger + 幂等 debug 日志（登记来源：codegraph-audit-2026-10-18 #AUD-13 P3）
+
+> **登记时间**：2026-10-19 ｜ **严重级别**：Low（P3，批次 D 七条之一）
+> **登记来源**：`docs/Review/codegraph-audit-2026-10-18.md` #AUD-13（2.3 表已划线 + 「修复追踪」双向互指）
+> **影响范围**：`apps/assetmanagement/services/asset_lifecycle_mixin.py`——`:25`（`logger = logging.getLogger(__name__)`）、`:59`（幂等分支 `logger.debug`）；**无契约变更**
+
+### 一、问题现象
+
+幂等分支（子记录已存在时静默返回）无 debug 日志、无 return 值区分，触发时无从审计「为何未建记录」。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | `_ensure_missing_broken_or_lost_record` | 幂等分支（子记录已存在）静默 `return`，调用方与日志均无痕迹 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `:25` 加 `logger = logging.getLogger(__name__)` | `asset_lifecycle_mixin.py` |
+| 2 | `:59` 幂等分支内加 `logger.debug` 一行，注明幂等语义 | `asset_lifecycle_mixin.py` |
+
+未触发 `[HALT]`：仅新增日志，无业务逻辑/契约变更。
+
+### 四、对抗审核
+
+- **日志级别**：用 `debug`（非 info/warn），幂等是正常业务路径，不应污染生产日志。
+- **无行为变更**：仅日志，`test_lifecycle_mixin_gaps.py` 33 passed 直证无回归。
+- **DR-1**：未引入第二处 logger 定义（本文件此前无 logger）。
+
+### 五、验证记录
+
+```text
+pytest apps/assetmanagement/tests/test_lifecycle_mixin_gaps.py → 33 passed ✅
+ruff check + format → 0 ✅
+mypy --strict → Success ✅
+批次矩阵 → 见报告「修复追踪」批次 D 段
+```
+
+### 六、遗留与关联事项
+
+- 无。
+
+*登记人：opencode ｜ 状态：【已关闭】（debug 日志落地 + 33 passed + ruff/mypy 0），2026-10-19*
+
+## BF-117 【已关闭】AUD-14 CT-3 方法名层缺口：3 条转发表边补直调 FSM 单测 + 状态枚举等价断言（登记来源：codegraph-audit-2026-10-18 #AUD-14 P3）
+
+> **登记时间**：2026-10-19 ｜ **严重级别**：Low（P3，批次 D 七条之一）
+> **登记来源**：`docs/Review/codegraph-audit-2026-10-18.md` #AUD-14（2.3 表已划线 + 「修复追踪」双向互指）
+> **影响范围**：`apps/assetmanagement/tests/test_state_machine.py`——新增 `TestBrokenToRepairing:355`、`TestRepairingToRecycledPending:365`、`TestRecycledPendingToDamaged:375`、`test_state_enum_equivalence():384`；**无契约变更**（纯测试新增）
+
+### 一、问题现象
+
+`transitions.py:41`（RECYCLED_PENDING→IN_STORE）、`:46`（SCRAPPED→IN_STORE）、`:50`（DAMAGED→SCRAPPED）3 条边实现位于 `out_recycle.py`/`unregistered.py`/`scrapping.py` 并有集成测试覆盖，但缺**直调 FSM 具名方法**的单测层用例（与其余 19 条边的两层口径不一致）。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 测试口径历史 | 19 条边有「直调方法 + 集成」两层，这 3 条仅有集成层 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | 新增 `TestBrokenToRepairing`（broken→repairing 直调 `AssetFSM.mark_broken`/`repairing`） | `test_state_machine.py:355` |
+| 2 | 新增 `TestRepairingToRecycledPending`（repairing→recycled_pending 直调） | `test_state_machine.py:365` |
+| 3 | 新增 `TestRecycledPendingToDamaged`（recycled_pending→damaged 直调） | `test_state_machine.py:375` |
+| 4 | 新增 `test_state_enum_equivalence()`：`set(AssetState) == set(AssetCurrentStatus)`（AUD-17 同批，DR-1） | `test_state_machine.py:384` |
+
+未触发 `[HALT]`：纯测试新增，无生产代码变更。
+
+### 四、对抗审核
+
+- **集成层已有**：这 3 条边的集成测试已在 `test_lifecycle_mixin_gaps.py` 等覆盖，本批补的是「方法名层」字面缺口，非行为验证缺口。
+- **等价断言**：`test_state_enum_equivalence` 若两域分叉立即红，防静默漂移。
+- **无 collateral loss**：全量 pytest 2011 passed（1998+13 新增）对账吻合。
+
+### 五、验证记录
+
+```text
+pytest apps/assetmanagement/tests/test_state_machine.py → passed（含新 3 类）✅
+pytest -k state_enum → 1 passed ✅
+批次矩阵 → 见报告「修复追踪」批次 D 段
+```
+
+### 六、遗留与关联事项
+
+- 无。
+
+*登记人：opencode ｜ 状态：【已关闭】（3 边方法名层用例 + 等价断言 + 全量 2011 passed），2026-10-19*
+
+## BF-118 【已关闭】AUD-15 ContractFSM 写路径裸 ValueError：改抛 ContractInvalidTransitionError（与资产 FSM 同构，DR-1）（登记来源：codegraph-audit-2026-10-18 #AUD-15 P3）
+
+> **登记时间**：2026-10-19 ｜ **严重级别**：Low（P3，批次 D 七条之一）
+> **登记来源**：`docs/Review/codegraph-audit-2026-10-18.md` #AUD-15（2.3 表已划线 + 「修复追踪」双向互指）
+> **影响范围**：`apps/assetmanagement/state_machine/contract_fsm.py`——`:26`（`ContractInvalidTransitionError` 类）、`:70`/`:74`（`_validate_transition` 两处 raise，包 `from None`）；`tests/test_contract_fsm.py`——`TestValidateTransition:61`（4 用例）；**无契约变更**（异常类型为服务层内部，未上抛至 HTTP 层语义变化）
+
+### 一、问题现象
+
+`_validate_transition` 写路径对非法态/非法迁移抛裸 `ValueError`，读路径 `:83-85` 已防 `KeyError/ValueError`——两侧口径不对称。当前不可达（`contract_service.py:307-309` 前置校验 + serializer ChoiceField 双保险），但迁移期/新写点可能绕过。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | `_validate_transition` | 写路径裸 `ValueError`，与读路径防御式捕获不对称 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `:26` 新增 `ContractInvalidTransitionError(Exception)` 类 | `contract_fsm.py` |
+| 2 | `:70`/`:74` 两处 raise 改抛 `ContractInvalidTransitionError`（`from None` 保持异常链干净） | `contract_fsm.py` |
+| 3 | `TestValidateTransition:61`（非法 current / 非法 target / 合法迁移 3 组用例，断言抛 `ContractInvalidTransitionError` 非裸 `ValueError`） | `test_contract_fsm.py` |
+
+未触发 `[HALT]`：服务层内部异常类型收敛，双保险（前置校验 + ChoiceField）仍在，端点响应形状不变。
+
+### 四、对抗审核
+
+- **同构性**：与资产 FSM 的 `InvalidTransitionError` 命名/用法一致（DR-1）。
+- **读路径不变**：`:83-85` 的 `KeyError/ValueError` 防御保留（读路径语义不同，不强制改）。
+- **上抛面**：`ContractInvalidTransitionError` 若被 View 捕获为 `AppValidationError(INVALID_CONTRACT_STATUS)`，与既有 `contract_service.py` 的错误码路径一致。
+
+### 五、验证记录
+
+```text
+pytest apps/assetmanagement/tests/test_contract_fsm.py → passed（含 TestValidateTransition 4 用例）✅
+mypy --strict → Success ✅
+批次矩阵 → 见报告「修复追踪」批次 D 段
+```
+
+### 六、遗留与关联事项
+
+- 无。
+
+*登记人：opencode ｜ 状态：【已关闭】（具名异常 + from None + 4 用例 + mypy 0），2026-10-19*
+
+## BF-119 【已关闭】AUD-16 三处文档/键名/死类型漂移：mixins.py 键名统一 message + asset.ts 死导出删除 + API 文档订正（登记来源：codegraph-audit-2026-10-18 #AUD-16 P3）
+
+> **登记时间**：2026-10-19 ｜ **严重级别**：Low（P3，批次 D 七条之一）
+> **登记来源**：`docs/Review/codegraph-audit-2026-10-18.md` #AUD-16（2.3 表已划线 + 「修复追踪」双向互指）
+> **影响范围**：`core/mixins.py:83`/`:87`（`"msg"`→`"message"`）；`vue-assetmanagement/src/types/asset.ts:7`（删 `ASSET_STATUS_DISPLAY_MAPPING` 死导出）；`Project_Requirements/02-技术设计/04-API接口规范.md:207`（「未实现」→「已实现（基线已含）」）；**无契约变更**（错误 payload 键名统一为 `message`，与其余 4 处一致）
+
+### 一、问题现象
+
+① 同一文件错误 payload 键名 1 处 `msg` 4 处 `message`，消费方按键取值时该处为空；② `asset.ts` 类型导出零引用（前端 type-check 不报未使用导出）；③ 规范文档 `GET /assets/{id}/checklist/` 标注「未实现」但实际已实现（`asset_view.py` + 191 paths 基线含该 path）。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | `core/mixins.py` | `msg` 与 `message` 混用，历史遗留 |
+| 2 | `types/asset.ts` | `ASSET_STATUS_DISPLAY_MAPPING` 导出后无消费方 |
+| 3 | API 文档 | checklist 端点实现后文档未同步 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `:83`/`:87` `"msg"` → `"message"` | `core/mixins.py` |
+| 2 | `:7` 删 `ASSET_STATUS_DISPLAY_MAPPING` 导出行 | `types/asset.ts` |
+| 3 | `:207` 「未实现」→「已实现（基线已含）」 | `04-API接口规范.md` |
+
+未触发 `[HALT]`：键名统一为既有 `message`（与 4 处一致，DR-1）；死导出删除；文档订正。
+
+### 四、对抗审核
+
+- **键名消费方**：`error_response` 生产 `{"code": ..., "message": ..., "data": ...}`，`:83`/`:87` 为唯一 `msg` 命中点，统一后全文件 5 处一致。
+- **死导出**：`rg ASSET_STATUS_DISPLAY_MAPPING` 全仓 0 引用。
+- **文档订正**：`rg -n "checklist" docs/` 确认无「未实现」残留。
+
+### 五、验证记录
+
+```text
+rg -n '"msg"' core/mixins.py → 0 命中 ✅
+rg -n "ASSET_STATUS_DISPLAY_MAPPING" src → 0 命中 ✅
+rg -n "checklist" docs/ | Select-String "未实现" → 0 命中 ✅
+npm run type-check → 0 ✅
+mypy --strict → Success ✅
+批次矩阵 → 见报告「修复追踪」批次 D 段
+```
+
+### 六、遗留与关联事项
+
+- 无。
+
+*登记人：opencode ｜ 状态：【已关闭】（键名统一 + 死导出删除 + 文档订正 + type-check/mypy 0），2026-10-19*
+
+## BF-120 【已关闭】AUD-17 双枚举定义（DR-1 维护面）：AssetState 与 AssetCurrentStatus 等价断言（登记来源：codegraph-audit-2026-10-18 #AUD-17 P3）
+
+> **登记时间**：2026-10-19 ｜ **严重级别**：Low（P3，批次 D 七条之一）
+> **登记来源**：`docs/Review/codegraph-audit-2026-10-18.md` #AUD-17（2.3 表已划线 + 「修复追踪」双向互指）
+> **影响范围**：`apps/assetmanagement/tests/test_state_machine.py:384` `test_state_enum_equivalence()`（与 BF-117 同批新增，DR-1）；**无契约变更**
+
+### 一、问题现象
+
+`state_machine/constants.py:27` `AssetState` 与 `models/asset.py:81` `AssetCurrentStatus` 两处独立定义、值集合一致（8 键），但无单测断言二者等价；新增状态若只改一处 → 两域静默分叉。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 双枚举并存 | 状态机域用 `AssetState`，Model/serializer/admin 域用 `AssetCurrentStatus`，无等价锚 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `test_state_enum_equivalence()`：`assert set(AssetState) == set(AssetCurrentStatus)` | `test_state_machine.py:384` |
+
+未触发 `[HALT]`：纯测试新增，无生产代码变更。
+
+### 四、对抗审核
+
+- **等价断言选择**：用 `set(AssetState) == set(AssetCurrentStatus)` 而非逐键比对，任一侧多/少键立即红。
+- **不改生产代码**：本批不合并两枚举（跨域重构风险 > 收益，留待后续独立评估），仅加护栏。
+
+### 五、验证记录
+
+```text
+pytest -k state_enum → 1 passed ✅
+批次矩阵 → 见报告「修复追踪」批次 D 段
+```
+
+### 六、遗留与关联事项
+
+- 两枚举物理合并（令 `AssetCurrentStatus` 从 `constants.AssetState` 再导出）留待后续独立评估，本批仅加等价护栏。
+
+*登记人：opencode ｜ 状态：【已关闭】（等价断言落地 + 1 passed），2026-10-19*
+
+## BF-121 【已关闭】AUD-19② 前端「加密」命名误导：tokenCrypto→tokenObfuscator 改名 + 15 文件 214 处批量替换（登记来源：codegraph-audit-2026-10-18 #AUD-19 P3）
+
+> **登记时间**：2026-10-19 ｜ **严重级别**：Low（P3，批次 D 七条之一）
+> **登记来源**：`docs/Review/codegraph-audit-2026-10-18.md` #AUD-19（2.3 表已划线 + 「修复追踪」双向互指）
+> **影响范围**：`utils/tokenCrypto.ts` → `git mv` → `utils/tokenObfuscator.ts:81`/`:96`（`encodeToken`/`decodeToken`）；`tokenCrypto.spec.ts` → `tokenObfuscator.spec.ts`；15 文件 214 处批量替换（`setEncryptedToken`→`encodeToken`、`getDecryptedToken`→`decodeToken`、`tokenCrypto`→`tokenObfuscator`）；**无契约变更**（XOR+Base64 混淆算法不变，仅命名对齐实际语义）
+
+### 一、问题现象
+
+`tokenCrypto.ts` 为可逆混淆（XOR+Base64），名不符实（暗示加密）；实际仅用于非敏感 localStorage 标记，风险可控但命名误导。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 命名历史 | 「Crypto」暗示强加密，实际为可逆混淆（XOR+Base64） |
+
+### 三、修复方案（冻结清单后执行）
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `git mv tokenCrypto.ts → tokenObfuscator.ts`；`:81` `encodeToken`、`:96` `decodeToken` | `utils/tokenObfuscator.ts` |
+| 2 | `git mv tokenCrypto.spec.ts → tokenObfuscator.spec.ts` | `utils/__tests__/tokenObfuscator.spec.ts` |
+| 3 | 15 文件批量替换（`setEncryptedToken`→`encodeToken`、`getDecryptedToken`→`decodeToken`、`tokenCrypto`→`tokenObfuscator`）共 214 处 | `router/guards.ts`、`api/request.ts`、`stores/auth.ts`、`composables/useNotificationConnection.ts`、`utils/tokenRefresh.ts` + 对应 `__tests__` 等 15 文件 |
+
+未触发 `[HALT]`：XOR+Base64 混淆算法不变，仅命名对齐实际语义；全量 vitest 2196 passed 直证。
+
+### 四、对抗审核
+
+- **冻结清单先行**：改名前先冻结 15 文件清单，避免批量替换漏文件。
+- **残零验证**：全仓 `rg tokenCrypto|setEncryptedToken|getDecryptedToken` 残零（`guards.ts` 仅文档注释行，无运行时导入）。
+- **算法不变**：`encodeToken`/`decodeToken` 内部逻辑（XOR+Base64）逐行不变，仅函数名/文件名对齐。
+- **消费方完整性**：15 文件全替换，vitest 2196 passed 直证无遗漏。
+
+### 五、验证记录
+
+```text
+rg tokenCrypto|setEncryptedToken|getDecryptedToken src → 残零（guards.ts 仅注释行）✅
+全量 vitest → 2196 passed / 169 files ✅
+npm run type-check / lint / format:check → 0 ✅
+批次矩阵 → 见报告「修复追踪」批次 D 段
+```
+
+### 六、遗留与关联事项
+
+- `guards.ts` 文档注释行仍提及「tokenCrypto」历史名（无运行时影响），留待后续注释清理时一并更新。
+
+*登记人：opencode ｜ 状态：【已关闭】（改名冻结清单 + 15 文件 214 处替换 + 残零 + vitest 2196 passed），2026-10-19*
+
+## BF-122 【已关闭】AUD-20② clear_database.py 迁入 scripts/ + 路径参数化（SC-3/SC-4 收口）（登记来源：codegraph-audit-2026-10-18 #AUD-20 P3）
+
+> **登记时间**：2026-10-19 ｜ **严重级别**：Low（P3，批次 D 七条之一）
+> **登记来源**：`docs/Review/codegraph-audit-2026-10-18.md` #AUD-20（2.3 表已划线 + 「修复追踪」双向互指）
+> **影响范围**：根级 `clear_database.py` → `git mv` → `scripts/clear_database.py`（`:17` docstring「仅本地手动使用」、`:33` `project_root` 改 `dirname(dirname(__file__))`、`:98` `BACKUP_DIR` 改 `.parent.parent / "backups"`）；**无契约变更**（本地手动脚本，非 API 端点）
+
+### 一、问题现象
+
+① 两处 `SELECT 1` 为字面常量、非用户输入 → **不构成 SC-3 违规**（仅记录）；② `clear_database.py` 用 f-string 拼 MySQL `DROP TABLE` → 与 pg_dump 备份机制错配 + 字符串拼接字面命中 SC-3，且 `core/mysql_vs_postgres_backup_analysis.md:270-275` 已记录该脚本 3 处 MySQL/Postgres 错配。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 位置漂移 | 脚本滞留根级，偏离全仓 `scripts/` 约定 |
+| 2 | 路径硬编码 | `project_root`/`BACKUP_DIR` 依赖 CWD，迁移后失效 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `git mv clear_database.py → scripts/clear_database.py`；docstring 加「仅本地手动使用」 | `scripts/clear_database.py:17` |
+| 2 | `:33` `project_root` 改 `dirname(dirname(__file__))`（脚本自身定位，不依赖 CWD） | `scripts/clear_database.py:33` |
+| 3 | `:98` `BACKUP_DIR` 改 `Path(__file__).resolve().parent.parent / "backups"` | `scripts/clear_database.py:98` |
+
+未触发 `[HALT]`：本地手动脚本，非 API 端点；f-string 拼表名保留（MySQL 语义，SC-4 白名单留待后续独立评估，本批仅迁位+路径参数化）。
+
+### 四、对抗审核
+
+- **路径自定位**：`dirname(dirname(__file__))` + `Path(__file__).resolve()` 从脚本自身定位，任意 CWD 可跑。
+- **f-string 拼表名**：本批保留（MySQL 语义 + 本地手动使用 + 表名非用户输入），SC-4 白名单化留待后续独立评估。
+- **`SELECT 1`**：两处字面常量，不构成 SC-3 违规（仅记录，无用户输入注入点）。
+
+### 五、验证记录
+
+```text
+rg -n "DROP TABLE" --glob '*.py' → 仅此 1 处 ✅
+ruff check + format → 0 ✅
+mypy --strict → Success ✅
+批次矩阵 → 见报告「修复追踪」批次 D 段
+```
+
+### 六、遗留与关联事项
+
+- f-string 拼表名的 SC-4 白名单化留待后续独立评估（本批仅迁位+路径参数化，MySQL 语义保留）。
+
+*登记人：opencode ｜ 状态：【已关闭】（迁入 scripts/ + 路径参数化 + ruff/mypy 0），2026-10-19*

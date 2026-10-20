@@ -205,7 +205,7 @@
 >
 > ⚠️ 「合同 null 置末」是**次级排序键**：仅在 `asset_count` **相等**的分组之间生效。故无合同哨兵组**不一定排在最后** —— 当其 `asset_count` 高于其他分组时，仍按数量降序排在前面。此点前端不得假设哨兵组恒在末位。
 
-> **`api-schema-baseline.json`**：本节端点尚未实现，基线文件待实现落地后在阶段 4 重导出（提前重导出产出与现状字节一致，无意义）。
+> **`api-schema-baseline.json`**：本节端点（`/assets/grouped/`、`/assets/group_children/`）**已实现**（`asset_grouped_view.py` / `asset_group_children_view.py` + `config` 路由挂载），基线文件已含两条路径，无需另行重导出。
 
 ### 2.5 出库记录 `/api/v1/assets/out-assets/`
 
