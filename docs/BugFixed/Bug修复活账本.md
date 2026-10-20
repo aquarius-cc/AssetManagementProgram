@@ -8447,14 +8447,18 @@ ruff format --check 两文件 → 2 files already formatted exit 0 ✅
 py_compile 两文件 → exit 0 ✅
 pytest core/tests/test_exception_handler.py apps/assetmanagement/tests/test_schema_serving.py -q → 19 passed in 14.25s ✅
 mypy core/exception_handler.py --strict → Success: no issues found ✅
-全量 pytest+cov（后台 PID 2080/13968）→ [PENDING]
-CI 复跑直证（push a2ff0ef..5592cf2 后新 run）→ [PENDING]
+全量 pytest+cov（后台 PID 2080/13968）→ 2011 passed / 0 failed，TOTAL 11042 覆盖 88.91% ≥80 exit 0（1583.16s=26m23s）✅（2026-10-20）
+CI 复跑直证（push a2ff0ef..5592cf2 后 root run 39379150857，head 4a1e339）→ conclusion=success，34m26s，15/15 job 全绿 ✅（2026-10-20）
+  · 上次被 needs 跳过的两 job 本次实跑通过：后端-测试+覆盖率（整体 80% 红线 + Service 90% 红线双过，27m03s）、后端-变异测试（绝对红线+基线双重门禁双过，6m04s）
+  · 两红修复项复验：后端-代码规范（Ruff 格式检查 step success）、后端-圈复杂度 C90 success
+  · 本地未跑、本次首跑即绿：M-3 API Schema Diff（oasdiff 无破坏性漂移）、M-3 配套生成器同步、B4 API 文档护栏、前端-变异测试（80% Killed）
+  · 连锁链路全绿：CI 汇总 success → Security Scan success / Duplicate Guard success → CD Pipeline（workflow_run）success
 ```
 
 ### 六、遗留与关联事项
 
 - **[建议-流程]** 提交前验证矩阵固化补两项：`ruff format --check .`（BF-123 教训：check 过 ≠ format 过）与 `ruff check . --select C90 --config lint.mccabe.max-complexity=10`（BF-109 教训：AGENTS §1.3 要求项本地常年未跑）。建议纳入后端子引擎提交清单或 pre-commit 钩子。
-- 本地全量 pytest + CI 复跑两项 [PENDING]，完成即回填。
+- ~~本地全量 pytest + CI 复跑两项 [PENDING]~~ → 已全部回填（2026-10-20，见「五、验证记录」）。
 - 关联：BF-123（被补充格式项）、BF-109（C90 根因来源，双指）。
 
-*登记人：opencode ｜ 状态：【已关闭】（静态门禁全绿 + 19 锚点测试过 + mypy Success；全量/CI 两项 PENDING 如实标注），2026-10-20*
+*登记人：opencode ｜ 状态：【已关闭】（静态门禁全绿 + 19 锚点测试过 + mypy Success + 全量 pytest 2011 passed/cov 88.91% + CI 复跑 run 39379150857 15/15 全绿直证），2026-10-20*
