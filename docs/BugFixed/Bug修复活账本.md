@@ -8462,3 +8462,65 @@ CI 复跑直证（push a2ff0ef..5592cf2 后 root run 39379150857，head 4a1e339�
 - 关联：BF-123（被补充格式项）、BF-109（C90 根因来源，双指）。
 
 *登记人：opencode ｜ 状态：【已关闭】（静态门禁全绿 + 19 锚点测试过 + mypy Success + 全量 pytest 2011 passed/cov 88.91% + CI 复跑 run 39379150857 15/15 全绿直证），2026-10-20*
+
+## BF-125 【已关闭】AUD-21 授权可见性缺口（融合审计 M-01）——「③ 组合」两批：行级隔离无 Employee None→[] + 自助注册开关双入口 403 + 孤儿账号只读核查（登记来源：docs/Review/Merge-codegraph-audit-2026-10-20.md M-01 P1 / [AUD-21]）
+
+> **登记时间**：2026-10-21 ｜ **严重级别**：High（P1，融合报告唯一 P1 级授权面 + 上线 Gate #1）
+> **登记来源**：融合报告 M-01（溯源 AUD-21）+ 用户拍板「③ 组合」（2026-10-21 放行「执行，并同步相关文档」）
+> **影响范围**：`core/department_scope.py`（行级隔离三态语义）、`config/settings/base.py|production.py`（注册开关）、`apps/authusermanagement/views.py`（双入口 403 + extend_schema 声明）、新增只读命令 `audit_orphan_accounts` 与 3 个新测试文件、`api-schema-baseline.json` 重导、`Rules_Fiels/backend-business-rules.md` v1.19。**对外行为变化**：开关关闭态（production 缺省）下注册双入口由 201/400 转 403——预期安全收紧，schema 基线同步；无 Employee 用户数据可见性由全量转零行。
+
+### 一、问题现象
+
+① `get_department_codes_for_user` 对无 Employee 记录用户返回 `None`（不限部门），而自注册账号天然无 Employee 绑定、`RegisterAPIView` 为 AllowAny 且无生产开关 →「自注册→无部门过滤全量可见」授权缺口；② `AuthUserViewSet.create` 与 `RegisterAPIView.post` 双入口在任何环境均无关闭/白名单机制；③ 自注册产生的孤儿账号（无 Employee 绑定）此前无任何核查口径。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 三态语义历史欠账 | `None=不限` 本为全局角色设计，「无 Employee 记录」被顺带归入 None 行（rules §4.7 旧表同误）；自注册路径出现后即成可见性缺口（融合核验：AUD-21 报告所称函数名/`DepartmentScopeMixin` 与实现不符，实测见「四」） |
+| 2 | 注册端点无生产控制 | 双入口均 AllowAny 且无环境开关；`base.py` 缺省对 dev 友好但生产同权生效 |
+| 3 | 孤儿面无观测 | 无 Employee 的 AuthUser 数量从未有查询口径，修复后亦需核查存量 |
+
+### 三、修复方案（拍板：③ 组合，两批提交）
+
+| # | 变更 | 文件 / 提交 |
+|---|------|------|
+| 1（批次1） | 无 Employee 反转 `[]`（`department_scope.py:56-57`；superuser 分支 `:50-51`、system_admin/auditor 全局角色 `:62-63` 不变）+ 模块/函数 docstring 记录 + conftest `auth_user`/`asset` fixture 方案 A + 无 Employee 视角测试翻转对齐 21 文件 + 新增 `test_no_employee_read_scope_api` 5 用例 | `core/department_scope.py` 等 @ **`c94a26c`**（23 files，+213/−54） |
+| 2（批次2） | `AUTH_SELF_REGISTRATION_ENABLED`（`base.py:248` 缺省 True / `production.py:69` fail-closed 缺省 False，显式 `from decouple import config` + `cast=bool`）+ 双入口 403（`views.py:116-117` / `:237-238`，非 system_admin，复用 `IsSystemAdmin` 范式）+ `extend_schema` 403（`:105`/`:226`，create 同时显式保留 `201: RegisterSerializer`）+ 只读命令 `manage.py audit_orphan_accounts`（Exists 子查询、soft-delete 与 `get_employee_for_user` 同口径、`--json`/`--active-only`）+ schema 基线 `--lang en` 重导 + 双新测试 12 用例 | `views.py`/`settings`/命令/基线 @ **`6c9a3e1`**（7 files，+297/−1） |
+| 3（文档） | Merge 报告 M-01 标已修复 + 事实订正 + 新增 §五 修复追踪 + Gate #1 销项；rules v1.19 §4.7 三态表订正 + 头部/包装/变更日志；本条 BF-125 | 根仓同批提交（含 gitlink → `6c9a3e1`） |
+
+未触发 `[HALT]`：API 响应信封与状态机未动；403 为预期安全收紧且随基线同步（是否构成 M-3 破坏性变更以 CI oasdiff 判定为准）；production 导入方式偏离拍板字面（`os.getenv`→decouple `config`）系 mypy `--no-implicit-reexport` 约束，已在 rules 变更日志留痕。
+
+### 四、对抗审核
+
+- **fail-closed 方向**：production 缺省 False，漏配即关闭；dev/test 走 `base.py` 缺省 True 保持存量（拍板①）。**[待确认]** 生产注册暴露面由本开关兜底，负责人书面确认可关闭该残留。
+- **全局角色不受损**：`is_superuser` 判定先于 Employee 查询（`:50-51`）；system_admin/auditor 角色载体为 `employee.role`（`:59`），有 Employee 时 `:62-63` 返 `None` 语义不变。全量测试中 system_admin 路径 0 回归。
+- **schema 漂移双防**：`extend_schema` 为整体替换（OS-6 实证）→ create 显式声明 201+403 保持基线 `$ref Register` 形状；导出强制 `--lang en`（本地 zh-hans 回退不提交，账本 :6739 先例），diff 精确 7+/1− 非大面积重写。
+- **只读约束**：命令仅查询与打印，无任何写库；测试含只读断言。
+- **DR/CT 符合**：拒绝语义复用 `unregisteredasset/selectors.py` 既有实现（DR-1）；新增 17 用例（5+7+5）+ 全量回归（CT-1/CT-3/CT-4）。
+
+### 五、验证记录
+
+```text
+pytest 分块 553+197+501+455+323 → 2029 passed / 0 failed（2026-10-21）✅
+coverage → TOTAL 88.93% ≥80 exit 0；Service 层 98% ≥90 ✅
+mypy . --strict → Success: no issues found in 228 files ✅
+ruff check . / --select C90 (max-complexity=10) / ruff format --check . (405 files) → 全绿 ✅
+四护栏 check_file_length_guard --print + check_function_length_guard + check_duplicate_invariants → PASS exit 0 ×3 ✅
+python manage.py makemigrations --dry-run → No changes detected ✅
+WSL mutmut（~/amp-venv mutmut 3.8.0 = dev.txt；setup.cfg source_paths 仅 apps/assetmanagement/services；rm -rf mutants 全量）→
+  score 83.2925%（红线 80.0 / 基线 83.25676365492598 / delta +0.0357pt）
+  killed=1700 survived=341 timeout=0 no_tests=0 suspicious=0 tested=2041 → gate exit 0，T7 双门禁 PASS ✅
+python manage.py spectacular --format openapi-json --lang en --file api-schema-baseline.json --validate → diff 精确 7+/1−（2×403 + 1×description），components/其余 paths 全等 ✅
+两批提交 → 批次1 c94a26c（23 files）/ 批次2 6c9a3e1（7 files），后端工作树清空 ✅
+```
+
+### 六、遗留与关联事项
+
+- **[待确认]** 生产注册入口暴露面（本仓无部署配置可证）；production fail-closed 兜底，发布单留痕后可关闭本残留。
+- 拍板①后续项：dev/test 开关下 `AuthUserViewSet.create` 匿名建号存量保留，是否收口待用户拍板（与注册入口面同批决策为宜）。
+- ID-2 洞察（另立条目，不在本批范围）：storage/asset_type/contract 列表等全局资源对自注册账号仍可见。
+- 原 AUD-21 源报告笔误：函数名误写 `resolve_department_codes_for_user`（实为 `get_department_codes_for_user`）、`DepartmentScopeMixin` 全仓 rg 零命中——源报告归档 `ExpiredAuditReport/` 按历史快照豁免不改写，M-01 修复块留痕（Fact-1）。
+- 关联：M-01（融合报告已标 ✅ 已修复 + §五）、rules v1.19（§4.7 三态表订正）、BF-048（三态语义来源）。
+
+*登记人：opencode ｜ 状态：【已关闭】（全量 2029 passed/0 + cov 88.93% / Service 98% + mypy --strict 0/228 + ruff/C90/format/四护栏/makemigrations 全绿 + mutmut 83.2925% ≥ 基线 T7 双门禁 exit 0 + schema --lang en 精确重导 + 两批提交 c94a26c / 6c9a3e1 + 文档三处同步），2026-10-21*
