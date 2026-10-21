@@ -1,8 +1,9 @@
 # CodeGraph 审计融合报告（2026-10-20）
 
 > 融合对象：
-> ① `docs/Review/codegraph-audit-2026-10-20.md`（22:33 版，台账 NEW-01~16，来源=并行会话）
-> ② `docs/Review/MimoCode-codegraph-audit-2026-10-20.md`（21:07 版，台账 AUD-21~44，来源=本会话，全部条目经本会话实证）
+> ① `docs/Review/ExpiredAuditReport/codegraph-audit-2026-10-20.md`（22:33 版，台账 NEW-01~16，来源=并行会话）
+> ② `docs/Review/ExpiredAuditReport/MimoCode-codegraph-audit-2026-10-20.md`（21:07 版，台账 AUD-21~44，来源=本会话，全部条目经本会话实证）
+> （2026-10-21：两份源报告已随 13 份历史报告一并归档至 `docs/Review/ExpiredAuditReport/`，按历史快照只读留存；本文件为唯一现役融合产物）
 >
 > 融合原则（Fact-1）：仅收录经核验的事实；两报告冲突项以实测证据裁决；未逐行复核的条目显式标注来源与核验状态；重复发现合并为一条并保留双 ID 溯源。
 > 全程只读，未改动任何业务代码。本文件为唯一融合产物。
@@ -71,7 +72,7 @@
 **M-01 | P1 | 鉴权/授权 | [AUD-21] ✅ | `core/department_scope.py:52-53` + `authusermanagement/views.py:175-230`** **【✅ 已修复 2026-10-21，登记 BF-125，详见 §五 修复追踪】**
 - ~~行级隔离对无 Employee 绑定用户返回 None=不限制，而 `RegisterAPIView` 为 AllowAny 且无生产开关 → 自注册账号获得无部门过滤全量可见性。~~
 - **修复后事实（2026-10-21 实测）**：② `core/department_scope.py:56-57` 无 Employee 记录反转为 `[]`（最严兜底；superuser 分支 `:50-51`、system_admin/auditor 全局角色 `:62-63` 语义不变）；① 注册开关 `AUTH_SELF_REGISTRATION_ENABLED`（`base.py:248` 缺省 True / `production.py:69` 生产 fail-closed 缺省 False）+ 双入口 403（`views.py:116-117` create、`:237-238` register，非 system_admin）+ `extend_schema` 403 声明 + 只读核查命令 `manage.py audit_orphan_accounts`。原锚点行号 `:52-53` 为修复前位置；原 AUD-21 源报告函数名误写 `resolve_department_codes_for_user`（实为 `get_department_codes_for_user`）且提及的 `DepartmentScopeMixin` 全仓 rg 零命中——源报告已归档 `ExpiredAuditReport/`，按历史快照豁免不改写，此处留痕（Fact-1）。
-- **[待确认]** 生产注册入口暴露情况（本仓无部署配置可证）——现由 production fail-closed 开关兜底。**残留**：dev/test 开关下 `AuthUserViewSet.create` 匿名建号存量保留（拍板①，单列后续项）。
+- **[待确认]** 生产注册入口暴露情况（本仓无部署配置可证）——现由 production fail-closed 开关兜底（挂 Gate #3）。~~**残留**：dev/test 开关下 `AuthUserViewSet.create` 匿名建号存量保留（拍板①，单列后续项）~~ **已闭环（2026-10-21 批次3，BF-126）**：create 收口为仅 system_admin 单通道，与 register 门禁同权。
 - ~~修复：生产关闭/白名单化注册端点，或 None 语义反转为拒绝。~~（上述两路均已落地）
 - 回查：`rg -n "if not employee" core/department_scope.py; rg -n "AUTH_SELF_REGISTRATION_ENABLED" config/settings apps/authusermanagement/views.py`
 
@@ -211,6 +212,7 @@
 | O-4 | 依赖漏洞终态见 §一（twisted 豁免留痕 / npm dev 链 4 high 已定性） | 双方 |
 | O-5 | `config/urls.py:70,117` `SELECT 1` 字面量非 SC-3 违规；`clear_database.py` 白名单在位（AUD-20/BF-123 闭环） | 双方 |
 | O-6 | 本融合前 HEAD 全量复跑两次超时（300s/900s，无并发残留进程），`[x] 未复跑成功`；以 14:10 直证（2011/0/88.91%）+ 提交链自证（2290d61 验证串）为准 | 融合核验 |
+| O-7 | storage/asset_type 读面与 §4.2 矩阵 `:144`（类型/仓库/合同=仅 system_admin）不齐：二者经 `resolve_viewset_permissions` 分派（`storage_view` 由 `AdminWritePermissionMixin` 分派，`storage_view.py:61` 的 `permission_classes=[IsAuthenticated]` 为被覆写的类属性；`asset_type_view.py:53-55` 同构），读动作回落 `IsAuthenticated` → 自注册/普通账号可读。本批仅收口 contract（BF-127）；storage/asset_type **裁决留痕不收**（分批处理，不改 rules 条文、不升版——②③ 均为实现向既有 4.2 矩阵对齐） | ID-2 / BF-127 |
 
 ---
 
@@ -219,7 +221,7 @@
 | 分域 | 结论 |
 |:---|:---|
 | 状态机 | **FSM 零旁路**（双方独立结论一致：22 边吻合、域外直写 0）。遗留 M-03（fail_repair 前态搁浅）、M-11/M-30（admin 旁路面与边名维护） |
-| 鉴权/RBAC | 密钥四层 env 驱动 clean。**M-01 ✅已修复（2026-10-21，②None→[] + ①注册开关 fail-closed 双入口 403 组合，BF-125）**；遗留 M-08（刷新竞态）、M-09（fail-open 缺省）、M-10（Secure 缺省）、M-24（失败计数非原子） |
+| 鉴权/RBAC | 密钥四层 env 驱动 clean。**M-01 ✅已修复（2026-10-21，②None→[] + ①注册开关 fail-closed 双入口 403 组合，BF-125）**；**续收口：BF-126 create 仅 system_admin 单通道 + BF-127 contract 读面按矩阵 `:144` 收至 system_admin（O-7 留痕 storage/asset_type 分批）**；遗留 M-08（刷新竞态）、M-09（fail-open 缺省）、M-10（Secure 缺省）、M-24（失败计数非原子） |
 | 服务层 | 锁/幂等/事务纪律成熟（双方一致）。遗留 M-06（出库前态 TOCTOU）、M-13（审计吞没）、M-26/M-27（建号/目录树并发）、M-35（Selector 写） |
 | API 契约 | 信封零旁路、枚举 8 键一致、分页参数合规（除 dashboard limit=M-28）。**M-02 无序分页为最大契约面问题** |
 | 前端 | 枚举 clean+守卫测试、401 单飞、XSS 零命中。根因模式集中于 createEntityStore 契约缺口（M-05/15/16/18/20/21 同源，建议专项一次消解）+ 竞态守卫遗漏（M-14/17/22/39）+ 缓存体系（M-12/19/29） |
@@ -239,7 +241,7 @@
 |:---|:---|:---|:---|
 | 1 | ~~**M-01 注册暴露面**~~ ✅ 已修复 2026-10-21 | ~~关闭/白名单化注册端点或 None 语义反转；发布单留痕；或负责人书面确认生产网络隔离~~ **两路均已落地**：① None 语义反转 `[]`（`department_scope.py:56-57`）+ ② production fail-closed 开关（`production.py:69`）双入口 403；发布单仍留痕 | BF-125 / §五 修复追踪 |
 | 2 | **M-02 分页排序** | 4 model 补 `Meta.ordering=["-created_at"]`（小改，16 测试文件回归面） | rg 证实 4 文件无 ordering |
-| 3 | SECRET_KEY / DB_PASSWORD 环境变量注入核对 | 部署侧确认（代码已强制） | production.py 在位 |
+| 3 | SECRET_KEY / DB_PASSWORD / `AUTH_SELF_REGISTRATION_ENABLED` 环境变量注入核对 | 部署侧确认（代码已强制；注册开关生产缺省 False fail-closed，置 `true` 须书面确认生产注册面——本子项 2026-10-21 依①档1拍板追加） | `production.py:69` 在位 / BF-125 |
 
 ### 4.3 上线后首个迭代
 
@@ -270,11 +272,20 @@
 
 **残留与后续**：
 
-- 拍板①：dev/test 开关下 `AuthUserViewSet.create` 匿名建号存量行为保留（单列后续项）。
+- ~~拍板①：dev/test 开关下 `AuthUserViewSet.create` 匿名建号存量行为保留（单列后续项）~~ **已由 BF-126 收口（2026-10-21 批次3）**：create → `IsSystemAdmin` 单通道，`test_self_registration_flag.py` 重写锚定（开态 system_admin 201 / 已认证非 sysadmin 403 / 匿名 401）。
 - **[待确认]** 生产注册入口暴露面（本仓无部署配置）；现由 production fail-closed 开关兜底。
-- ID-2 洞察（另立条目，不在本批范围）：storage/asset_type/contract 列表等全局资源对自注册账号仍可见。
+- ID-2 洞察：~~storage/asset_type/contract 列表等全局资源对自注册账号仍可见~~ **contract 部分已由 BF-127 收口（2026-10-21 批次4，读面至 system_admin）**；storage/asset_type 裁决留痕 O-7（分批处理，不改 rules 条文）。
 - 原 AUD-21 源报告笔误（函数名 / `DepartmentScopeMixin` 零命中）按历史快照豁免不改写，留痕于 M-01 块。
+
+**2026-10-21 续修（BF-126 / BF-127，AUD-21 授权面收口）**：
+
+| 批次 / 提交 | 变更 | 验证（实测） |
+|:---|:---|:---|
+| 批次3 `55e92a2`（BF-126，5 files，+93/−83） | `authusermanagement/views.py` create `get_permissions` → `IsSystemAdmin`（删 `get_throttles` 覆写与 `BaseThrottle` 导入）+ `extend_schema` 401 新增 / 403 换文案；**`_THROTTLE_TEST_SETTINGS` 镜像补 `DEFAULT_SCHEMA_CLASS`**（跨测试 schema 污染根治：`override_settings(REST_FRAMEWORK=mini)` 窗口内 URLConf 首导入时 `@extend_schema` 回退读 `api_settings.DEFAULT_SCHEMA_CLASS` 回落 DRF 2-arg `AutoSchema` 并固化进 `ExtendedSchema` 基类） | `test_self_registration_flag.py` 重写 8 用例 + `test_create_throttle.py` 重写（429 迁 REGISTER_URL 6 连发）+ 污染红→绿 102 直证；schema `--lang en` 重导 diff 精确 6+/4− |
+| 批次4 `d48b283`（BF-127，3 files，+151/−31） | `contract_view.py` 模块级 `_CONTRACT_READ_OVERRIDES`（list / retrieve / getcontractByname / statistics / global_search → `IsSystemAdmin`，经 `resolve_viewset_permissions` `action_overrides` 接入，DR-1 复用既有类；**读权限面=仅 system_admin**——矩阵 `:144` 实测裁决，否决批准文三角色假设）+ `get_permissions` docstring 口径同步 | 新增 `test_contract_read_scope.py` 9 test-id（匿名 401 / sysadmin 200 锚 / regular·dept·asset·auditor 403 / 自定义 3 读 action 403）+ `test_contract_view_api.py` 翻修 10 红；存量 export_rbac / payment_lock / admin_config 零回归；schema **SCHEMA_IDENTICAL** |
+
+**门禁终态（2026-10-21，批次3/4 合并直证）**：全量 **2039 passed / 0 failed**（分块 1288 + 751）；cov **89% ≥80**、Service **98% ≥90**；`mypy --strict` **0 errors（228 files）**；`ruff check .` / `--select C90` / `ruff format --check .`（406 files）全绿；四护栏（BR-4/BR-6/G/FR）PASS；`makemigrations --dry-run` 无变更；**WSL mutmut（3.8.0 = dev.txt 声明版，`rm -rf mutants` 全量重跑 14.05 mutations/s）→ score 83.2925%（红线 80.0 / 基线 83.25676365492598 / delta +0.0357pt），killed=1700 survived=341 timeout=0 skipped=0 tested=2041 → T7 双门禁 PASS（exit 0）**；OpenAPI 基线批次3 `--lang en` 精确重导（6+/4−）、批次4 零漂移（SCHEMA_IDENTICAL）。
 
 ---
 
-*融合生成：2026-10-20 | 核验方：本会话（对 NEW 条目抽查 9 项，全部落定：7 证实 / 1 未复现降级 / 1 环境裁决）| 2026-10-21 追加 §五：M-01 修复追踪（BF-125）*
+*融合生成：2026-10-20 | 核验方：本会话（对 NEW 条目抽查 9 项，全部落定：7 证实 / 1 未复现降级 / 1 环境裁决）| 2026-10-21 追加 §五：M-01 修复追踪（BF-125）；2026-10-21 续：BF-126 create 单通道 + BF-127 contract 读收口（O-7 留痕）——**AUD-21 授权面全链闭环**（批次1 数据层根治 codes None 消费方 → 批次2 register fail-closed → 批次3 create 单通道 → 批次4 contract 读收口），仓外唯一 [待确认] 生产注册面由 fail-closed 兜底挂 Gate #3*

@@ -8518,9 +8518,134 @@ python manage.py spectacular --format openapi-json --lang en --file api-schema-b
 ### 六、遗留与关联事项
 
 - **[待确认]** 生产注册入口暴露面（本仓无部署配置可证）；production fail-closed 兜底，发布单留痕后可关闭本残留。
-- 拍板①后续项：dev/test 开关下 `AuthUserViewSet.create` 匿名建号存量保留，是否收口待用户拍板（与注册入口面同批决策为宜）。
+- 拍板①后续项：~~dev/test 开关下 `AuthUserViewSet.create` 匿名建号存量保留，是否收口待用户拍板（与注册入口面同批决策为宜）~~ **已收口（2026-10-21 批次3，BF-126）**：create → `IsSystemAdmin` 单通道，与 register 门禁同权，不再依赖开关分叉。
 - ID-2 洞察（另立条目，不在本批范围）：storage/asset_type/contract 列表等全局资源对自注册账号仍可见。
 - 原 AUD-21 源报告笔误：函数名误写 `resolve_department_codes_for_user`（实为 `get_department_codes_for_user`）、`DepartmentScopeMixin` 全仓 rg 零命中——源报告归档 `ExpiredAuditReport/` 按历史快照豁免不改写，M-01 修复块留痕（Fact-1）。
 - 关联：M-01（融合报告已标 ✅ 已修复 + §五）、rules v1.19（§4.7 三态表订正）、BF-048（三态语义来源）。
 
 *登记人：opencode ｜ 状态：【已关闭】（全量 2029 passed/0 + cov 88.93% / Service 98% + mypy --strict 0/228 + ruff/C90/format/四护栏/makemigrations 全绿 + mutmut 83.2925% ≥ 基线 T7 双门禁 exit 0 + schema --lang en 精确重导 + 两批提交 c94a26c / 6c9a3e1 + 文档三处同步），2026-10-21*
+
+## BF-126 【已关闭】AUD-21 续收口①——create 入口单通道（AllowAny → IsSystemAdmin）+ 跨测试 OpenAPI schema 污染根治（登记来源：Merge 报告 M-01 拍板②后续项 / [AUD-21]）
+
+> **登记时间**：2026-10-21 ｜ **严重级别**：High（P1 授权面收口，与 BF-125 同链）
+> **登记来源**：BF-125 遗留段拍板①后续项 → 用户批准「遗留五项」批次3执行（2026-10-21）
+> **影响范围**：`apps/authusermanagement/views.py`（get_permissions create 分支、get_throttles 覆写删除、extend_schema 401/403、docstring）、`test_self_registration_flag.py` 重写、`test_create_throttle.py` 重写 + `_THROTTLE_TEST_SETTINGS` 补 `DEFAULT_SCHEMA_CLASS`、`test_openapi_security_schema.py` 安全方案白名单、`api-schema-baseline.json`（`--lang en` 重导 6+/4−）。**对外行为变化**：create 由 `AllowAny`（开关开启态下任何人可建号 + 匿名 5/min 限流）收口为仅 system_admin——已认证非 sysadmin 201→403、匿名（开态）201→401；register 端点行为不变（开关 + 429 独立存续）。
+
+### 一、问题现象
+
+BF-125 批次2 为 create 补了 `AUTH_SELF_REGISTRATION_ENABLED` 开关门禁，但权限类本身仍为 `permissions.AllowAny`（原 docstring「创建用户:任何人可注册」）——开关开启态（dev/test 缺省）下任何匿名/已认证请求仍可建号，授权面比 register（批次2 已 fail-closed）宽；`get_throttles` 对 create 注入 `RegisterRateThrottle` 与错位权限类耦合，一并构成收口对象。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 权限类历史欠账 | `views.py` get_permissions create 分支 = `AllowAny`（`git show 55e92a2~1` 直证）；BF-125 仅在 request 层加开关 403，未动权限类（当时拍板①单列后续） |
+| 2 | 覆写耦合 | `get_throttles` create → `[RegisterRateThrottle(), *super().get_throttles()]`（匿名 5/min，与 `/auth/register` 同 `scope=register`）——收口后匿名在权限层被 401 拦截，注入失去目标且混淆两口限流口径 |
+| 3 | schema/测试锚定 | `extend_schema` 未声明 401；`test_openapi_security_schema.py` 白名单含 create 旧方案；限流测试锚在 create 口；跨测试污染（根治项，见三-2） |
+
+### 三、修复方案（批次3 单提交）
+
+| # | 变更 | 文件 / 提交 |
+|---|------|------|
+| 1 | create 分支 → `[IsSystemAdmin]`；删 `get_throttles` 覆写与 `BaseThrottle` 导入；docstring 更新 + `extend_schema` 401 新增 / 403 换文案 | `views.py` @ **`55e92a2`**（5 files，+93/−83） |
+| 2 | `_THROTTLE_TEST_SETTINGS` 镜像补 `"DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema"`——污染根治：mini 字典 override 窗口内 URLConf 首导入时 `@extend_schema` 回退读 `api_settings.DEFAULT_SCHEMA_CLASS`，回落 DRF 2-arg `AutoSchema` 并固化进 `ExtendedSchema` 基类，同进程后续 schema 生成 TypeError（`super().get_operation()` 参数错位） | `test_create_throttle.py` |
+| 3 | 测试重写：`test_self_registration_flag.py` 8 用例（关态 2 / 开态 1 / 单通道 5，解耦双向直证）；`test_create_throttle.py`（单元断言反转 + 429 迁 REGISTER_URL 6 连发）；`test_openapi_security_schema.py:42` 白名单删 create | 3 test files |
+| 4 | schema 基线 `--lang en` 精确重导（6+/4−：security 去 `{}`、401 新增、文案换） | `api-schema-baseline.json` |
+
+未触发 `[HALT]`：权限收口为批准范围内的预期安全收紧；401/403 走既有统一例外处理器信封；register 429 行为零变化（迁测直证）。
+
+### 四、对抗审核
+
+- **路径矩阵全实证**：匿名 POST 任意 flag → **401**（信封 `data["code"]==401` 断言安全，BF-109 保挑战头）；已认证非 sysadmin → **403**；sysadmin 任意 flag → **201**；register 关/开 → **403/201**（开关语义存续，双向解耦）。
+- **限流不丢锚**：register 口 `RegisterRateThrottle` 5/min 独立存续——429 迁 REGISTER_URL 6 连发直证；已认证管理端建号仍走 UserRateThrottle 100/min。
+- **污染根治非掩盖**：`DEFAULT_SCHEMA_CLASS` 镜像补齐 = 与生产 REST_FRAMEWORK 配置对齐，属 mini 字典缺 key 的回落修复，非断言 hack（红→绿 102 同集实证）。
+- **DR/CT**：权限判定复用 `IsSystemAdmin`（DR-1）；新增/重写 16 用例 + 污染红→绿 + 全量 2039（CT-1/CT-3/CT-4/CT-5）。
+
+### 五、验证记录
+
+```text
+pytest 分块 1288+751 → 2039 passed / 0 failed（2026-10-21）✅
+coverage TOTAL 89% ≥80 exit 0；Service 98% ≥90 ✅
+mypy . --strict → Success: no issues found in 228 files ✅
+ruff check . / --select C90 (max-complexity=10) / ruff format --check . (406 files) → 全绿 ✅
+四护栏 file/function/duplicate/api_doc → PASS exit 0 ×4 ✅
+python manage.py makemigrations --dry-run → No changes detected ✅
+跨测试污染红→绿：补镜像前 schema 相关 102 failed → 补后 102 passed（同集直证）✅
+schema manage.py spectacular --format openapi-json --lang en --file api-schema-baseline.json --validate
+  → diff 精确 6+/4−（security {} 消失 + 401 新增 + 文案换）✅
+WSL mutmut（~/amp-venv 3.8.0 = dev.txt；rm -rf mutants 全量 14.05 mutations/s）→
+  score 83.2925%（红线 80.0 / 基线 83.25676365492598 / delta +0.0357pt）
+  killed=1700 survived=341 timeout=0 skipped=0 tested=2041 → T7 双门禁 PASS exit 0 ✅
+  （口径注：mutmut run 产出 mutants/mutmut-stats.json 为测试映射表；gate 预设的
+  mutmut-cicd-stats.json 属 CI 工件名本地不产出，以 log 末行计数 + gate 同公式直算）
+提交 55e92a2（5 files）✅
+```
+
+### 六、遗留与关联事项
+
+- **开关分叉消解**：create 收口后，register 路径仍由 `AUTH_SELF_REGISTRATION_ENABLED` 控制——开态匿名注册面存续 = 拍板①保留语义，生产 `true` 须书面确认（**挂 Gate #3**，已追加开关子项）。
+- 与 M-23 关联：本批重写 `test_create_throttle.py` 已消解其「override 覆盖 THROTTLE_RATES 类快照」脆弱性锚点（M-23 转为已消解注记，P2 定级不变）。
+- 关联：BF-125（前链）、BF-127（同批续收口②）、M-09（resolve fail-open 缺省独立遗留）。
+
+*登记人：opencode ｜ 状态：【已关闭】（全量 2039 passed/0 + cov 89% / Service 98% + mypy --strict 0/228 + ruff/C90/format 406 + 四护栏 + makemigrations 无 + 污染红→绿 102 + schema --lang en 精确 6+/4− + mutmut 83.2925% ≥ 基线 T7 双门禁 exit 0 + 提交 55e92a2 + Merge §五/§3/Gate#3/尾注与本账本同步），2026-10-21*
+
+## BF-127 【已关闭】AUD-21 续收口②——contract 读面按矩阵 `:144` 收至 system_admin（5 读 action Overrides）+ storage/asset_type 裁决留痕 O-7（登记来源：Merge 报告 ID-2 洞察 / M-01 链 / [AUD-21]）
+
+> **登记时间**：2026-10-21 ｜ **严重级别**：High（P1 授权面收口，与 BF-125/126 同链）
+> **登记来源**：用户批准「遗留五项」批次4执行（2026-10-21）；**读权限面口径 = 仅 system_admin**（会话拍板，依据 `Rules_Fiels/backend-business-rules.md` 4.2 矩阵 `:144` 实测「类型/仓库/合同/员工/部门/用户 = ✅|❌|❌|❌|❌」，否决批准文三角色假设——批准文误引 `:138` 资产新增行）
+> **影响范围**：`apps/assetmanagement/views/contract_view.py`（`_CONTRACT_READ_OVERRIDES` + get_permissions docstring）、`test_contract_view_api.py` 翻修 10 红、新增 `test_contract_read_scope.py` 9 test-id。**对外行为变化**：contract 5 读 action（list / retrieve / getcontractByname / statistics / global_search）由「已认证可读」收至仅 system_admin（非 sysadmin 403、匿名 401）——预期安全收紧；schema **零漂移**（SCHEMA_IDENTICAL，权限类不进 schema）。
+
+### 一、问题现象
+
+ID-2 洞察：contract / storage / asset_type 列表等全局资源对自注册账号可见。contract 读动作不在 `admin_actions` → `resolve_viewset_permissions` 缺省回落 `IsAuthenticated`（M-09 fail-open，`core/permissions.py:192-210`）→ 任何已认证账号（含自注册孤儿账号）可读合同列表/详情/按名查/统计/全局搜索，与 §4.2 矩阵 `:144`「合同 = 仅 system_admin」不符。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | M-09 fail-open 缺省 | 未登记 action（非 admin_actions）回落 `IsAuthenticated`——读面全开是缺省行为而非显式设计（M-09 独立遗留，本批不改 resolve） |
+| 2 | docstring 弱口径 | `get_permissions` docstring「读操作需认证」如实描述了弱实现，与矩阵 `:144` 不齐 |
+| 3 | 批准文误引 | 批准计划三角色假设误引 `:138`（资产新增行）；执行按矩阵 `:144` 实测收口（会话拍板） |
+
+### 三、修复方案（批次4 单提交）
+
+| # | 变更 | 文件 / 提交 |
+|---|------|------|
+| 1 | 模块级 `_CONTRACT_READ_OVERRIDES`：5 读 action → `IsSystemAdmin`，经 `resolve_viewset_permissions` 既有 `action_overrides` 参数接入（DR-1：复用既有分派与 `IsSystemAdmin`，**不建** `CanViewContract` 同义类、不动 resolve 缺省）+ `get_permissions` docstring 口径同步 | `contract_view.py` @ **`d48b283`**（3 files，+151/−31） |
+| 2 | 新增 `test_contract_read_scope.py` 9 test-id 矩阵：匿名 401 / sysadmin 200 正例锚 / regular list+retrieve 403 / dept+asset 参数化 403 / auditor 403 / 自定义 3 读 action 参数化 403（部门级角色带部门排除，`get_user_role` None 降级直证） | 新测试文件 |
+| 3 | `test_contract_view_api.py` 翻修 10 红：5 读功能测试 regular→`admin_authenticated_client`、`TestAllowedNextStatesField` 3 测试 `client`→`admin_client`（含 parametrize 3）、regular `client` fixture 删、文件 docstring 标注 | 翻修 |
+| 4 | storage/asset_type **裁决留痕**：Merge 观察项 **O-7** 新行 + 本条遗留段——不收、不改 rules 条文、不升版 | 文档 |
+
+未触发 `[HALT]`：权限类不进 API schema（SCHEMA_IDENTICAL 直证）；实现向既有 4.2 矩阵对齐 = 规则执行，非契约变更。
+
+### 四、对抗审核
+
+- **面宽无漏**：5 读 action 经 rg 列全（getcontractByname / statistics / global_search 为易漏项），9 test-id 全命名锚定；写面（admin_actions 6 动作）`IsSystemAdmin` 存续零变。
+- **信封一致**：匿名 401 / 已认证 403 走统一例外处理器（BF-109 保挑战头），`data["code"]` 断言安全。
+- **零回归直证**：存量 `test_export_excel_rbac` / `no_employee` / `admin_config` / `payment_lock` 等定向红名单外 117 用例绿；全量 2039。
+- **与 M-09 边界**：仅 overrides 显式登记 5 action，`resolve_viewset_permissions` 缺省行为未动——避免范围蔓延，M-09 独立处置。
+- **O-7 裁决**：storage/asset_type 同属矩阵 `:144`（读面同洞，实测 `storage_view` 经 `AdminWritePermissionMixin` 分派 + `:61` 类属性被覆写、`asset_type_view:53-55` 同构）——本批范围外分批处理，留痕不改。
+
+### 五、验证记录
+
+```text
+pytest 分块 1288+751 → 2039 passed / 0 failed（2026-10-21）✅
+coverage TOTAL 89% ≥80 exit 0；Service 98% ≥90 ✅
+mypy . --strict → Success: no issues found in 228 files ✅
+ruff check . --fix（I001 import 序）后 / --select C90 / ruff format --check . (406 files) → 全绿 ✅
+四护栏 file/function/duplicate/api_doc → PASS exit 0 ×4 ✅
+python manage.py makemigrations --dry-run → No changes detected ✅
+schema manage.py spectacular --format openapi-json --lang en --file api-schema-baseline.json --validate
+  → SCHEMA_IDENTICAL（权限类零漂移）✅
+定向红名单：改前仅 test_contract_view_api.py 10 failed（其余 117 绿）→ 翻修后 0 ✅
+WSL mutmut 3.8.0 全量 → score 83.2925%（同基线，T7 双门禁 PASS exit 0，口径见 BF-126）✅
+提交 d48b283（3 files）✅
+```
+
+### 六、遗留与关联事项
+
+- **O-7（裁决留痕）**：storage / asset_type 读面同属矩阵 `:144` 但本批不收——分批处理，后续批次处置；不改 rules 条文、不升版（②③ 均为实现向既有 4.2 矩阵对齐）。留痕于 Merge 观察项 O-7 + 本段。
+- **口径复核记录**：读面「仅 system_admin」为会话拍板（矩阵 `:144` 实测优先于批准文三角色假设）；若未来拟扩三角色（如 auditor），须改矩阵条文（升版）+ 同步实现，单方不可。
+- 关联：BF-125 / BF-126（同链）、M-09（fail-open 缺省独立遗留）、ID-2（contract 部分闭环，storage/asset_type 挂 O-7）、Gate #3（注册面开关子项）。
+
+*登记人：opencode ｜ 状态：【已关闭】（全量 2039 passed/0 + cov 89% / Service 98% + mypy --strict 0/228 + ruff/C90/format 406 + 四护栏 + makemigrations 无 + schema SCHEMA_IDENTICAL + mutmut 83.2925% ≥ 基线 T7 双门禁 exit 0 + 提交 d48b283 + Merge O-7/§五/§3/尾注与本账本同步），2026-10-21*
