@@ -8649,3 +8649,618 @@ WSL mutmut 3.8.0 全量 → score 83.2925%（同基线，T7 双门禁 PASS exit 
 - 关联：BF-125 / BF-126（同链）、M-09（fail-open 缺省独立遗留）、ID-2（contract 部分闭环，storage/asset_type 挂 O-7）、Gate #3（注册面开关子项）。
 
 *登记人：opencode ｜ 状态：【已关闭】（全量 2039 passed/0 + cov 89% / Service 98% + mypy --strict 0/228 + ruff/C90/format 406 + 四护栏 + makemigrations 无 + schema SCHEMA_IDENTICAL + mutmut 83.2925% ≥ 基线 T7 双门禁 exit 0 + 提交 d48b283 + Merge O-7/§五/§3/尾注与本账本同步），2026-10-21*
+
+## BF-128 【已关闭】M-02 分页稳定性（上线前必办 Gate #2）——8 模型 `Meta.ordering` 全批 + 9 分页点 `UnorderedObjectListWarning` 回归护栏先红后绿 + 3 处 `.first()` 锁序（登记来源：docs/Review/Merge-codegraph-audit-2026-10-20.md M-02 P1 / [NEW-02]）
+
+> **登记时间**：2026-10-21 ｜ **严重级别**：High（P1 契约面，融合报告定性「最大契约面问题」、上线前必办 Gate #2）
+> **登记来源**：M-02 修复批次执行（2026-10-21，用户拍板：排序键 `["-created_at", "-id"]`、范围 8 模型全批——非报告原建议的 4 文件 + `-created_at` 单键）
+> **影响范围**：`apps/assetmanagement/models/` 8 模型（broken/lost/found/damaged/recycle/waste/repair/contract）+ `migrations/0024` + `services/asset_lifecycle_mixin.py` + `selectors/out_asset_selector.py` + 新建回归测试 1 文件。**对外行为变化**：9 个自定义 action 分页端点行序由「未定义（PG 非确定序）」收敛为确定的 `(-created_at, -id)`——消除翻页重复/丢行风险；**API 响应结构零变化，无跨端契约变更、无需重导 OpenAPI schema 基线**（`Meta.ordering` 不进 schema，端点/字段零增减）。
+
+### 一、问题现象
+
+1. 9 个绕过 `filter_queryset` 的自定义 action 分页点，其 queryset 无 `ORDER BY` 即进 `LIMIT/OFFSET`：`_lifecycle_base.py:169`（broken/lost/found by-asset 三点共用）、`damaged_asset_view.py:213`、`recycle_asset_view.py:152`、`waste_asset_view.py:132`（by-asset）、`waste_asset_view.py:202`（by-date-range）、`repair_asset_view.py:188`、`contract_view.py:226`（getcontractByname）、`contract_view.py:372`（global-search）——翻页重复/丢行，Django 分页器抛 `UnorderedObjectListWarning`。
+2. 8 个生命周期模型 Meta 均无 `ordering`（对照 `Asset` 有 `ordering=["-created_at"]`），主 list 端点靠 `OrderingFilter` 默认序掩盖，自定义 action 不走 `filter_queryset` 故裸奔。
+3. 报告原结论两处偏差（订正项，见 §四）：范围低估（4 → 实为 8 模型）；「`-created_at` 可能不存在」前提为 rg 漏扫基类的误判。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|---|------|------|
+| 1 | 模型层缺省序 | 8 模型 `Meta` 只有 `db_table`/`indexes`/`constraints`，无 `ordering`——rg 实测修复前零命中 |
+| 2 | 自定义 action 旁路 | 9 处 `paginate_queryset`/`_paginate_and_respond` 直吃 `get_queryset()`/裸 `filter()`，不跑 `filter_queryset` → `OrderingFilter` 默认序不生效 |
+| 3 | `created_at` 澄清 | 字段**实存**：`core/models.py:66` `TimestampModel.created_at`（`auto_now_add=True`），`BaseModel(TimestampModel)` `:73` 继承——不存在 FieldError 风险（报告前提系 rg 漏扫基类误判） |
+| 4 | `.first()` 伴生风险 | Meta 变序后 9 处裸 `.first()` 中，**过滤结果可能 >1 行**的 3 处选行将随新缺省序漂移（`asset_lifecycle_mixin.py:189`、`out_asset_selector.py:224/:234`）；其余为唯一键/OneToOne 单行（如 `waste_asset_service.py:36` —— `WasteAsset.asset_recordcode` 为 `OneToOneField`，`waste_asset.py:45` 实证单行，前序「多行」判定误判，降级不动） |
+
+### 三、修复方案（单批次）
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | 8× Meta 补 `ordering = ["-created_at", "-id"]`（用户拍板双键：时间倒序 + `-id` 决胜确定全序） | `broken_asset.py:77`、`lost_asset.py:80`、`found_asset.py:87`、`damaged_asset.py:112`、`recycle_asset.py:110`、`waste_asset.py:77`、`repair_asset.py:93`、`contract.py:123` |
+| 2 | 新增迁移 8× `AlterModelOptions`（**纯 Meta 状态，无 DDL**，不触碰表结构） | `migrations/0024_add_lifecycle_model_ordering.py` |
+| 3 | 3 处多行 `.first()` 显式 `.order_by("id")`（锁定与修复前无序查询等价的「最早行」语义，防 Meta 变序漂移） | `asset_lifecycle_mixin.py:189`、`out_asset_selector.py:224`、`:237` |
+| 4 | 新建 9 用例回归护栏：两页拉取断言「合计=count、覆盖全集无重复丢行、序为 `(-created_at,-id)`、`UnorderedObjectListWarning` 清单为空」 | `tests/test_pagination_order_stability.py`（290 行，9 test-id 命名锚定 9 个 action） |
+
+未触发 `[HALT]`：不改 API 响应结构（`code/data/message` 与字段零变）、不改状态机、不改跨端枚举——属缺省序补齐与查询语义锁定，非契约变更。
+
+### 四、对抗审核
+
+- **行号实测**：上表全部 `文件:行号` 于登记前 `rg` 实测命中（8 Meta 行、3 锁行、9 分页点、`core/models.py:66`、`waste_asset.py:45`、`authusermanagement/models.py:99`、`views.py:118/:167`）。
+- **证红再证绿（CT-4）**：护栏先在修复前跑——9/9 FAILED 且失败断言全部为 `UnorderedObjectListWarning 未消除`（含 `Pagination may yield inconsistent results with an unordered object_list: <class ...> ... QuerySet.` 原文）；修后 9/9 passed。非「先修后写测试」的假回归。
+- **原结论订正留痕（Fact-1）**：① 报告「4 文件无 `ordering`」的对照事实（Asset 有 `-created_at`）正确，但覆盖面低估——按分页点反查模型应为 8；② 排序键由 `-created_at` 单键改为双键系**用户拍板**（单键在同秒创建时仍非确定序）；③ `waste_asset_service.py:36` 由「多行待锁」降级「单行不动」（OneToOne 实证）；④ `created_at` 不存在的推断撤回（rg 漏扫 `core/models.py` 基类）。原 `ExpiredAuditReport/codegraph-audit-2026-10-20.md` NEW-02 行按**历史快照豁免**不改写（强制检查项④），订正集中于 Merge 报告 M-02 块 + 本条。
+- **聚合安全**：`Meta.ordering` 不会被 Django 拉入 `values().annotate()` 的 GROUP BY（SQL 编译器对 `_meta_ordering` 特判），统计类聚合不碎组。
+- **契约影响**：无（见头部「对外行为变化」）；OpenAPI schema 无需重导出——端点/字段零增减，`api-schema-baseline.json` 不动。
+- **防重复登记（强制检查项③）**：`rg "无序分页|Meta.ordering|Unordered"` 账本，既有命中均为员工筛选/导出参数/分组排序等无关条目，无同题 BF。
+
+### 五、验证记录
+
+```text
+证红：pytest test_pagination_order_stability.py → 9 failed（UnorderedObjectListWarning ×9，修复前）✅
+证绿：同命令 → 9 passed（修复后）✅
+apps/assetmanagement 全量：1296 passed, 1 skipped ✅
+其余 apps（auth/user/notif/unregistered/core/config）：694 passed, 4 skipped, 1 failed——见 §六 存量红
+全量（--cov=. --cov-fail-under=80）：2042 passed, 1 failed（存量）、TOTAL 89.20% ≥80 exit 0 ✅
+Service 覆盖（--cov=apps.assetmanagement.services --cov-fail-under=90）：98.34% ≥90 exit 0 ✅
+mypy . --strict → Success: no issues found in 228 files（CT-7 对齐 dev.txt：2.1.0 / 6.1.0 / 3.18.0 逐项一致）✅
+ruff check . → All checks passed；ruff format --check（目标文件 + apps/assetmanagement 177 files）→ 全绿 ✅
+python manage.py makemigrations --check --dry-run → No changes detected (exit 0) ✅
+CT-6 三步：makemigrations --dry-run → No changes detected；migrate --plan → 仅 0024（8×AlterModelOptions）；
+  危险操作扫描 RemoveIndex/RemoveField/RenameField → 0 命中（纯状态迁移，PR 注明「已人工确认数据无损」）✅
+护栏：check_file_length_guard → PASS（0 超限，asset_view.py 483/500 最高）；check_duplicate_invariants → PASS ✅
+WSL mutmut 3.8.0（= dev.txt 声明版）全量：score 83.2925%（红线 80.0 / 基线 83.25676365492598 / delta +0.0357pt），
+  killed=1700 survived=341 timeout=0 no_tests=0 skipped=0 tested=2041 → T7 双门禁 gate exit 0 ✅
+  （与批次3/4 同数可复现：服务层唯一新增行 `.order_by("id")` @ mark_asset_lost 在 mutants/.../asset_lifecycle_mixin.py.meta
+   exit_code_by_key 与 .spans 中零 mutant 条目，集合未变）
+存量红甄别：git stash 回基线 → test_create_throttle.py::test_sixth_anonymous_register_returns_429 同红 → 非本批引入 ✅
+```
+
+### 六、遗留与关联事项
+
+- **[已解决 2026-10-21 → BF-129②] AuthUser 无序分页（批外）**：登记定性订正（Fact-1）——`authusermanagement/views.py:118`、`:167` **非无序**：`AuthUser.Meta.ordering = ["auth_username"]` 自 2026-07-15（commit `ada969cf`）已存在（`models.py:192`），`UnorderedObjectListWarning` 不触发；原登记系按「不继承 `BaseModel`、无 `created_at`」类推，漏查该行。真实残留为**并列决胜缺失**（`auth_username` 仅条件唯一 `condition=auth_is_active=True`，`migrations/0001_initial.py:39`，同名 active+inactive 行跨页次序未定义）。已拍板 **Meta 加 `auth_id` 决胜键**（**不采纳**原建议 `-auth_id`——会改变前端现有字母序列表）+ 迁移 `0007_alter_authuser_options` + 护栏 `test_user_pagination_order_stability.py` 先红后绿；已同步 Merge 报告 §4.3。
+- **[已解决 2026-10-21 → BF-129①] 存量测试红**：根因已实证——DRF 3.17.2 `rest_framework/throttling.py:66` 于模块**首次导入时**将 rates 快照为 `SimpleRateThrottle.THROTTLE_RATES` 类属性，`override_settings` 仅刷新 `api_settings` 缓存不回绑类属性（原「override 压低 register 速率」注释系安慰剂，只读探针直证：窗口内 `api_settings`=5/minute 而实例 `rate`=10000000/minute → 永不 429）；绿/红仅随 **settings 口径分流**——pytest.ini 默认 `development` 捕获 `base.py:207`=5/minute 偶绿（=CI 纯 `pytest` 口径），`--ds=config.settings.test` 捕获 `test.py:132`=千万级必红，非 cache/throttle reset。已改 `monkeypatch` 直设 `rate="5/minute"`（与口径解耦），权威口径证绿后**全量 2046 passed / 0 failed，存量红清零**（落地时 1 failed 的历史标注保留于 §五验证记录）。
+- **§六 收口（2026-10-21）**：两项 [待决策] 均已关闭，BF-128 全项零未决（闭环登记详见 BF-129）。
+- **mutmut 结论口径**：本地 WSL 结论（83.2925%）为本地结论，push 后以 CI `backend-mutation` job 权威留档（CT-7）；基线文件一字未动。
+- 关联：M-02（Merge 报告 §2.2/§三/§4.1/Gate#2/§五）、NEW-02（源报告，历史快照豁免）、M-01 链（BF-125/126/127 同报告先行闭环）、O-7（无关，权限面）。
+
+*登记人：opencode ｜ 状态：【已关闭】（证红 9/9 + 证绿 9/9 + 全量 2042 passed/1 存量 failed + cov 89.20%/Service 98.34% + mypy --strict 0/228 + ruff/format 绿 + CT-6 三步 + 护栏 PASS + mutmut 83.2925% ≥ 基线 T7 exit 0 + Merge 报告 M-02/Gate#2/§五/§4.3/尾注同步），2026-10-21*
+
+---
+
+## BF-129 【已关闭】BF-128 §六 批外双遗留收口——① throttle 存量红根因（DRF `THROTTLE_RATES` 导入期类快照 + override 安慰剂，settings 口径分流）改 monkeypatch 直设 rate；② AuthUser「无序分页」登记定性失实订正（`Meta.ordering` 已存在，真残留为并列决胜缺失）+ Meta 加 `auth_id` 决胜 + 迁移 0007 + 分页护栏（登记来源：BF-128 §六 [待决策]×2 / `docs/Review/Merge-codegraph-audit-2026-10-20.md` §4.3·§五·M-23）
+
+- **发现日期**：2026-10-21（M-02 门禁期间分别登记为「存量红」「批外新增」，本次收口）
+- **严重级别**：P2（① 测试对 settings 捕获时机的隐性依赖掩盖限流回归杀伤力；② 分页并列跨页次序未定义）
+- **影响范围**：`apps/authusermanagement/tests/test_create_throttle.py`（重写）、`apps/authusermanagement/tests/test_user_pagination_order_stability.py`（新建）、`apps/authusermanagement/models.py:192`（Meta 单行）、`apps/authusermanagement/migrations/0007_alter_authuser_options.py`（新建）。**无契约变更**（测试 + Meta options + 纯迁移，端点路径/请求/响应形状零变化）。
+
+### 一、问题现象
+
+1. **存量红**：`test_create_throttle.py::TestRegisterRateLimited::test_sixth_anonymous_register_returns_429` 在 `--ds=config.settings.test` 口径下断言 429 实得 201（BF-128 落地全量 1 failed，`Bug修复活账本.md:8701`），`git stash` 基线同红（`:8713`）；而 pytest.ini 默认口径（development）与 CI 纯 `pytest` 均 4 passed——同代码双口径结论相反。
+2. **登记定性失实**：BF-128 §六原登记「`views.py:118/:167` 同属无序分页，排序键须另定（建议 `-auth_id`）」——实测 `AuthUser.Meta.ordering = ["auth_username"]` 自 2026-07-15（commit `ada969cf`）已存在，`UnorderedObjectListWarning` 不会触发；登记系按「不继承 `BaseModel`、无 `created_at`」类推，漏查 `models.py:192`。
+3. **真实残留**：`auth_username` 仅条件唯一（`condition=auth_is_active=True`，`migrations/0001_initial.py:39`），`list` 可同时含同名 active+inactive 行，仅按 username 排序时并列行跨页次序未定义（PG `LIMIT/OFFSET` 重复/丢行风险）；`list_active` 用户名唯一无并列。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|:---|:---|:---|
+| 1 | DRF 上游机制 | DRF 3.17.2 `rest_framework/throttling.py:66` `THROTTLE_RATES = api_settings.DEFAULT_THROTTLE_RATES` 在模块**首次导入时**快照为类属性——与上游 GitHub 源核对一致（非本地魔改，`.venv` 安装时间戳一致） |
+| 2 | override 失效机制 | `override_settings(REST_FRAMEWORK=...)` 触发 `reload_api_settings` 仅清 `api_settings` 实例缓存，**不回绑** `SimpleRateThrottle.THROTTLE_RATES` 类属性——本会话只读探针直证：override 窗口内 `api_settings` register=5/minute，类属性仍 10000000/minute，`RegisterRateThrottle()` 实例 `rate=10000000` → 永不 429 → 6 次全 201。原测试注释「override 压低 register 速率」（`test_create_throttle.py:10,33` 改造前）机制上不成立（安慰剂） |
+| 3 | 口径分流 | 绿/红仅取决于进程首次导入时生效的 settings：pytest.ini 默认 `config.settings.development`（= CI `ci.yml:227` 纯 `pytest` + PG service）捕获 base `register=5/minute`（`config/settings/base.py:207`，探针实测）→ 偶绿；`--ds=config.settings.test` 捕获 `config/settings/test.py:132` 千万级 → 必红。此即 M-23「双解释器 4 passed 未复现」与 M-02 门禁「1 failed」并存的唯一解释 |
+| 4 | 登记误判链 | M-23 并行会话原报「override_settings 无法覆盖 THROTTLE_RATES 类快照致假红」**方向正确**（Merge 报告 `:155` 却以双解释器未复现降级裁决）；BF-128 §六 AuthUser「无序」定性未查 `models.py:192` |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|:---|:---|:---|
+| 1 | 删除安慰剂 `_THROTTLE_TEST_SETTINGS` 整块与两处 `override_settings`，两用例改 `monkeypatch.setattr(RegisterRateThrottle, "rate", "5/minute", raising=False)`（`SimpleRateThrottle.__init__` 见 truthy `rate` 即跳过 `get_rate()`，与 settings 口径解耦、monkeypatch 退出自动还原）；第二用例同步直设使「create 误挂 throttle 回归」断言具杀伤力（test 口径下原断言盲区）；docstring 记录快照机制与口径分流事实 | `apps/authusermanagement/tests/test_create_throttle.py:71`、`:92` |
+| 2 | `Meta.ordering` 加决胜键 `["auth_username", "auth_id"]`（`auth_id` 为 PK `models.py:110`；与 M-02 八模型 `(-created_at,-id)` 同模式；保持现有字母序 UX，**不采纳**原登记 `-auth_id`——会改变前端列表顺序，已用户拍板） | `apps/authusermanagement/models.py:192` |
+| 3 | 迁移 `0007_alter_authuser_options`（单 `AlterModelOptions`，无数据操作） | `apps/authusermanagement/migrations/0007_alter_authuser_options.py` |
+| 4 | 新建分页稳定性护栏 3 用例：Meta 决胜键源断言（先红锚）+ `list`/`list_active` 两页覆盖无重复丢行 + 返回序 == `(auth_username, auth_id)` + `UnorderedObjectListWarning` 零容忍；同名并列夹具（active+inactive 同名；`auth_username` 字段级无 `unique=True` 仅条件唯一，先红前已实证可插入，无 IntegrityError） | `apps/authusermanagement/tests/test_user_pagination_order_stability.py:107`、`:110` |
+
+`[HALT]` 触发：无（Meta options 迁移非字段/表删改，无跨端枚举/响应结构变更）。用户拍板（2026-10-21）：① Meta 加决胜键方案（备选仅 selector 层被否——漏 `views.py:55` 默认 queryset）；② throttle 方案 A monkeypatch。
+
+### 四、对抗审核
+
+- **行号漂移**：登记全部 `rg` 实测命中——`views.py:118/:167`、`models.py:99/:110/:192`、`selectors.py:62/:72`、`migrations/0001_initial.py:39`、`test.py:132`、`base.py:207`、`test_create_throttle.py:71/:92`、`test_user_pagination_order_stability.py:107/:110`、`ci.yml:227`、账本 `:8551/:8587/:8701/:8713`。
+- **虚报验证**：§五命令全部实际执行；先红如实标注 **1/3**（Meta 锚点红为确定性红；warning 断言双态皆绿系定性订正后事实；两页行为断言先绿系 sqlite 并列恰随创建序——该风险真实场景为 PG）。
+- **扫描对抗点**：原登记建议 `-auth_id` 与实测既有 `Meta.ordering=["auth_username"]` 冲突——若按原建议执行会**静默改变前端列表序**，已作为决策差异留痕并由用户拍板改道；无其他独立 bug 被静默吞没。
+- **契约影响**：零——测试重写 / 单行 Meta / 纯迁移，端点路径、分页参数、响应信封、状态枚举均未变；**无需重导出 schema 基线**（`api-schema-baseline.json` 不动，理由：无端点增删改，`--check` 面不受 Meta options 影响）。
+- **登记遗漏**：BF-128 §六两项已回写为 [已解决] 并互指本条；Merge 报告 §4.3 / §五 / M-23 / 尾注四处同步；**决策反转留痕**——BF-126 曾记「M-23 已消解」（账本 `:8587`）实为未消解（其重写保留了 override 安慰剂，脆弱性存续，本次 `--ds` 口径直证），M-23 真消解属本条；complete-patterns 无同题关闭条目（B-7 throttles 登录名三重复制，无关），防重复检索通过，无需新增台账条目。
+
+### 五、验证记录
+
+```text
+证红（先红，权威口径 --ds=config.settings.test）：
+  pytest apps/authusermanagement/tests/test_user_pagination_order_stability.py -q → 1 failed / 2 passed，
+  失败断言 ('auth_username',) == ('auth_username', 'auth_id')（Meta 决胜键锚点，确定性红）；
+  同名并列夹具先红前实证可插入（无 IntegrityError——提醒项预核通过）
+  存量红基线直证：改造前全量 1 failed + git stash 同红（BF-128 §五 :8701/:8713 历史记录 + 本会话复跑）
+证绿：
+  pytest apps/authusermanagement/tests/test_create_throttle.py --ds=config.settings.test -q → 4 passed（ruff 0）
+  pytest apps/authusermanagement/tests/test_user_pagination_order_stability.py → 3 passed
+  pytest apps/authusermanagement/tests --ds=config.settings.test → 98 passed（防跨测限流污染）
+门禁（全部实际执行）：
+  全量 pytest --cov=. --cov-fail-under=80 --ds=config.settings.test → 2046 passed, 5 skipped, 0 failed,
+    TOTAL 89.25% ≥80 exit 0（存量红清零）
+  Service：pytest --cov=apps.assetmanagement.services --cov-fail-under=90 → 98.47% ≥90 exit 0；
+           pytest --cov=apps.authusermanagement.services --cov-fail-under=90 → 100.00% ≥90 exit 0
+  mypy . --strict → Success: no issues found in 228 files（CT-7 版本比对与 dev.txt 逐项一致：
+    mypy 2.1.0 / django-stubs 6.1.0 / drf-stubs 3.18.0（刻意错配组合）/ types-channels 4.3.0.20260518 /
+    ruff 0.17.1 / mutmut 3.8.0）
+  ruff check . / --select C90 / format --check . → 全绿（408 files）
+  CT-6 三步：makemigrations --dry-run → No changes detected；migrate --plan → 0007「Change Meta options on
+    authuser」依赖 0006 顺序正确；新增文件危险操作扫描 RemoveIndex/RemoveField/RenameField → 0 命中
+  四护栏：check_function_length_guard / check_file_length_guard / check_duplicate_invariants /
+    check_frontend_invariants → 4/4 PASS
+mutmut：本次未跑（不在收口清单；生产侧改动为 Meta options 单行 + 生成迁移，无分支逻辑），
+  push 后以 CI backend-mutation 权威留档（CT-7）
+```
+
+### 六、遗留与关联事项
+
+- **口径事实留痕（ID-2 洞察）**：仓库并存两套后端测试口径——pytest.ini 默认 `development`（=CI，PG）与本地 sqlite `--ds=config.settings.test` runner。本条修复使 throttle 用例与口径解耦；**机制提示**：任何「隐性依赖进程首次导入时 settings」的测试仍有同类风险（当前无证据存在其他实例，不作展开立项）。
+- 关联：BF-128 §六（双待决策关闭）、Merge 报告 M-23/NEW-01（`:154-156`，裁决订正为「机制属实，未复现系口径分流」）、BF-126（`_THROTTLE_TEST_SETTINGS` 引入方，账本 `:8551`）。
+- Gate 关联：M-02 Gate #2 已于 BF-128 销项；本条补齐后 AUD-21 → BF-125/126/127/128/129 整链零未决项（生产注册面 fail-closed 兜底挂 Gate #3 不变；上线前必办余 #3 环境变量核对不变）。
+
+*登记人：opencode ｜ 状态：【已关闭】（先红 1/3 → 证绿 4+3+98 + 全量 2046 passed/0 failed cov 89.25% + Service 98.47%/100% + mypy 0/228 + ruff/C90/format 绿 + CT-6 三步 + 四护栏 4/4 + 行号 grep 验收 + 无契约变更免 schema 重导），2026-10-21*
+
+---
+
+## BF-130 【已关闭】Merge M-03 P1 业务状态搁浅——`fail_repair` 建待报废单 `original_status` 写「送修态 repairing」，reject/cancel 回退后资产滞留维修中、维修出路全断（`complete_repair` 要 IN_PROGRESS / `create_repair` 要 broken）：① 增量写点改取送修前态 `broken`（确定性推导，零迁移）；② 存量搁浅单运行时判别自愈（有 IN_PROGRESS 维修记录保持 repairing，无则 broken + `[M03-HEAL]` 业务日志），单点 `_resolve_revert_target` 接入 reject/cancel 两路径（登记来源：`docs/Review/Merge-codegraph-audit-2026-10-20.md` M-03 / [NEW-03]）
+
+- **发现日期**：2026-10-22（M-03 于 2026-10-20 Merge 报告出具，本批执行）
+- **严重级别**：P1（业务状态搁浅——维修失败单被拒/取消后资产滞留「维修中」，用户侧无出路，隐蔽且必然触发）
+- **影响范围**：`apps/assetmanagement/services/repair_asset_service.py:308`（写点）、`apps/assetmanagement/services/damaged_asset_service.py:214-244/:286/:357`（helper + 两接入点）、`apps/assetmanagement/selectors/repair_asset_selector.py:41`（新查询）、测试 3 文件（`test_repair_service_gaps.py:162`、`test_asset_lifecycle.py:360`、`test_damaged_asset_service.py:688`）。**无契约变更**（端点路径/请求/响应信封/状态枚举键集零变化，`api-schema-baseline.json` 不动，免重导）。
+
+### 一、问题现象
+
+`fail_repair`（维修失败 → 建待报废单）写 `original_status=from_state`，而 `from_state` 恒为 `repairing`。该维修记录已 FAILED（非 IN_PROGRESS）：待报废单 reject/cancel 成功回退到 `repairing` 后——`complete_repair` 要求 IN_PROGRESS（`repair_asset_service.py` 校验）、`create_repair` 要求资产为 broken——资产滞留「维修中」且两条用户侧出路全部堵死，无任何报错提示（回退本身是合法边，静默搁浅）。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|:---|:---|:---|
+| 1 | 确定性写错 | `_ensure_repairing(asset, DAMAGED)`（`repair_asset_service.py:284`）为 `fail_repair` 前置，`from_state`（`:286`）恒等于 `repairing`——非边界偶发，100% 触发 |
+| 2 | 出路双堵 | FAILED 维修记录：`complete_repair` 要 IN_PROGRESS；资产非 broken 使 `create_repair` 拒绝 → 搁浅后不可恢复 |
+| 3 | 静默性 | `repairing ∈ _REJECT_TARGETS`（`state_machine/scrapping.py:25-31`）→ reject/cancel 成功而非报错，用户与系统均无感知 |
+| 4 | 入边唯一 | `to_repairing` 合法入边仅 `broken→repairing`（`state_machine/transitions.py:44-47`），且 `create_repair` 是唯一 IN_PROGRESS 维修记录写者（M-11 admin 旁路不建维修记录、只走合法边，不构成第二入边） |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|:---|:---|:---|
+| 1 | 写点改 `original_status=Asset.AssetStatus.BROKEN`（送修前态确定性推导：送修唯一入边 + IN_PROGRESS 唯一写者；`from_state` 保留于 `:286` 仅作审计），附推导注释 | `services/repair_asset_service.py:308` |
+| 2 | 新增 `_resolve_revert_target(damaged_asset, asset, operator_jobcode, operator_name)`：`original_status != repairing` 原样透传；`repairing` 且该资产**有** IN_PROGRESS 维修记录 → 保持 `repairing`（「维修中直接申请报废」合法路径，无条件替换会二次搁浅——判别条件系对抗评审修正）；**无**记录（存量搁浅单）→ 返回 `broken` 并写 `OperationLogService.log_operation(STATE_CHANGE)` 业务日志，description 含固定核销标记 `[M03-HEAL]`（与摸底数字同源核销）。接入 `reject_asset_recordcode`（`:286`）与 `cancel_damaged`（`:357`）FSM 回退参数位，两路径单点收敛（DR-1） | `services/damaged_asset_service.py:214-244,286,357` |
+| 3 | 判别查询 `has_in_progress_repair(asset)` 下沉 Selector 层（DR-3；`selectors/__init__.py:41/:58` 既有导出覆盖） | `selectors/repair_asset_selector.py:41` |
+| 4 | 测试：两处翻转锚（`== "repairing"` → `== "broken"`）+ `test_damaged_asset_service.py` 参数化拆行（删 `("repairing","repairing")`）+ 新类 `TestRevertTargetSelfHeal` 6 用例（屏障 1 + 存量自愈 3 + fail_repair 全链 reject/cancel 2） | 测试 3 文件 |
+
+`[HALT]` 触发：无（FSM 边集/枚举键/表结构/schema 零变更；**零迁移**，免 CT-6 三步）。用户拍板（2026-10-22）：方案 A 运行时判别自愈；判别条件（IN_PROGRESS 记录有无）为评审层修正——红线是「合法路径必须保留 repairing 回退」。
+
+### 四、对抗审核
+
+- **行号漂移实测**：`repair_asset_service.py:284/:286/:308`、`damaged_asset_service.py:215/:236/:286/:357`、`repair_asset_selector.py:41`、`test_repair_service_gaps.py:162`、`test_asset_lifecycle.py:360`、`test_damaged_asset_service.py:688/:744/:773/:785/:798/:810/:849`、`damaged_asset_view.py:65`（原状态列定义）——均 `rg` 实测命中；原报告锚 `:286,303-307` 已漂移，以本行为准。
+- **反例排除**：M-11 admin 旁路不建维修记录 + 只走合法边 → 无第二入边；「维修中直接申请报废」可达且必须保留 repairing 回退（`_REJECT_TARGETS` 含 repairing + `create_damaged_asset` 语义）→ 判别条件必要性直证；无条件替换方案被否（会造成该合法路径二次搁浅，且被 `DUPLICATE_REPAIR_IN_PROGRESS` 与 `_ensure_repairing` 双拦）。
+- **先红如实**：红锚 **5/5**（步骤1 两翻转 2 failed；步骤2 自愈 3 failed、屏障/全链 3 passed 天然绿——屏障系防回归用例，经用户确认**不入**先红清单）；另手植变异抽证 2 次（mutmut_7 `asset_name=None` → 3 failed；mutmut_19 `[M03-HEAL]` 大小写 → 3 failed；均回滚后 `rg` 零残留、45 passed）。断言采用「`description__contains` 定位 + Python `==` 精确全文」——sqlite `LIKE` 大小写不敏感，仅 contains 断言杀不掉大小写/包裹类变异；cancel 自身也写 `state_change` 日志，未用裸 `.first()`。
+- **契约影响**：零（响应信封/枚举键/分页参数未变）→ 免 schema 重导。**前端显示值变更（登记留痕）**：待报废单「原状态」列（`damaged_asset_view.py:65` 定义 `original_status`）对新单/自愈单由「维修中」变「损坏」——属后端值修正，前端零改动、无需同步调整（显示列本身后端下发）。
+- **日志口径**：复用既有 `AssetOperationLog.OperationType.STATE_CHANGE` 枚举，零新增枚举值（对账 complete-patterns G-3 安全）；`[M03-HEAL]` 前缀为固定核销标记，与存量摸底谓词同源。
+- **重复治理**：`_resolve_revert_target` 为回退目标解析唯一实现，reject/cancel 共用，无第二实现；防重复检索 `rg "_REJECT_TARGETS|reject_to_original"` 无同题关闭条目，无需新增台账。
+
+### 五、验证记录
+
+```text
+证红（先红，权威口径 --ds=config.settings.test）：
+  步骤1（写点）：pytest test_repair_service_gaps.py test_asset_lifecycle.py -q → 2 failed
+    （两锚点断言 == "repairing" 得 repairing，确定性红）；修复后同命令 59 passed
+  步骤2（自愈）：pytest test_damaged_asset_service.py -q → 3 failed / 3 passed
+    （reject/cancel legacy 自愈 3 红 + 屏障/全链 3 绿）；实现后 45 passed
+  手植抽证（先红后绿纪律）：mutmut_7 asset_name=None → 3 failed；mutmut_19 [M03-HEAL] 大小写 → 3 failed；
+    均回滚（rg 零残留）后 45 passed
+证绿：
+  pytest apps/assetmanagement/tests/test_damaged_asset_service.py → 45 passed
+  pytest apps/assetmanagement/tests/test_repair_service_gaps.py test_asset_lifecycle.py → 59 passed
+门禁（全部实际执行）：
+  全量 pytest --cov=. --cov-fail-under=80 --ds=config.settings.test → 2051 passed, 5 skipped, 0 failed,
+    TOTAL 89.26% ≥80 exit 0
+  Service：pytest --cov=apps.assetmanagement.services --cov-fail-under=90 → 98.35% ≥90 exit 0
+    （断言增强后复跑）
+  mypy . --strict → Success: no issues found in 228 source files（CT-7 版本与 dev.txt 逐项对齐：
+    mypy 2.1.0 / django-stubs 6.1.0 / djangorestframework-stubs 3.18.0 / types-channels 4.3.0.20260518）
+  ruff check . / --select C90(max=10) / format --check . → 全绿（408 files，含 helper 一次 format 修复）
+  四护栏：check_function_length_guard / check_file_length_guard / check_duplicate_invariants /
+    check_frontend_invariants → 4/4 PASS
+  CT-6：本批零新增迁移文件，不触发三步验证
+mutmut（WSL，mutmut==3.8.0，基线 mutmut-baseline.json=83.25676365492598 全精度比较、文件一字未动）：
+  首轮 2063 mutants：killed=1709 survived=354 → 82.8405% GATE_FAIL（need_killed=1718，差 +9）
+  定向补杀 _resolve_revert_target 存活 13 个（kwargs 置 None/删参 ×7 + description 变异 ×5 + 载荷 ×1）：
+    测试断言增强（精确全文 == + 全字段断言）+ 手植抽证 ×2
+  二轮：killed=1722 survived=341 → 83.4707% ≥80 ∧ ≥83.2568 基线（+0.2139pt），gate exit 0
+  终树（format 修复后）复跑同分 83.4707%（killed 1722 / survived 341 / tested 2063），gate exit 0
+```
+
+### 六、遗留与关联事项
+
+- **存量搁浅单摸底 [PENDING-部署环境执行]**：本地 WSL PG 仅含未迁移 scratch 库（`am_damaged_asset` 表不存在），无法摸底。部署环境执行（谓词与 `_resolve_revert_target` 判别同源）：
+  ```bash
+  python manage.py shell -c "from apps.assetmanagement.models import AssetOperationLog, RepairAsset, DamagedAsset; q=DamagedAsset.objects.filter(original_status='repairing'); ids=list(q.values_list('asset_recordcode',flat=True)); stuck=[i for i in ids if not RepairAsset.objects.filter(asset_recordcode=i, repair_status='IN_PROGRESS').exists()]; print('repairing单:',len(ids),'无进行中维修(搁浅):',len(stuck))"
+  ```
+- **上线后核销（与摸底同源）**：`AssetOperationLog.objects.filter(description__startswith='[M03-HEAL]').count()` 应等于上线时搁浅单数（逐单 reject/cancel 触发一条 heal 日志）；不相等即有摸底谓词/实际数据口径差，人工核对。
+- 关联：Merge 报告 M-03 行（`:86-89`）、状态机行（`:226`）、P1 剩余行（`:251`）三处已同步；M-11/M-30（admin 旁路面）遗留不变，不受本条影响。
+- 决策留痕：判别条件经对抗评审修正（原「reject/cancel 一律回 broken」会误伤「维修中直接申请报废」合法路径致二次搁浅），最终方案 A 由用户拍板（2026-10-22）。
+
+*登记人：opencode ｜ 状态：【已关闭】（先红 5/5 + 手植抽证 2 次 + 证绿 45+59 + 全量 2051 passed/0 failed cov 89.26% + Service 98.35% + mypy 0/228 CT-7 对齐 + ruff/C90/format 绿 + 四护栏 4/4 + mutmut 83.4707% T7 双门禁 exit 0（基线未动）+ 零迁移免 CT-6 + 行号 rg 实测 + 无契约变更免 schema 重导），2026-10-22*
+
+## BF-131 【已关闭】Merge M-04 P1 前端分组表 refresh 筛选/UI 状态脱节——`refresh: () => search()` 复用重置语义清空 `lastFilters` 致「界面有筛选、数据回全量」：composable 内新增 `reload()` 保筛选出口（闭包读现值、不写 `lastFilters`），`GroupedAssetTable` `refresh: reload` 接线（登记来源：`docs/Review/Merge-codegraph-audit-2026-10-20.md` M-04 / [AUD-22]）
+
+- **发现日期**：2026-10-20（Merge 报告出具），2026-10-22 执行修复
+- **严重级别**：P1（筛选/UI 状态脱节——用户在 SearchBar 填筛选提交后，增删改操作触发 refresh 即静默回全量数据，界面筛选表单却保持已填值，隐蔽且三消费路径必现）
+- **影响范围**：`vue-assetmanagement/src/components/GroupedAssetTable.vue`（expose 接线）、`vue-assetmanagement/src/composables/useGroupedAssetList.ts`（新增 reload）、`src/composables/__tests__/useGroupedAssetList.spec.ts`（+3 用例）。消费方 `AssetContentDetails.vue:235/:350/:407` 三处零改动（`GroupedAssetTableExpose` 签名 `refresh: () => Promise<void>` 不变）。**无契约变更**（请求参数名/响应信封零变化，`api-schema-baseline.json` 不涉，免重导）。
+
+### 一、问题现象
+
+分组模式下用户提交筛选（如 `asset_current_status=in_use`）后，任一操作成功路径（保存 flag watch `AssetContentDetails.vue:235`、删组 `:350`、删单条 `:407`）触发 `groupedTableRef.refresh()` → 汇总表静默回全量第 1 页；SearchBar 表单不被通知，仍显示已填筛选 → 「界面有筛选、数据是全量」。子表明细缓存同步回退全量（`getFilters()` 闭包读到被清空的 `lastFilters`）。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|:---|:---|:---|
+| 1 | refresh 复用清筛选语义 | `GroupedAssetTable.vue:342`（修复前）`refresh: () => search()` 无参调用 → `useGroupedAssetList.ts:120`（修复前 `:120`）`lastFilters = filters ?? {}` 清空筛选 + `currentPage = 1` + `cache.reset()` |
+| 2 | 数据面全量回退 | `fetchSummaries` `:103`（修复前 `:102`）`...lastFilters` 展开为空；明细缓存 `:95` `getFilters: () => lastFilters` 闭包同步读空——汇总/明细双层全量 |
+| 3 | UI 不同步 | `lastFilters` 为 composable 内部 `let`（`:93`），与父组件 SearchBar 表单非同一状态源；refresh 路径无任何表单回写/通知机制 |
+| 4 | 报告原建议不可编译 | 「`refresh` 改 `search(lastFilters)`」不可行：`lastFilters` 未出现在 `GroupedAssetListReturn` 接口（`:41-69`）、未被 GAT 解构——组件层引用 TS2304 |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|:---|:---|:---|
+| 1 | 新增 `reload()`：`currentPage.value = 1; cache.reset(); await fetchSummaries()` 三行、无 try/catch（`fetchSummaries` 自带 try/catch/finally 兜底）；**不写 `lastFilters`**，`fetchSummaries`/`getFilters` 经闭包读现值天然保筛选——「`lastFilters` 唯一写入口是 search」不变量保持得比自赋值方案更严。接口 `:51` 声明 + 返回 `:157` 暴露 | `useGroupedAssetList.ts:132-137` |
+| 2 | 解构 `reload`（`:193`）+ `defineExpose` `refresh: reload`（`:344`）替换 `refresh: () => search()`，补语义注释「保持当前筛选刷新（回第 1 页）」 | `GroupedAssetTable.vue` |
+| 3 | 回归测试（CT-4）：`describe('reload')` 三用例——A 保筛选回第 1 页（`toHaveBeenLastCalledWith(objectContaining({page:1, asset_current_status}))`）；B 明细缓存闭包（reload 后展开，`getGroupChildren` 携带白名单键 `asset_current_status`）；C 清展开/子缓存但留存平铺选中集。边界注释声明「表单未提交草稿不被 reload 拾取」 | `useGroupedAssetList.spec.ts:202-253` |
+
+`[HALT]` 触发：无（无状态机/契约/迁移/枚举变更）。拍板留痕（2026-10-22）：评审否决报告原建议 `search(lastFilters)` 组件层透传（作用域不可见，硬性不可编译）；`reload()` 方案原被评审以「零新增分支」理由倾向否决，作用域核实后反转采纳（用户批准执行）。
+
+### 四、对抗审核
+
+- **行号漂移实测**：修复后 `reload` 实现 `:132-137`、接口 `:51`、返回暴露 `:157`、GAT 解构 `:193`、`refresh: reload` `:344`、spec `describe('reload')` `:202-253`——均 `rg` 实测命中。修复前锚（报告标题行 `:340-342`/`:119-124`）按 M-03 先例保留于问题定位描述，修复说明内以修复后行为准；受插入影响 `fetchSummaries` `:98→:99`、`search` `:119→:120`、`lastFilters` `:92→:93`（详见 §六 M-22 提示）。
+- **先红如实**：**3 failed（`reload is not a function`×1 + `api.reload is not a function`×2）/ 34 passed**（先红时点），实现后同文件 **37/37 passed**。用例 A 双职责断言（筛选 + page=1）防未来误实现成清筛选路径。
+- **白名单陷阱规避**：明细透传断言用 `asset_current_status`（∈ 9 键白名单 `constants/assetGroupedFilters.ts:30-41`）；`contract_code` 不在白名单（已由 group_key 表达），若误用必假红——测试注释已留痕。
+- **契约影响**：零（请求参数名/响应信封/分页参数未变；仅 `lastFilters` 是否随 refresh 传递的**取值**变化，属缺陷修复本义）→ 免 schema 重导。
+- **重复治理**：`reload` 为「保筛选刷新」唯一实现；防重复检索无同题关闭条目；不触碰 complete-patterns 守护的 G-1~G-3/G-5 不变量。
+- **边界如实**：`reload` 不拾取 SearchBar 未提交表单草稿（`lastFilters` 仅 search 写入）——既有设计，修复后 refresh 与「上次已提交筛选」对齐，两态一致性反而收敛；测试注释已声明防误读。
+
+### 五、验证记录
+
+```text
+证红（先红，npx vitest run src/composables/__tests__/useGroupedAssetList.spec.ts）：
+  3 failed / 34 passed——TypeError: reload is not a function（用例A）
+  + api.reload is not a function（用例 B/C），确定性红
+实现后同命令：
+  37 passed（34 存量 + 3 新增），Test Files 1 passed
+门禁（全部实际执行）：
+  npm run type-check（vue-tsc --build）→ 0 错
+  npm run lint（eslint . --fix）→ 绿
+  npm run format:check（prettier --check src/）→ All matched files use Prettier code style
+  npm run test:coverage → 169 files / 2199 tests passed，exit 0
+    分层棘轮全达标：src/**/*.ts ≥80 / src/stores/** ≥90（实测汇总 96.87）/
+    src/**/*.vue 基线 12.9~13.0（汇总表 45.4% 为含 .vue 无前缀并集，非门禁口径）
+回查：
+  rg -n "refresh: \(\) => search\(\)" GroupedAssetTable.vue → 0 命中（exit 1）
+T16 变异测试：[未跑]（单函数微改 + 三用例直断言，如实申报，不虚报通过）
+```
+
+### 六、遗留与关联事项
+
+- **M-22 行号漂移提示**：Merge 报告 M-22（P2，请求竞态）引用 `useGroupedAssetList.ts:98-124`，本批插入后漂移为 `:99-125`（`fetchSummaries` `:99` / `search` `:120-125`）。M-22 尚未修复，登记与执行时以当时实测行号为准，勿沿用报告锚。
+- **T16 变异测试**：本批未跑。`useGroupedAssetList.ts` 在 stryker mutate 射程内（`src/composables/useGroup*.ts`），下次该射程变异门禁 CI 实跑时观察 `reload` 三行是否产生存活变异体（预期三行均被 3 用例直断言覆盖）。
+- **路径口径（Fact-1 存档）**：`GROUPED_PASS_THROUGH_KEYS` / `GROUPED_FILTER_KEY_MAP` 唯一来源为 `vue-assetmanagement/src/constants/assetGroupedFilters.ts`（非 `utils/`），回查勿按 utils 扑空。
+- 关联：Merge 报告 M-04 块（`:92-95`）、统计段 P1 剩余行、§五 2026-10-22 M-04 小节、页脚核验行四处已同步；M-05（共享 Store 污染）为 P1 最后一条，未修不变。
+
+*登记人：opencode ｜ 状态：【已关闭】（先红 3 failed 实证 + 定点 37/37 + 前端三项检查全绿 + 全量 169 files/2199 tests exit 0 分层棘轮达标 + 回查 0 命中 + 行号 rg 实测 + 无契约变更免 schema 重导 + T16 未跑如实申报），2026-10-22*
+
+## BF-132 【已关闭】Merge M-05 P1 共享 Store 状态污染——`createEntityStore.getList` autoSync 无条件回写共享 list/pagination，表单预载（`page_size:100`）、autocomplete、详情单条查询把列表页数据整段覆盖，keep-alive 列表页返回不重取即显污染：`getList` 增 per-call `options.silent` 口（`effectiveSync` 双写入路径跳过）+ 11 个非列表查询点收敛（登记来源：`docs/Review/Merge-codegraph-audit-2026-10-20.md` M-05 / [AUD-23]）
+
+- **发现日期**：2026-10-20（Merge 报告出具），2026-10-22 执行修复
+- **严重级别**：P1（共享状态污染——任一表单/详情页查询后返回 keep-alive 列表页，界面显示他页查询结果，全项目 `onActivated` 零命中无自愈）
+- **影响范围**：`vue-assetmanagement/src/stores/createEntityStore.ts`（silent API）+ 调用方 7 文件（useAssetFormHelpers / useUnregisteredFormLinkage / useRecycleFormAssociations / AssetTypeDetails.vue / DamagedAssetForm.vue / DamagedAssetBasicDetails.vue / WasteAssetBasicDetails.vue）+ 测试 4 文件（createEntityStore.spec / useAssetFormHelpers.spec / useUnregisteredFormLinkage.spec / useRecycleFormAssociations.spec）。**无契约变更**（`getList` 返回值语义与请求参数零变化，第二参为可选新增，前端内部取数口径）→ `api-schema-baseline.json` 不涉，免重导。
+
+### 一、问题现象
+
+1. 表单页打开（资产创建/编辑、回收、报损、报废）触发 `page_size:100` 预载 → 共享 store 的 `entities/ids/pagination` 被整段覆盖为表单查询结果，分页元数据被改写为 `page_size:100` 口径。
+2. autocomplete 输入（资产类型/仓库/合同联想，`page_size:20` + search）逐键覆盖列表页数据。
+3. 详情页按 code 查单条（`page_size:1`）把列表页压成 1 条。
+4. 返回 keep-alive 列表页（全项目 `onActivated` 零命中，原报告实测 rg=0）不重取 → 用户看到的是污染数据且无提示。
+
+### 二、根因
+
+| # | 环节 | 事实 |
+|:---|:---|:---|
+| 1 | 工厂无 per-call 静默口 | 修复前 `createEntityStore.ts` `const getList = async (params?: Q)` 单参，唯一同步闸门是模块级 `autoSync`（默认 `:68` true），`if (autoSync)` 同步段（修复前 `:229-238`）与超界 `handleInvalidPage` 兜底（修复前 `:173` 内层再判 autoSync）均无法按调用豁免 |
+| 2 | 三类非列表形态复用同一入口 | 表单预载/autocomplete/详情单条与列表页共用同一 `getList` + 同一 Pinia 单例（storeId 级共享），写入即污染 |
+| 3 | keep-alive 无自愈 | `onActivated` 全仓 0 命中（原报告 rg 实测），返回列表页不重新拉取 |
+| 4 | 类型签名缺口 | 结构化最小接口仍单参：`useAssetFormHelpers.ts` 三签名（修复前 `:50-52`）、`UnregisteredFormLinkageStores`（`:25`）——补 silent 调用即 TS2554（type-check 实测报于修复前 `:51/:115`，接口补第二参后调用点漂移至 `:57/:121`） |
+| 5 | 去重层不区分调用意图 | `entityStoreRequestControl.ts:162` `getExistingPendingPromise` 按 key 去重、options 不入 key——silent 与列表同 params 并发会共享同一 promise（实读确认） |
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|:---|:---|:---|
+| 1 | `getList(params?, options?: { silent?: boolean })`（`:201` + JSDoc 双职责声明）；`effectiveSync = autoSync && !options?.silent`（`:223`）同时覆盖超界 `handleInvalidPage` 调用（`:234`）与分页同步段（`:239-248`）；silent 编入 requestKey（`:205` `list:silent:...`）消除 #5 串扰 | `createEntityStore.ts` |
+| 2 | 结构化三签名补第二参（`:51/:54/:57`）+ 三调用点 silent（`:68-70`） | `useAssetFormHelpers.ts` |
+| 3 | `UnregisteredFormLinkageStores` 两签名补第二参（接口 `:25`，getList 签名 `:28/:34`）+ autocomplete 两点 silent（`:57/:121`）；预载两点 silent（`:58/:94`） | `useUnregisteredFormLinkage.ts` / `useRecycleFormAssociations.ts` |
+| 4 | 预载 1（`:224`，本地 `allData` ref）+ autocomplete 1（`:305`）+ 详情单条 2（`:205` / `:177`，本地 `detailData`）silent 化——渲染源均实读核实为本地状态，零 store state 读取 | `AssetTypeDetails.vue` / `DamagedAssetForm.vue` / `DamagedAssetBasicDetails.vue` / `WasteAssetBasicDetails.vue` |
+| 5 | 回归测试（CT-4）：`describe('getList silent')` 2 用例（`:160`：silent 返回值+状态不变双职责 / 超界零副作用）+ 存量断言翻转 ×7（helpers ×3、unregistered ×2、recycle ×2） | `createEntityStore.spec.ts` 等 4 spec |
+
+`[HALT]` 触发：无（无状态机/契约/迁移/枚举变更；`getList` 第二参为可选新增，向后兼容——12 处列表调用与其余 autoSync 消费点 `:173/:278/:354/:379/:392/:485` 零改动）。步骤 0 双口径清点后回退排除：列表形态调用（SmartListContainer / usePaginationSearch 等）、不经 `getList` 的专用路径（`RecycleAssetView.vue:172` 走 usePagedList、`auditLogStore.ts:95` 直连 API、`fetchContractSuggestions` 走 `getByName`——`createEntityStore` getByName 不写列表态）、`UserForm.vue:282`/`UserBatchImport.vue:308-309`（见 §六）。报告原备选「keep-alive 页补 `onActivated` 重取」未采纳——污染源已断则无须。
+
+### 四、对抗审核
+
+- **行号漂移实测**：修复后锚点全部 `rg` 命中——`createEntityStore.ts` `:201/:205/:223/:234/:239-248`、spec `describe('getList silent')` `:160`、helpers `:51/:54/:57/:68-70`、unregistered `:57/:121`、recycle `:58/:94`、`AssetTypeDetails.vue:224`、`DamagedAssetForm.vue:305`、`DamagedAssetBasicDetails.vue:205`、`WasteAssetBasicDetails.vue:177`。报告原锚（`:229-238`/`:61-63`）按 M-03/M-04 先例保留于问题定位描述；本批插入使 `createEntityStore.ts` 后续行整体漂移（原 `:229-238` → `:239-248`），影响报告中引用该文件的其他条目（§六）。
+- **先红如实（手植变异抽证，循 BF-130 先例）**：实现先行于测试（11 调用点依赖第二参类型），先红以手植变异直证测试敏感性——变异① `effectiveSync = autoSync`（移除 silent 条件）→ `getList silent` **2 failed**（确定性红，`store.list` 被覆盖/`handleInvalidPage` 清空）；变异② helpers 调用去 silent → helpers spec **1 failed**（`:53` 断言失配）。两次变异均还原后复绿。另：首跑全量暴露存量断言失配 **4 failed**（unregistered ×2 / recycle ×2），同步翻转补齐——属 CT-4 回归屏障义务，非漏改。
+- **双职责陷阱规避**：silent 用例同时断言返回值正常 + `list/pagination` 不变，防两种误实现（丢结果 / 普通查询）；超界用例断言零副作用，防 `handleInvalidPage` 漏门控。
+- **契约影响**：零——请求参数名/响应信封/`getList` 返回值不变，第二参可选且 11 点外无人传 → 免 schema 重导。
+- **重复治理**：`effectiveSync` 单点实现（DR-1），11 点经同一参数透传；silent 无同题关闭条目；不触碰 `check_duplicate_invariants.py` 守护的 G-1~G-3/G-5。
+- **扫描对抗点**：silent 查询仍走 `withRequestControl` → `registerPendingRequest` 翻转共享 `loading` 标志（`entityStoreRequestControl.ts:124`）——表单查询期间列表页 loading 振铃为**既有行为**（修复前即存在），本批未扩改请求控制层，登记 §六观察项，不静默吞掉。
+
+### 五、验证记录
+
+```text
+先红（手植变异抽证，npx vitest run 两定点 spec）：
+  变异① createEntityStore effectiveSync=autoSync → "getList silent" 2 failed（确定性红）
+  变异② useAssetFormHelpers 调用去 silent → 1 failed（spec :53 断言失配）
+  两次变异均还原后复绿；还原后定点双 spec 79 passed（49+30）
+CT-4 回归屏障（首跑全量暴露存量断言）：
+  useUnregisteredFormLinkage.spec :128/:236 + useRecycleFormAssociations.spec :54/:122
+  翻转前 4 failed → 翻转后该两文件复跑绿（recycle 12/12 实测）
+门禁（全部实际执行）：
+  npm run type-check（vue-tsc --build）→ 0 错（含接口 TS2554 修复后复跑）
+  npm run lint（eslint . --fix）→ 绿
+  npm run format:check（prettier --check src/）→ All matched files use Prettier code style
+  npm run test:coverage → 169 files / 2201 tests passed，exit 0
+    分层棘轮全达标：src/stores/** 实测 96.88 ≥90 / src/**/*.ts ≥80 /
+    src/**/*.vue 基线（汇总 45.41% 为含 .vue 无前缀并集，非门禁口径）
+  python scripts/check_frontend_invariants.py → PASS
+    （FR-8 stores 段：createEntityStore.ts 398 逻辑行 ≤500，31 文件 0 超限）
+回查：
+  rg -n "silent: true" vue-assetmanagement/src --glob "!*.spec.ts"
+    → 11 命中 / 7 文件（helpers 3 + unregistered 2 + recycle 2 + AssetTypeDetails 1
+      + DamagedAssetForm 1 + DamagedAssetBasic 1 + WasteAsset 1）
+T16 变异测试：[未跑]（以手植变异×2 证红替代，如实申报，不虚报通过）
+```
+
+### 六、遗留与关联事项
+
+- **[待决策] UserForm 预载依赖同步**：`UserForm.vue:282`（`page_size:100` 预载）与 `UserBatchImport.vue:308-309` 显式读写 `departmentStore.list`（`:236` 下拉数据源、`:281` 缓存判据、`:290-294` 超限告警）——silent 化会破坏「预载→复用」语义，按步骤 0 回退条款不动。其 `page_size:100` 仍污染 `departmentStore.pagination`，跨页影响部门管理页（keep-alive 同样不重取）——待议「预载专用 API / 本地缓存」消解。 **✅ 现状订正与消解（2026-10-22，批次 B M-25 → BF-134）**：两处现状实测均已 silent + 本地 `departmentOptions` ref、零写 `departmentStore.list/pagination`（M-25 由 vue `a368848` 引入——UserForm +29 行/UserBatchImport +14 行；`git show a368848~1` 对 UserForm rg `silent: true|M-25` 0 命中）；本条描述为 M-25 引入前状态，待议方案「本地缓存」即已落地形态（`UserForm.vue:286-291`、`UserBatchImport.vue:309-315`，`page_size:100` 钳位说明见 `UserForm.vue:288-289`）——**本子项关闭**；下行 `listRequestSeq` 子项仍开放。
+- **[待决策] `listRequestSeq` 共享序竞态**：既有（非本批引入）——silent 与列表请求共用同一 seq 计数，快速交替时互相判过期。本批 silent 编入 requestKey 已消除 promise 串扰，但 seq 层竞态依旧，独立于 M-05 存档。
+- **keep-alive 返回即最新**：`onActivated` 补重取为独立增强项（污染源已断后优先级降低），不混入本批。
+- **行号漂移提示**：本批 `createEntityStore.ts` 插入 ~8 行，报告其余引用该文件锚点的条目（M-15/16/18/20/21 等 createEntityStore 契约专项 P2 项）行号整体 +8，执行时以当时实测为准，勿沿用报告锚。
+- **T16 变异测试**：本批未跑；`createEntityStore.ts` 在 stryker 射程内，后续该射程 CI 实跑时观察 silent 两用例杀伤（预期双职责断言全覆盖）。
+- 关联：报告 M-05 块（`:97-100`）、统计段 P1 剩余行（`:252`）、§五 2026-10-22 M-05 小节（`:324`）、页脚核验行（`:341`，2026-10-22 批次 A/B/C 块追加后**现为 `:386`**）四处已同步；**P1 五条（M-01~M-05）全部闭环**。
+
+*登记人：opencode ｜ 状态：【已关闭】（手植变异先红×2 实证 + 定点 79/79 + 存量断言 CT-4 补齐 + 前端门禁四件套全绿 + 全量 169 files/2201 tests exit 0 分层棘轮达标 + FR-8 护栏 PASS + 回查 11 命中/7 文件 + 行号 rg 实测 + 无契约变更免 schema 重导 + T16 未跑如实申报），2026-10-22*
+
+## BF-133 【已关闭】P2 批次 A——createEntityStore 契约专项五项（M-15/16/18/20/21：remove/create 的 total 双向同步、seq 过期响应改返 undefined、超界页补发、getById 不入列表 ids）（登记来源：`docs/Review/Merge-codegraph-audit-2026-10-20.md` P2 表 M-15/M-16/M-18/M-20/M-21 行（[AUD-29]/[AUD-30]/[AUD-32]/[AUD-34]/[AUD-35]）+ §五「2026-10-22 P2 批次 A 修复追踪」块）
+
+- **发现日期**：2026-10-20（融合审计定级 P2）；2026-10-22 批次 A 修复执行（用户拍板「每批一提交」批次划分）
+- **严重级别**：P2（M-20/M-21 为 P2(中)）
+- **影响范围**：`vue-assetmanagement/src/stores/createEntityStore.ts`（契约核心单点）+ 配套类型放宽 5 文件 + 15 处消费方判空 + 6 处测试断言 + 新增 contract spec；**无对外契约变更**（API 层零改动，纯 store 内部状态语义）
+- **提交**：vue `1ea7aed`（21 files，+478/−63）
+
+### 一、问题现象（五项）
+1. **M-15 / [AUD-29]**：`remove` 成功后 `pagination.total` 不递减——删行后总数虚高，页码与尾页判断错位。
+2. **M-16 / [AUD-30]**：seq 过期响应返回 `[]`，被视图层当权威镜像——快速连点后表体闪空。
+3. **M-18 / [AUD-32]**：`handleInvalidPage` 改页码清数据不补发——超界页停留空表。
+4. **M-20 / [AUD-34]**：`getById` 把非当前页实体 push 进 `ids`——keep-alive 返回列表出现重复行。
+5. **M-21 / [AUD-35]**：`create` 成功后 `pagination.total` 不增（M-15 的对称缺口）。
+
+### 二、根因
+| # | 环节 | 事实 |
+|:---|:---|:---|
+| 1 | 契约缺口集中于单点 | 五项同源 `createEntityStore`——报告 §三前端行定性「createEntityStore 契约缺口（M-05/15/16/18/20/21 同源）」；`remove`/`create` 两分支的 total 同步在契约设计期缺对称处理 |
+| 2 | 过期语义误用 `[]` | `[]` 是合法数据（真空白），与「丢弃」不可区分——`undefined` 才是丢弃语义 |
+| 3 | 越界处理掐断自愈 | `handleInvalidPage` 只清不补，写回的修正页码本可触发一次重发 |
+| 4 | 详情与列表混写 | `getById` 是详情查询却写列表 `ids`，实体不在当前页即产生重复行 |
+
+### 三、修复方案
+| # | 变更 | 锚点（修复后实测） |
+|:---|:---|:---|
+| M-15 | `remove` 成功后 total 递减：单删 `Math.max(0, total-1)`、批删 `−successCount` | `createEntityStore.ts:411`（方法）/ `:421` / `:464` |
+| M-16 | seq 过期 `return undefined`；15 处消费方 `?? []` 判空、6 处既有断言更新（提交消息留档） | `:219`（守卫）/ `:224`（return undefined） |
+| M-18 | 超界页以修正末页补发一次 `getList` | `:172`（handleInvalidPage）/ `:230`（totalPages 重算）/ `:238`（校验链） |
+| M-20 | `getById` 仅写 entities、不写 ids | `:291` / `:301`（注释锚定） |
+| M-21 | `create` 成功后 `total += items.length` | `:369` / `:383` |
+| 配套 | 类型签名放宽（过期 `undefined` 语义传导） | `entityStoreTypes` / `SmartStore` / `AssetLifecycleStore` / `FormLinkageOptions` / `SuggestionFetcherOptions`（提交消息留档） |
+
+### 四、对抗审核
+- **行号实测**：上表锚点 2026-10-22 对修复后树 `rg` 全命中；BF-132 §六「+8 行漂移」预告已兑现，本条一律用修复后锚，报告行内预修复锚按 M-03 先例保留作问题定位。
+- **证红**：`createEntityStore.contract.spec.ts` **9 个 `it(` 用例先红后绿**（`rg -c` 实测 9，与提交消息「9 用例先红后绿」一致），覆盖 total 双向/seq 过期/越界补发/详情不入 ids 四组断言——CT-4 回归屏障。
+- **同题查重**：账本既有条目无同题覆盖（BF-126~132 为 P1 逐项 M-01~M-05，BF-104~115 为 2026-10-19 另一轮批次）；本条为 P2 批次 A 的新号登记。
+- **schema 判定**：前端批次，不涉后端 API schema；store 内部状态语义变更、API 层零改动——**无需 schema 重导**。
+- **T16 变异**：本批未跑（如实申报）——`createEntityStore.ts` 在 stryker 射程内，列为遗留后续项（承 BF-132 §六）。
+
+### 五、验证记录
+```text
+提交 vue 1ea7aed（21 files，+478/−63）：新增 createEntityStore.contract.spec.ts（9 用例先红后绿）；15 处消费方 ?? []；6 处断言更新；类型放宽 5 文件（提交消息留档）
+2026-10-22 复跑（含后续 B/M-04/M-05 同树）：type-check / lint / format:check 全绿；全量 npm run test:coverage → 171 files / 2218 tests passed，exit 0；分层棘轮 src/stores/** 96.82% ≥90（汇总 45.52% 为含 .vue 非门禁口径）
+行号 rg 实测（修后）：createEntityStore.ts :369/:383/:411/:421/:464/:172/:219/:224/:230/:238/:291/:301 全命中；contract spec rg -c '^\s*it\(' = 9
+T16 变异：未跑（如实申报）
+```
+
+### 六、遗留与关联事项
+- **T16 后续**：stryker 射程 CI 实跑时观察 contract spec 杀伤（预期先红后绿用例全覆盖变异）。
+- 关联：报告 P2 表 M-15/16/18/20/21 五行（`→ 已修复 BF-133`）、§五批次 A 块、尾注 2026-10-22 续记；BF-132（M-05 同源先行闭环）、BF-134（批次 B）、BF-135（批次 C）。
+
+*登记人：opencode ｜ 状态：【已关闭】（9 用例先红后绿 + 门禁复跑 2218 tests exit 0 + stores 棘轮 96.82% + 行号 rg 实测 + 无契约变更免 schema 重导 + T16 未跑如实申报），2026-10-22*
+
+## BF-134 【已关闭】P2 批次 B——前端竞态/缓存/静默降级六项（M-12/14/17/19/22/25：GET 失败回退 `_degraded` 标记、三处 seq 守卫、写后失效 `getAssetByCode` 缓存、部门下拉 silent+本地 ref）（登记来源：`docs/Review/Merge-codegraph-audit-2026-10-20.md` P2 表 M-12/M-14/M-17/M-19/M-22 行（[NEW-10]/[AUD-28]/[AUD-31]/[AUD-33]/[AUD-36]）+ §五「P2 批次 B 修复追踪」块；**M-25 为批次计划新增编号，报告 P2 表无行（止于 M-24）**，锚点以代码为准）
+
+- **发现日期**：2026-10-20（融合审计定级 P2）+ 2026-10-22 批次计划新增 M-25；同日批次 B 修复执行
+- **严重级别**：P2（M-22 为 P2(中)；M-25 同级 P2——共享 store 分页污染）
+- **影响范围**：`api/request.ts`、`api/asset.ts`、`composables/usePagedList.ts`、`composables/useGroupedAssetList.ts`、`stores/auditLogStore.ts`、`UserForm.vue`、`UserBatchImport.vue`（组件路径 `src/components/componentsdetails/detils/`）+ `batchB.contract.spec.ts`；**无对外契约变更**（API 零改动；M-25 为 store 消费方式收敛）
+- **提交**：vue `a368848`（11 files，+515/−35）；根指针 `88bbb7e`
+
+### 一、问题现象（六项）
+1. **M-12 / [NEW-10]**：GET 失败回退静默——调用方无法区分「降级数据」与「真成功」。
+2. **M-14 / [AUD-28]**：`usePagedList.fetchList` 无 seq 守卫——快速翻页/搜索时旧响应覆盖新响应。
+3. **M-17 / [AUD-31]**：`auditLogStore.loadData` 同型竞态（未迁 seq 范式）。
+4. **M-19 / [AUD-33]**：写操作成功后 `getAssetByCode` 5min 缓存不失效——坏损标记/批删后详情页读旧态。
+5. **M-22 / [AUD-36]**：`useGroupedAssetList.fetchSummaries` 竞态——旧汇总覆盖新汇总。
+6. **M-25（计划新增）**：`UserForm`/`UserBatchImport` 部门下拉直写 `departmentStore.list/pagination`——污染列表页分页状态（keep-alive 不重取放大），`page_size:100` 写进共享 pagination。
+
+### 二、根因
+| # | 环节 | 事实 |
+|:---|:---|:---|
+| 1 | 静默降级无出参标记 | 请求层回退兜底后无 `_degraded` 类信号，消费方按成功语义消费（`request.ts` 类型与回退点均缺） |
+| 2 | seq 守模范式未铺满 | `createEntityStore` 早有 `listRequestSeq`，但 `usePagedList`/`auditLogStore`/`useGroupedAssetList` 三处手写请求未迁移 |
+| 3 | 写后缓存无失效联动 | `getAssetByCode` 结果缓存 5min，写端点（mark/batchDelete）成功后未联动失效 |
+| 4 | 共享 store 直写 | 下拉预载把分页组件当数据总线，silent 化后改走本地 ref 才断开污染链 |
+
+### 三、修复方案
+| # | 变更 | 锚点（修复后实测） |
+|:---|:---|:---|
+| M-12 | GET 失败回退标记 `_degraded: true` | `request.ts:69`（类型）/ `:376`（回退点） |
+| M-14 | `fetchList` seq 守卫全路径 | `usePagedList.ts:70`（定义）/ `:74`（递增）/ `:78`（成功路径）/ `:82`（错误路径）/ `:88`（loading 收口） |
+| M-17 | `loadData` 迁 `listRequestSeq` 范式 | `auditLogStore.ts:38` |
+| M-19 | 写后失效 `getAssetByCode` 缓存 | `asset.ts:292`（markAssetAsBroken）/ `:366`（batchDeleteAssets）→ `request.ts:414`（clearCacheByPattern 定义） |
+| M-22 | `fetchSummaries` seq 守卫 | `useGroupedAssetList.ts:96`（范式注释）/ `:103`（入口） |
+| M-25 | 部门下拉 silent + 本地 `departmentOptions` ref，零写 `departmentStore.list/pagination`；`page_size:100` 显式取上限（后端 MAX_PAGE_SIZE 钳位，注释留档） | `UserForm.vue:236` / `:286-291`（调用 `:290`，钳位注释 `:289`）、`UserBatchImport.vue:309-315`（调用 `:312`） |
+
+### 四、对抗审核
+- **行号实测**：上表锚点 2026-10-22 `rg` 全命中（组件路径按实际 `componentsdetails/detils/` 落账）；spec 锚 `:358`（M-25 段注释）/ `:377`（describe）实测命中。
+- **证红**：`batchB.contract.spec.ts` **8 个 `it(` 用例先红后绿**（`rg -c` 实测 8，与提交消息一致）；M-25 断言 `describe('M-25 departmentStore silent 模式不污染共享状态')`。
+- **M-25 引入实证**：`git log -S 'M-25' -- <UserForm|UserBatchImport>` 仅命中 `a368848`；`git show a368848~1:UserForm.vue` rg `silent: true|M-25` = 0 命中——M-25 由批次 B 引入，前态无 silent。
+- **连带销项**：BF-132 §六「[待决策] UserForm 预载依赖同步」描述为 M-25 引入前状态，现状两处均已 silent+本地 ref——**该子项已消解**（BF-132 §六已加现状订正注）；`listRequestSeq` 共享序竞态子项仍开放。
+- **同题查重**：账本无既有条目覆盖本六项（同上 BF-104~115 为另一轮）；本条为 P2 批次 B 的新号登记。
+- **schema 判定**：前端批次，不涉后端 API schema——**无需 schema 重导**。
+
+### 五、验证记录
+```text
+提交 vue a368848（11 files，+515/−35；根指针 88bbb7e）：批次 B 契约测试 8 用例先红后绿；提交消息留档「type-check/lint/format/test:coverage 全过，stores 覆盖率 96.82%」
+2026-10-22 复跑：type-check / lint / format:check 全绿；全量 npm run test:coverage → 171 files / 2218 tests passed，exit 0；src/stores/** 96.82% ≥90
+行号 rg 实测（修后）：request.ts :69/:376/:414；usePagedList.ts :70/:74/:78/:82/:88；auditLogStore.ts :38；asset.ts :292/:366；useGroupedAssetList.ts :96/:103；UserForm.vue :236/:286-291；UserBatchImport.vue :309-315；spec :358/:377 全命中
+M-25 git 实证：git log -S 仅 a368848；a368848~1 UserForm rg 0 命中
+已知瑕疵：batchB.contract.spec.ts 内嵌 describe 的 vi.hoisted/vi.mock vitest 警告（见 §六）
+```
+
+### 六、遗留与关联事项
+- **vi.hoisted/vi.mock 警告**：`batchB.contract.spec.ts` 内嵌 describe 触发 vitest 警告，**vitest 升版将转 error**——列后续清理项。
+- **[开放] listRequestSeq 共享序竞态**（承 BF-132 §六）：silent 与列表请求共用 seq 计数，与本批三处新守卫并存，独立存档。
+- **keep-alive 返回即最新**（承 BF-132 §六）：`onActivated` 补重取为独立增强项。
+- 关联：报告 P2 表 M-12/14/17/19/22 五行（`→ 已修复 BF-134`）、§五批次 B 块、尾注续记；BF-132（§六两注）、BF-133（批次 A）、BF-135（批次 C）。
+
+*登记人：opencode ｜ 状态：【已关闭】（8 用例先红后绿 + 门禁复跑 2218 tests exit 0 + stores 棘轮 96.82% + 行号/M-25 git 实证 + BF-132 待决策连带销项 + 无契约变更免 schema 重导），2026-10-22*
+
+## BF-135 【已关闭】P2 批次 C——后端五项（M-06/07/08/09/10：出库前态锁内复检、部门祖先链缓存失效、refresh 轮换原子化、RBAC 方法感知 fail-closed、JWT Cookie Secure 缺省翻转）（登记来源：`docs/Review/Merge-codegraph-audit-2026-10-20.md` P2 表 M-06/M-07/M-08/M-09/M-10 行（[NEW-04]/[AUD-26]/[NEW-06]/[NEW-07]/[NEW-08]）+ §五「P2 批次 C 修复追踪」块）
+
+- **发现日期**：2026-10-20（融合审计定级 P2）；2026-10-22 批次 C 修复执行
+- **严重级别**：P2（M-09 越权为 P2 高关注项；其余 TOCTOU/竞态/传输安全同级 P2）
+- **影响范围**：`out_asset_service.py`、`department_service.py`、`authusermanagement/services.py`、`core/permissions.py` + 14 生产调用点、`config/settings/{base,development,test}.py`、`hard_disk_sn_view.py`（豁免）；**无对外 API 响应格式变更**（权限语义收紧类，见 §四 schema 判定）
+- **提交**：backend `61625f0`（23 files，+505/−36）；根指针 `a87caa8`
+
+### 一、问题现象（五项）
+1. **M-06 / [NEW-04]**：出库应用在锁外读资产前态——TOCTOU 下 `outasset_previous_status` 可写入陈旧值。
+2. **M-07 / [AUD-26]**：部门移动后祖先 recordcode 链缓存不失效——列表页读旧链。
+3. **M-08 / [NEW-06]**：`refresh_tokens` 轮换与黑名单非原子——并发刷新竞态可致 500/失效不一致。
+4. **M-09 / [NEW-07]**：`resolve_viewset_permissions` 缺省 fail-open——未登记非读 action 落到开放面。
+5. **M-10 / [NEW-08]**：`JWT_AUTH_COOKIE_SECURE` 生产缺省 `False`——HTTPS 下凭据可明文回落。
+
+### 二、根因
+| # | 环节 | 事实 |
+|:---|:---|:---|
+| 1 | 锁与读序错位 | `_apply_outasset_to_asset` 的状态读取未落在行锁之后，前态捕获可被并发写穿 |
+| 2 | 缓存失效缺捕获点 | 移动只失效目标链，旧祖先链未捕获/未失效 |
+| 3 | 多步写无事务包裹 | 轮换 + blacklist 两步分离，IntegrityError 直逸为 500 |
+| 4 | 权限解析缺省方向错 | 未登记 action 未按 HTTP 方法分流，读语义与写语义同落开放面 |
+| 5 | 环境口径倒挂 | base 缺省未设 Secure，靠各环境自查 |
+
+### 三、修复方案
+| # | 变更 | 锚点（修复后实测） |
+|:---|:---|:---|
+| M-06 | `_apply_outasset_to_asset` 增 `outasset` 参数（缺省 `None` 向后兼容）；锁行后重读状态写回 `outasset_previous_status` | `out_asset_service.py:158`（方法）/ `:169`（写回）/ `:77`（create_outasset 传入） |
+| M-07 | `_collect_ancestor_recordcodes`（strip 重建补前导 `/`）+ `_invalidate_ancestors_cache`；根/普通移动两路径失效 | `department_service.py:117` / `:180`（失效 helper）/ `:153`（捕获旧链）/ `:158`（根路径）/ `:175`（普通路径） |
+| M-08 | `refresh_tokens` 轮换+黑名单包 `transaction.atomic`；`IntegrityError` → `TokenError` | `authusermanagement/services.py:11`（import）/ `:215`（atomic）/ `:219`（映射） |
+| M-09 | **按 HTTP 方法 fail-closed**：`_SAFE_METHODS` + `request_method` helper + `resolve_viewset_permissions(method=)`；写方法/方法未知 → admin；GET/HEAD/OPTIONS 读面零变化；14 调用点统一 `method=request_method(self)` | `core/permissions.py:194` / `:197` / `:207`（签名）/ `:235`（fail-closed 分支）；豁免 `hard_disk_sn_view.py:79`（`search_by_serial_number` → `IsAuthenticated`，行级隔离 `get_queryset` 兜底） |
+| M-10 | `JWT_AUTH_COOKIE_SECURE`：base 缺省 `True` + dev/test 显式 `False` | `settings/base.py:258` / `development.py:69` / `test.py:122` |
+
+### 四、对抗审核
+- **M-09 方案演进（Fact-1 留痕）**：首版名单法（`_READ_ACTIONS={list,retrieve}`，未登记非读 action 即 deny）→ 全量 **47 red**；`git stash` 隔离本批 7 文件后基线子集 **137 passed**，直证红系首版过宽（`by_asset`/`statistics`/`recyclable` 等**读语义 action** 被误升 admin）、非存量回归 → 推翻重做为方法感知 fail-closed。报告 M-09 行「修复：缺省 deny/IsAdminUser」为**计划表述**，实际落地为方法感知方案；14 调用点逐点核对（9 脚本批量 + 5 手改，`unregisteredasset/views.py` 含 import）。
+- **测试拆解（rg 实测）**：`test_batch_c_fixes.py` 全文 **20 用例** = M-10 3 + M-09 **11**（含小写方法/method=None fail-closed/GET 读面不变/overrides/export/request_method helper）+ M-08 2 + M-07 2 + M-06 2（锁内前态 + `None` 向后兼容）；`test_rbac.py::test_default_is_authenticated` 补 `method="GET"`（`action=None→IsAuthenticated` 既有契约保留）。
+- **行号实测**：上表锚点 2026-10-22 `rg` 全命中；报告行内预修复锚（如 M-09 `permissions.py:192-210`、M-10 `cookie_utils.py:25`+`base.py:249`）按 M-03 先例保留作问题定位。
+- **schema 判定（免重导）**：drf-spectacular 仅对 `AllowAny`/`IsAuthenticatedOrReadOnly` 作响应成员推断（openapi.py 实测），本修复不返回二者——**无需重导 `api-schema-baseline.json`**；响应根结构/分页/枚举契约零触碰。
+- **同题查重**：账本唯一同字段命中为 **BF-092 §三（`:6361`）**——`outasset_previous_status` 的**读向**消费（审计 before_status），与本条 M-06 的**写向** TOCTOU 为同字段不同向，非同题；其余五项关键词（`_collect_ancestor_recordcodes`/`JWT_AUTH_COOKIE_SECURE`/`clearCacheByPattern`/`request_method`）账本 0 命中。
+- **提交纯度证绿**：`git stash push -u` 隔离 22 个 BF-128~130 遗留文件后跑提交内容（= 提交树纯度验证），验证后 pop 恢复。
+
+### 五、验证记录
+```text
+提交 backend 61625f0（23 files，+505/−36）；根指针 a87caa8（ls-tree 与 HEAD 均 61625f0）
+提交内容证绿（stash 隔离 22 遗留后）：全量 pytest → 2059 passed / 0 failed
+工作树全量：pytest --cov=. --cov-fail-under=80 → 2076 passed，cov 89.30%，exit 0
+定向：test_batch_c_fixes.py 20 passed + test_rbac.py 40 passed（60 passed）；RBAC 子集回归 137 passed
+静态：mypy --strict 0 errors / 228 files（CT-7 对齐 dev.txt mypy 2.1.0 / django-stubs 6.1.0 / drf-stubs 3.18.0）；
+     ruff check . 绿；ruff check --select C90（max-complexity 10）绿；ruff format --check . 409 files 绿
+护栏：BR-4 PASS（0 超限）/ BR-6 PASS（0 超限，asset_view.py 484/500 最高）/ G 重复不变量 PASS / FR 前端不变量 PASS
+M-09 证红链：首版 47 red → git stash 基线 137 passed 甄别（首版过宽，非存量回归）→ 方法感知重做后全绿
+T7 mutmut：本批未跑（如实申报）
+```
+
+### 六、遗留与关联事项
+- **T7 后续**：批次 D 执行前统一跑 mutmut 双门禁（承各批「后续统一跑」约定）→ **✅ 已实跑 2026-10-22（批次 D，83.4623% ≥ 基线 gate exit 0，见 BF-136 §五）**。
+- **M-13 / 批次 D**：审计吞没问题独立未修（`core/audit_service.py`、`unregisteredasset/services.py`），连同 M-11（`asset_service.py:318-323` 出边守卫，用户已拍板全出边拦截方案）待批次 D → **✅ 已落地 2026-10-22（BF-136）**。
+- **M-24**：失败计数非原子（`createEntityStore` 外的另一处），未排批。
+- 关联：报告 P2 表 M-06/07/08/09/10 五行（`→ 已修复 BF-135`）、§三两行遗留收窄、§五批次 C 块、尾注续记；BF-092（同字段读向，非同题）、BF-133/134（批次 A/B）、BF-136（批次 D，已登记）。
+
+*登记人：opencode ｜ 状态：【已关闭】（20 用例 + 137 子集 + stash 提交内容证绿 2059/0 + 工作树 2076/cov 89.30% + mypy 0/228 + ruff/C90/format 409 + 四护栏 PASS + M-09 先红后绿甄别链 + 行号 rg 实测 + schema 免重导判定 + T7 未跑如实申报），2026-10-22*
+
+## BF-136 【已关闭】P2 批次 D——后端两项（M-11/M-13：damaged 出边锁内活跃待审批单拦截（防孤儿待报废单）、审计写入 on_commit 延迟（防事务 abort 放大））（登记来源：`docs/Review/Merge-codegraph-audit-2026-10-20.md` P2 表 M-11/M-13 行（[NEW-09]/[AUD-27≡NEW-05]）+ §五「P2 批次 D 修复追踪」块）
+
+- **发现日期**：2026-10-20（融合审计定级 P2）；2026-10-22 批次 D 修复执行
+- **严重级别**：P2（M-11 管理端旁路致单据孤儿化；M-13 审计写失败在事务内可放大为 500 或静默丢审计）
+- **影响范围**：`damaged_asset_selector.py`、`asset_service.py`、`core/audit_service.py`、`apps/unregisteredasset/services.py` + 10 测试文件（9 存量 + 新建 `core/tests/test_batch_d_fixes.py`）；**无对外 API 响应格式变更**（新增业务校验走既有 400 error_code 通道，见 §四 schema 判定）
+- **提交**：backend `2abd578`（14 files，+322/−94）；根指针 `07d086a`
+
+### 一、问题现象（两项）
+1. **M-11 / [NEW-09]**：管理端 `change_status` 旁路——资产存在活跃（`approval_status=PENDING` 且未软删）待报废单时，仍可经 manual 出边移出 damaged（approve/reject 系边同被绕过）；而单据 API 闭环路径（驳回/取消）均要求资产仍为 damaged → 单据孤儿化且 API 侧不可再取消。
+2. **M-13 / [AUD-27≡NEW-05]**：`GenericAuditService.log_operation` 与 `_safe_call_audit` 在调用方业务 `atomic` 内直写审计表——审计 DB 失败落在业务事务内（PG 下事务已 aborted 时 `DatabaseError` 反向放大为 `TransactionManagementError`/500），叠加 `except` 吞并 → 静默丢审计或 500 双输。
+
+### 二、根因
+| # | 环节 | 事实 |
+|:---|:---|:---|
+| 1 | 状态机入口缺单据态守卫 | `change_asset_status` 锁行（`asset_service.py:318` `select_for_update`）与 `ensure_asset_visible`（`:320`）、`old_status`（`:321`）之后直接落 `target_state`/`_run_manual_transition`，无「活跃待报废单」校验——行锁只防并发写，不防业务旁路 |
+| 2 | 审计写与业务事务耦合 | `log_operation` 原实现在调用方 atomic 内 `AuditLog.objects.create` + `except` 吞并（报告锚 `core/audit_service.py:39-54`）；`_safe_call_audit` 同构（`unregisteredasset/services.py:89-97`） |
+
+### 三、修复方案
+| # | 变更 | 锚点（修复后实测） |
+|:---|:---|:---|
+| M-11 | Selector 新增 `has_pending_approval`（`asset_recordcode` + `approval_status=PENDING` + `is_deleted=False`，DR-3 查询收敛唯一入口）+ `change_asset_status` 锁内守卫三连条件（`old_status==damaged` 且 `新态!=旧态` 且 `has_pending_approval(asset)` → `AppValidationError(error_code="ACTIVE_SCRAP_ORDER_EXISTS")`）拦截全部出边；已闭环（rejected/软删）或无单据放行维持既有 manual 语义；正确闭环走 DamagedAssetService | `damaged_asset_selector.py:68`（方法）/ `asset_service.py:327-335`（守卫）/ `:322-326`（决策注释含用户拍板 2026-10-22）/ `:318`（锁行在守卫前） |
+| M-13 | `log_operation` 闭包 `_write_audit`（`AuditLog.objects.create` + `try/except logger.error`）经 `transaction.on_commit(_write_audit, robust=True)` 延迟到主事务提交后执行；恒返回 `None`（rg 核 0 调用点消费返回值）；`_safe_call_audit` 闭包 `_run_audit` 同构 on_commit，保留 P2-10 `logger.warning` 语义 | `core/audit_service.py:27`（def）/ `:41`（【M-13】docstring）/ `:47`（闭包）/ `:63`（on_commit）/ `apps/unregisteredasset/services.py:89`（def）/ `:97`（闭包）/ `:106`（on_commit） |
+
+### 四、对抗审核
+- **行号实测**：上表锚点 2026-10-22 `rg` 全命中（守卫三连 `:327-335`、`ACTIVE_SCRAP_ORDER_EXISTS` `:334`、selector `:68`、双落点 on_commit `:63`/`:106`）；报告行内预修复锚（M-11 `asset_service.py:323`、M-13 `:39-54`+`:89-97`）按 M-03/BF-135 先例保留作问题定位，修复落地锚另行标注。
+- **先红后绿链（CT-4）**：测试先行——红阶段 8 失败实证（M-11 ×6 `DID NOT RAISE`、M-13 ×2 `assert 1 == 0` / `mock_log.assert_not_called`）→ 实现落地 → 定向 10 文件 296 passed → M-11 终态 9 用例（`test_asset_service`：6 出边参数化拦截 + rejected/软删闭环放行 + 无单据放行，断言 `:290`）+ API 锚 `test_asset_view_api.py:322` 拆双例（待审批 400+`ACTIVE_SCRAP_ORDER_EXISTS`；驳回闭环 200 保 AUD-05 锚）+ M-13 5 用例（`test_batch_d_fixes.py:20/:58` 两类：deferred/executed/swallowed + safe_call deferred/swallowed）。
+- **capture 语义（fallout 根因留痕）**：`TestCase.captureOnCommitCallbacks` 的填充与执行均发生在 with 块**退出时（finally）**，且只捕获进入后注册的回调 → 26 个 fallout 测试（asset_type 4 / storage 4 / contract_service 2 / contract_view 8+3 put / unregistered 1 / role 4 / coverage 3）逐处 `captureOnCommitCallbacks(execute=True)` 包裹且断言一律放块外；contract_view 3 个 PUT 类测试补「早期回调 flush 后取基线」保夹具基线口径 3 条。
+- **竞态互斥（M-11）**：`create_damaged_asset` 的资产行 `select_for_update`（`damaged_asset_service.py:45`）先于 `to_damaged`（`:75`）→ 建单与守卫读同锁行互斥；守卫位于 `:318` 锁行之后、同事务内读，无 TOCTOU 旁路。
+- **schema 判定（免重导）**：无新增/修改端点；M-11 仅经既有 `AppValidationError` 400 通道返回既有信封键 `error_code`（与 `ASSET_NOT_FOUND` 等同族，非新成员）；M-13 纯服务端写时序——响应根结构/分页/枚举零触碰 → **无需重导 `api-schema-baseline.json`**（AGENTS §3 触发条件未命中）。
+- **同题查重**：`rg "ACTIVE_SCRAP_ORDER_EXISTS|孤儿待报废|审计吞没" 活账本` 唯一命中为 **BF-135 §六 `:9204` 待办行**（本条前身，销项见 §六）；`M-11` 历史命中为 BF-030/M-03 行的「遗留不变」时点陈述，非同题。`send_notification_on_commit` on_commit 范式先例账本 `:619`（B6 链），范式引用非重复实现。
+- **提交纯度**：staged 集合经 `git status --porcelain` 显式枚举核对（14 files 全部来自本批编辑；22 dirty 后端文件与 4 untracked 未触碰），提交后残留恰为 18 M + 4 ?? = 22 ✓；**未跑 stash 证绿（如实申报，批次 C 先例的 stash 法本批以 staged 枚举核对替代）**。
+- **瞬态甄别**：feishu `test_unknown_path_404` 首跑单点失败，复跑 14/14 绿 → 判瞬态（测试并行抖动），未改代码、未压测试。
+
+### 五、验证记录
+```text
+提交 backend 2abd578（14 files，+322/−94）；根指针 07d086a（ls-tree HEAD = 2abd578；残留 M 为 22 dirty 的 -dirty 注记）
+先红后绿：红阶段 8 failed（M-11 ×6 DID NOT RAISE + M-13 ×2 assert 反转）→ 实现后定向 10 文件 296 passed
+工作树全量：pytest --cov=. --cov-fail-under=80 → 2091 passed / 0 failed，cov 89.33%，exit 0
+           （CT-5 fallout 28 = 26 capture 对齐 + 1 M-11 view 拆例 + 1 feishu 瞬态复跑 14/14 绿甄别）
+静态：mypy --strict 0 errors / 228 files（CT-7 对齐 dev.txt mypy 2.1.0 / django-stubs 6.1.0 / drf-stubs 3.18.0 / types-channels 4.3.0.20260518）；
+     ruff check . 绿；ruff check --select C90（max-complexity 10）绿；ruff format --check . 410 files 绿
+护栏：BR-4 PASS（0 超限）/ BR-6 PASS（0 超限；asset_service 344、unregisteredasset/services 368、最高 asset_view.py 484/500）
+     / G 重复不变量 PASS / FR 前端不变量 PASS
+迁移：makemigrations --dry-run 无遗漏
+T7 mutmut（WSL PG16，rm -rf mutants 全量重跑）：mutmut run 2068/2068（13.49/s）→ gate exit 0
+     83.4623% ≥80 且 ≥基线 83.25676365492598（+0.2055pt）；killed=1726 survived=342 timeout=0 no_tests=0 suspicious=0
+T7 观察：change_asset_status 整函数零变异体（批次 D 前后 totals 逐字节一致 2068 → 前既有可能盲区，非本次引入）
+```
+
+### 六、遗留与关联事项
+- **T7 盲区（2026-10-23 拍板：接受留痕，零动作）**：`change_asset_status` 整函数（含新守卫）在 mutmut 生成器下 0 变异体——成因未深查（疑似多行括号条件式/静态方法映射不入变异集）；基线**不改**（成绩 83.4623% 未降、no_tests=0，gate 实测 exit 0）；守卫逻辑已由 13 个行为测试覆盖（CT-1）。用户拍板接受为工具盲区留痕，不做 workaround、不手动植入变异体。
+- **OperationLogService（2026-10-23 核查结论：非 M-13 同题，不改代码）**：通读 `operation_log_service.py` 定性——① `_insert_operation_log:97` 原样 `raise`，**不吞异常**（M-13 吞并病灶不存在）；② 文件头 `:12-14` 显式设计要求「必须在同一事务中创建日志和业务数据」（审计完整性：日志与业务同生共死），事务内写为**有意设计**；③ 自带 `@transaction.atomic`（`:108`）。M-13 双落点（`core/audit_service` + `unregisteredasset/services`）与本服务不同题；「PG abort 后错误类型放大」为所有事务内 DB 写的泛化共性，非日志专属缺陷。**订正原表述**：业务直调方 damaged/repair/lifecycle 三 Service 属 22 dirty，但 `apps/assetmanagement/audit.py` 与 `apps/unregisteredasset/audit_adapter.py` 为 clean 文件（原「直调方均 dirty」不准确）。用户拍板采纳定性、不改代码。
+- **M-24（2026-10-23 拍板：排最小批次 E）**：登录失败计数非原子（`core/throttles.py:92-99` `record_failure` get→+1→set），修复排期为最小批次（cache.add 种子 + cache.incr 原子自增 + ValueError 回退），P2 收官目标 19/19。
+- **提交面（2026-10-23 拍板落定）**：docs 登记编辑一次性提交（`docs+chore` 先例）；vue 子仓 8 个未提交文件查明为 BF-131（M-04 refresh→reload 消费端，已提交树 `GroupedAssetTable.vue:312` 仍为旧 `refresh: () => search()` 直证）与 BF-132（M-05 silent 消费端收敛）的**已关闭条目未提交半边**，拍板提交为 BF-131/132 补全（前端门禁四件套后）；22 dirty 后端文件 + 4 untracked 照旧排除。
+- 关联：报告 M-11/M-13 行（`→ 已修复 BF-136`）、§三两行遗留收窄、§4.3 批次 A~D 全闭环（18/19）、§五批次 D 块、尾注续记；**BF-135 §六 销项**（`:9203` T7 后续 → 本批实跑完成；`:9204` M-13/批次 D → 本条落地）；BF-133/134（批次 A/B）、BF-135（批次 C）；B6 `send_notification_on_commit` on_commit 范式先例（`:619`）。
+
+*登记人：opencode ｜ 状态：【已关闭】（8 红先红后绿 + M-11 9 用例/API 拆双例 + M-13 5 用例 + 26 fallout capture 对齐 + 全量 2091/0 cov 89.33% + mypy 0/228 CT-7 对齐 + ruff/C90/format 410 + 四护栏 PASS + makemigrations dry-run 无遗漏 + T7 实跑 83.4623% ≥ 基线 gate exit 0 + 行号 rg 实测 + 查重 0 同题 + schema 免重导判定 + stash 未跑如实申报），2026-10-22*
