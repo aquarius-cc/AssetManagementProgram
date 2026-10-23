@@ -9259,8 +9259,47 @@ T7 观察：change_asset_status 整函数零变异体（批次 D 前后 totals �
 ### 六、遗留与关联事项
 - **T7 盲区（2026-10-23 拍板：接受留痕，零动作）**：`change_asset_status` 整函数（含新守卫）在 mutmut 生成器下 0 变异体——成因未深查（疑似多行括号条件式/静态方法映射不入变异集）；基线**不改**（成绩 83.4623% 未降、no_tests=0，gate 实测 exit 0）；守卫逻辑已由 13 个行为测试覆盖（CT-1）。用户拍板接受为工具盲区留痕，不做 workaround、不手动植入变异体。
 - **OperationLogService（2026-10-23 核查结论：非 M-13 同题，不改代码）**：通读 `operation_log_service.py` 定性——① `_insert_operation_log:97` 原样 `raise`，**不吞异常**（M-13 吞并病灶不存在）；② 文件头 `:12-14` 显式设计要求「必须在同一事务中创建日志和业务数据」（审计完整性：日志与业务同生共死），事务内写为**有意设计**；③ 自带 `@transaction.atomic`（`:108`）。M-13 双落点（`core/audit_service` + `unregisteredasset/services`）与本服务不同题；「PG abort 后错误类型放大」为所有事务内 DB 写的泛化共性，非日志专属缺陷。**订正原表述**：业务直调方 damaged/repair/lifecycle 三 Service 属 22 dirty，但 `apps/assetmanagement/audit.py` 与 `apps/unregisteredasset/audit_adapter.py` 为 clean 文件（原「直调方均 dirty」不准确）。用户拍板采纳定性、不改代码。
-- **M-24（2026-10-23 拍板：排最小批次 E）**：登录失败计数非原子（`core/throttles.py:92-99` `record_failure` get→+1→set），修复排期为最小批次（cache.add 种子 + cache.incr 原子自增 + ValueError 回退），P2 收官目标 19/19。
+- **M-24（2026-10-23 拍板：排最小批次 E → 已落地 BF-137，同日收官 19/19）**：登录失败计数非原子（`core/throttles.py:92-99` `record_failure` get→+1→set），修复排期为最小批次（cache.add 种子 + cache.incr 原子自增 + ValueError 回退），P2 收官目标 19/19。
 - **提交面（2026-10-23 拍板落定）**：docs 登记编辑一次性提交（`docs+chore` 先例）；vue 子仓 8 个未提交文件查明为 BF-131（M-04 refresh→reload 消费端，已提交树 `GroupedAssetTable.vue:312` 仍为旧 `refresh: () => search()` 直证）与 BF-132（M-05 silent 消费端收敛）的**已关闭条目未提交半边**，拍板提交为 BF-131/132 补全（前端门禁四件套后）；22 dirty 后端文件 + 4 untracked 照旧排除。
 - 关联：报告 M-11/M-13 行（`→ 已修复 BF-136`）、§三两行遗留收窄、§4.3 批次 A~D 全闭环（18/19）、§五批次 D 块、尾注续记；**BF-135 §六 销项**（`:9203` T7 后续 → 本批实跑完成；`:9204` M-13/批次 D → 本条落地）；BF-133/134（批次 A/B）、BF-135（批次 C）；B6 `send_notification_on_commit` on_commit 范式先例（`:619`）。
 
 *登记人：opencode ｜ 状态：【已关闭】（8 红先红后绿 + M-11 9 用例/API 拆双例 + M-13 5 用例 + 26 fallout capture 对齐 + 全量 2091/0 cov 89.33% + mypy 0/228 CT-7 对齐 + ruff/C90/format 410 + 四护栏 PASS + makemigrations dry-run 无遗漏 + T7 实跑 83.4623% ≥ 基线 gate exit 0 + 行号 rg 实测 + 查重 0 同题 + schema 免重导判定 + stash 未跑如实申报），2026-10-22*
+
+## BF-137【已关闭】P2 批次 E 收官（M-24，登录失败计数原子化：并发丢计数致 5 次锁定阈值可被放大绕过）｜来源：`docs/Review/Merge-codegraph-audit-2026-10-20.md` M-24 行 [AUD-25] + §4.3 批次 E 段
+
+- **发现时间**：2026-10-20 融合审计（AUD-25）｜**修复时间**：2026-10-23 批次 E（P2 收官，19/19）
+- **问题描述**：`LoginLockoutThrottle.record_failure` 以 `cache.get → count+1 → cache.set` 读改写更新登录失败计数，非原子——并发登录失败丢计数，业务规则 §4.6「连续失败 5 次锁定 15 分钟」阈值被并发放大绕过。
+- **影响范围**：`core/throttles.py`（`record_failure` 读改写段）+ 新建 `core/tests/test_login_lockout_throttle.py`；**不改 API 响应/状态机/枚举**，`allow_request`（只读）与 `record_success`（delete）零变更。
+- **提交**：backend 待提交（本条登记时）；根指针随批提交。变异面外（`setup.cfg source_paths` 仅 `apps/assetmanagement/services`）。
+
+### 一、问题分析（根因）
+并发下 `get`（读）与 `set`（写）两步间无原子保证：线程 A/B 同读 count=4 → 各自 set 5 → 计数只 +1 而非 +2，5 次锁定阈值需更多失败才触发，攻击者以并发拍击稀释失败计数实现锁定绕过。
+
+### 二、修复方案
+1. 新增 `_increment_fail_count(fail_key) -> int` helper（DR-1 内聚 + 可测性）：
+   - `cache.add(fail_key, 1, LOCKOUT_DURATION)` 种子（SETNX+TTL 一步原子）→ 成功返回 1；
+   - 已存在走 `cache.incr(fail_key)`（后端原子自增，并发零丢失）；
+   - `incr` 的 `ValueError`（add 判在 → 键在其间过期的竞态）→ 下一轮重试种入（for 2 轮），双轮极端竞态后按新窗口 1 计，不抛出。
+2. `record_failure` 改调 helper + `cache.touch(fail_key, LOCKOUT_DURATION)` —— 复刻原每次 `set` 刷新 15 分钟 TTL 的滚动窗口语义（最后一败后 15 分钟键过期），锁定期内被拒请求不走 record_failure 故不续命，与原语义一致。
+3. 阈值 warning 文案与触发条件（`count >= 5`）保持原语义。
+
+### 三、验证（先红后绿 + 门禁终态）
+- **红基线**（修复前实测）：`core/tests/test_login_lockout_throttle.py` **8 failed / 3 passed**——红点主证 `test_record_failure_never_uses_get_set_read_modify_write`（mock cache 断言 `cache.get` 调用 1 次 / `cache.set` 未触达断言失败），8 个 mock 原子性路径全红；3 个行为级（5 连败锁定解锁 / 并发 200 / 锁定前置分支）旧实现暂绿（并发窗口未撞出），红性由 mock 确定性红点承担（CT-4）。
+- **绿**（修复后）：11 passed exit 0。
+- **门禁**：全量 **2102 passed / 0 failed，cov 89.37% ≥80 exit 0**；Service `--include="*/services/*"` **98% ≥90**；`mypy --strict` **0/228**（CT-7 版本与 dev.txt 逐项一致）；ruff check / C90 / format（411 files）全绿；`makemigrations --dry-run` No changes detected（CT-6 ①）。
+- **T7 未本地实跑（Fact-1 如实申报）**：改动文件不在 mutmut 变异面（source_paths 仅 services），本批变异面零触及，变异体集合与批次 D 同（2068）；新增测试对既有变异体杀灭单调不减 → 分数 ≥ 83.4623% ≥ 基线；本地 Windows 平台 mutmut 拒跑（T7 规则明载），CI `backend-mutation` 实证为终判。
+
+### 四、根因定性
+M-24/AUD-25 定位准确，一行根因（读改写非原子）无偏移；修复为 cache 标准原子范式（Django 官方 `add`+`incr` 组合），无新业务语义。
+
+### 五、关联
+- 融合审计报告 M-24 行（`→ 已修复 BF-137`）、§三鉴权行销项、§4.3 批次 E 闭环 **19/19**、§五批次 E 块、尾注续记。
+- BF-136 §六 M-24 条销项指针（同日落地）；BF-135 §六「M-24 未排批」由 BF-137 关闭。
+- 速率口径复用 BF-128 `monkeypatch.setattr(Throttle, "rate", ...)` 直设范式（test_create_throttle.py 文件头机制不重述）。
+
+### 六、遗留与关联事项
+- **T7 CI 实证 [待回填]**：本批 mutmut 未本地跑（变异面外 + Windows 平台限制），CI `backend-mutation` 绿后即为完整闭环；若 CI 因故红，以实跑复核（预期分数不降）。
+- **测压补充留痕**：并发 10×20 用例在旧实现下曾 3 passed 之一（窗口未撞），其杀伤主要在修复后精确性断言（=200）；读改写红性由 mock 确定性红点承担——两层组合非单一依赖（Fact-1）。
+- P2 计划批至此 A~E **全部收官（19/19）**，融合审计 M 系计划修复项零遗留；其余 [AUD] 残留按报告 Gate 表与各账本条目独立跟踪。
+
+*登记人：opencode ｜ 状态：【已关闭】（8 红先红后绿 + 11 用例 + 全量 2102/0 cov 89.37% + Service 98% + mypy 0/228 CT-7 版本逐项对齐 + ruff/C90/format 410+1 绿 + makemigrations dry-run 无遗漏 + T7 变异面外未本地跑如实申报 + 线 rg 实测 + 查重 0 同题），2026-10-23*

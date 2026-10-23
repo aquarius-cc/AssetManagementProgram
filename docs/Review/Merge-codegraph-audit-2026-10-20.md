@@ -157,7 +157,7 @@
 - 回查：`python -m pytest apps/authusermanagement/tests/test_create_throttle.py -q`
 - **收口（2026-10-21，BF-129）**：并行会话原报**机制属实**——只读探针直证 DRF 3.17.2 `throttling.py:66` 导入期类快照、override 不回绑；「双解释器未复现」系 settings 口径分流（development 捕获 `base.py:207`=5/minute 偶绿 / `--ds=config.settings.test` 捕获 `test.py:132`=千万级必红）。已按注记等价方案消解：`monkeypatch.setattr(RegisterRateThrottle, "rate", ...)` 替代 override（用例与口径解耦，双口径同绿）。BF-126 时「M-23 已消解」记账属未消解（override 保留即脆弱性存续），以本条为准。
 
-**M-24 | P2 | 并发/限流 | [AUD-25] ✅ | `core/throttles.py:92-99`**
+**M-24 | P2 | 并发/限流 | [AUD-25] ✅ | `core/throttles.py:92-99` → 已修复 BF-137（2026-10-23 批次 E：add/incr 原子计数 + touch 滚动窗口）**
 - `login_fail_{username}` 非原子 get/set 且仅用户名维度。修复：`incr` 原子 + username+ip 复合 key。
 
 > 注：AUD-27 已完整并入 M-13（同缺陷双 ID 合并），故 P2 有效条目为 M-06~M-24 共 19 条，无编号缺口。
@@ -225,7 +225,7 @@
 | 分域 | 结论 |
 |:---|:---|
 | 状态机 | **FSM 零旁路**（双方独立结论一致：22 边吻合、域外直写 0）。**M-11 ✅已修复（2026-10-22 批次 D，BF-136——damaged 出边锁内活跃待审批单拦截）**；遗留 M-30（边名维护）；M-03（fail_repair 前态搁浅）已消解（BF-130） |
-| 鉴权/RBAC | 密钥四层 env 驱动 clean。**M-01 ✅已修复（2026-10-21，②None→[] + ①注册开关 fail-closed 双入口 403 组合，BF-125）**；**续收口：BF-126 create 仅 system_admin 单通道 + BF-127 contract 读面按矩阵 `:144` 收至 system_admin（O-7 留痕 storage/asset_type 分批）**；**M-08/M-09/M-10 ✅已修复（2026-10-22 批次 C，BF-135——刷新竞态原子化 / 方法感知 fail-closed / Secure 缺省翻转）**；遗留 M-24（失败计数非原子） |
+| 鉴权/RBAC | 密钥四层 env 驱动 clean。**M-01 ✅已修复（2026-10-21，②None→[] + ①注册开关 fail-closed 双入口 403 组合，BF-125）**；**续收口：BF-126 create 仅 system_admin 单通道 + BF-127 contract 读面按矩阵 `:144` 收至 system_admin（O-7 留痕 storage/asset_type 分批）**；**M-08/M-09/M-10 ✅已修复（2026-10-22 批次 C，BF-135——刷新竞态原子化 / 方法感知 fail-closed / Secure 缺省翻转）**；**M-24 ✅已修复（2026-10-23 批次 E，BF-137——登录失败计数 add/incr 原子化，零遗留）** |
 | 服务层 | 锁/幂等/事务纪律成熟（双方一致）。**M-06 ✅已修复（2026-10-22 批次 C，BF-135——出库前态锁内复检）**；**M-13 ✅已修复（2026-10-22 批次 D，BF-136——审计写入 on_commit 延迟）**；遗留 M-26/M-27（建号/目录树并发）、M-35（Selector 写） |
 | API 契约 | 信封零旁路、枚举 8 键一致、分页参数合规（除 dashboard limit=M-28）。**M-02 无序分页为最大契约面问题 → ✅已修复（2026-10-21，8 模型 `Meta.ordering` + 3 处 `.first()` 锁序 + 9 分页点回归护栏，BF-128）** |
 | 前端 | 枚举 clean+守卫测试、401 单飞、XSS 零命中。根因模式集中于 createEntityStore 契约缺口（M-05/15/16/18/20/21 同源 → ✅全部闭环 BF-132/BF-133）+ 竞态守卫遗漏（M-14/17/22 ✅已闭环 BF-134，余 M-39）+ 缓存体系（M-12/19 ✅已闭环 BF-134，余 M-29） |
@@ -250,7 +250,7 @@
 ### 4.3 上线后首个迭代
 
 - P1 剩余：无（M-01~M-05 全部闭环，~~M-01/M-02/M-03/M-04 已闭环，见 §五与账本 BF-128/BF-130/BF-131~~；M-05 已闭环 2026-10-22 见 BF-132）
-- P2×19（M-23 待复现项已于 2026-10-21 由 BF-129 消解）：~~优先 createEntityStore 契约专项（一次消解 M-15/16/18/20/21，M-05 已由 BF-132 先行闭环）与后端小批（M-06/08/09/10/13）~~ **批次 A/B/C/D 已闭环 2026-10-22（BF-133/134/135/136，消解 M-15/16/18/20/21 + M-12/14/17/19/22/25 + M-06/07/08/09/10 + M-11/13，共 18 项——计划批全部执行完毕）**；余 **M-24（未排批）**
+- P2×19（M-23 待复现项已于 2026-10-21 由 BF-129 消解）：~~优先 createEntityStore 契约专项（一次消解 M-15/16/18/20/21，M-05 已由 BF-132 先行闭环）与后端小批（M-06/08/09/10/13）~~ **批次 A/B/C/D/E 已闭环 2026-10-22/23（BF-133/134/135/136/137，消解 M-15/16/18/20/21 + M-12/14/17/19/22/25 + M-06/07/08/09/10 + M-11/13 + M-24，共 19 项——P2 全部执行完毕 19/19）**
 - P3×14：随批次清尾（M-26~M-39）
 - **批外新增（M-02 执行中发现，2026-10-21）**：`AuthUserViewSet` 两处分页 `views.py:118/:167` 同属无序分页（注册 `AuthUser` 不继承 `BaseModel`、无 `created_at`——`models.py:99`），排序键须另定（如 `-auth_id`），登记 BF-128 §六待决 → **已收口 2026-10-21（BF-129②）**：定性订正（`models.py:192` `Meta.ordering=["auth_username"]` 自 2026-07-15 已存在，非无序），真残留为并列决胜缺失——Meta 加 `auth_id` 决胜（**不采纳** `-auth_id`，保前端字母序，用户拍板）+ 迁移 `0007_alter_authuser_options` + 护栏 `test_user_pagination_order_stability.py` 先红后绿
 
@@ -395,6 +395,16 @@
 
 **门禁终态（2026-10-22 后端直证）**：全量 `pytest --cov=. --cov-fail-under=80` **2091 passed / 0 failed，cov 89.33% ≥80 exit 0**；`mypy --strict` **0 errors（228 files）**（CT-7 对齐 `dev.txt` mypy 2.1.0 / django-stubs 6.1.0 / drf-stubs 3.18.0 / types-channels 4.3.0.20260518）；`ruff check .` / `--select C90 --config lint.mccabe.max-complexity=10` / `ruff format --check .`（410 files）全绿；四护栏 PASS（BR-4 0 超限 / BR-6 0 超限·最高 `asset_view.py` 484/500 / G 重复不变量 / FR 前端不变量）；`makemigrations --dry-run` 无遗漏。**T7 mutmut 本批实跑（WSL PG16）**：`rm -rf mutants && mutmut run` 全量 2068/2068 → gate exit 0，**83.4623% ≥80 且 ≥基线 83.25676365492598（+0.2055pt）**，killed=1726 / survived=342 / timeout=0 / no_tests=0 / suspicious=0；**观察（Fact-1）**：`change_asset_status` 整函数零变异体，属批次 D **前既有盲区**（批次 D 前后 totals 逐字节一致 2068 直证非本次引入——守卫为纯新增行、未删改既有行），守卫由 13 个行为测试覆盖（CT-1），盲区成因 [待核查] 入 BF-136 §六。
 
+**2026-10-23 P2 批次 E 修复追踪（BF-137，P2 收官项 M-24：登录失败计数原子化）**：
+
+> 修复批次：P2 批次计划 E（2026-10-23，用户拍板「最小批次」，P2 收官 19/19）。登记：BF-137。
+
+| 文件 | 变更 | 验证（实测） |
+|:---|:---|:---|
+| `core/throttles.py` | M-24 `LoginLockoutThrottle.record_failure`（`:92-99` 读改写 `cache.get→+1→cache.set`）改经新 helper `_increment_fail_count`：`cache.add` 种子（SETNX+TTL 原子）→ 已存在走 `cache.incr`（原子自增，并发失败不丢计数）→ add→incr 竞态过期双轮重试（`ValueError` 回退，两轮后按新窗口 1 计不抛出）；`record_failure` 尾部 `cache.touch` 复刻原每次 `set` 刷新 15 分钟 TTL 的滚动窗口语义；阈值 warning 与 `allow_request`/`record_success` 零变更 | `core/tests/test_login_lockout_throttle.py`（新建）**11 用例先红后绿**——红基线 **8 failed / 3 passed**（红点= `test_record_failure_never_uses_get_set_read_modify_write` mock 断言 cache.get/set 未触达，当前实现直证调用 1 次红）；绿 **11 passed**。行为回归：5 连败锁定 + record_success 解锁、锁定账户前置分支不进速率限流（BF-128 rate 直设范式）、并发 10 线程×20 次精确计数 200 |
+
+**门禁终态（2026-10-23 后端直证）**：全量 `pytest --cov=. --cov-fail-under=80` **2102 passed / 0 failed，cov 89.37% ≥80 exit 0**（+11 恰为新增用例）；Service 层 `coverage report --include="*/services/*"` **98% ≥90**；`mypy --strict` **0 errors（228 files）**（CT-7 版本与 `dev.txt` 逐项一致：mypy 2.1.0 / django-stubs 6.1.0 / drf-stubs 3.18.0 / types-channels 4.3.0.20260518）；`ruff check .` / `--select C90 --config lint.mccabe.max-complexity=10` / `ruff format --check .`（411 files）全绿；`makemigrations --dry-run` **No changes detected**（CT-6 ①）。**T7 mutmut 本批未本地实跑（如实申报）**：`core/throttles.py` 不在 `setup.cfg [mutmut] source_paths`（仅 `apps/assetmanagement/services`）——本批对变异面零触及（dirty services 3 文件均为批次 C 遗留排除项、非本批变更），变异体集合与批次 D 同（2068）；新增测试对既有变异体杀灭单调不减（分数 ≥ 83.4623% ≥ 基线 83.25676365492598），本地 Windows 平台 mutmut 拒跑（T7 规则明载），以 CI `backend-mutation` 门禁实证为最终判定。
+
 ---
 
-*融合生成：2026-10-20 | 核验方：本会话（对 NEW 条目抽查 9 项，全部落定：7 证实 / 1 未复现降级 / 1 环境裁决）| 2026-10-21 追加 §五：M-01 修复追踪（BF-125）；2026-10-21 续：BF-126 create 单通道 + BF-127 contract 读收口（O-7 留痕）——**AUD-21 授权面全链闭环**（批次1 数据层根治 codes None 消费方 → 批次2 register fail-closed → 批次3 create 单通道 → 批次4 contract 读收口），仓外唯一 [待确认] 生产注册面由 fail-closed 兜底挂 Gate #3；2026-10-21 再续：**M-02 分页稳定性修复闭环（BF-128，Gate #2 销项——8 模型 `Meta.ordering` + 3 处 `.first()` 锁序 + 9 分页点护栏先红后绿，上线前必办余 #3 环境变量核对）**，批外发现 AuthUser 无序分页与 `test_create_throttle` 存量红登记 BF-128 §六；2026-10-21 续：**批外双遗留收口（BF-129）**——throttle 存量红根因实证清零（全量 2046/0）+ AuthUser 登记定性订正与 `auth_id` 决胜键修复，BF-128 全项关闭，AUD-21 → BF-125/126/127/128/129 整链零未决；2026-10-22 续：**M-04 筛选/UI 脱节修复闭环（BF-131——composable 内 `reload()` 保筛选出口替换 `refresh: () => search()`，先红后绿 + 前端门禁四件套直证，P1 余 M-05）**；2026-10-22 续：**M-05 共享 Store 状态污染修复闭环（BF-132——`getList` 增 per-call `silent` 口 + 11 个非列表查询点收敛，手植变异先红×2 后绿 + 门禁四件套 + FR-8 护栏直证，P1 五条全部闭环）***；2026-10-22 续：**P2 批次 A/B/C 修复闭环（BF-133/134/135——批次 A createEntityStore 契约专项 M-15/16/18/20/21 + 批次 B 竞态/缓存/静默降级 M-12/14/17/19/22/25（含报告外 M-25 编号，连带销项 BF-132 §五 [待决策]）+ 批次 C 后端五项 M-06/07/08/09/10，共 16 项；M-09 首版名单法 47 red 经基线 137 甄别后重做为方法感知 fail-closed）**；2026-10-22 续：**P2 批次 D 修复闭环（BF-136——M-11 damaged 出边锁内活跃待审批单拦截 + M-13 审计写入 on_commit 延迟，先红后绿 + 26 测试 capture 对齐 + 全量 2091/0 + T7 实跑 83.4623% gate exit 0）——P2 计划批 A~D 全部闭环（18/19），余 M-24（未排批）**
+*融合生成：2026-10-20 | 核验方：本会话（对 NEW 条目抽查 9 项，全部落定：7 证实 / 1 未复现降级 / 1 环境裁决）| 2026-10-21 追加 §五：M-01 修复追踪（BF-125）；2026-10-21 续：BF-126 create 单通道 + BF-127 contract 读收口（O-7 留痕）——**AUD-21 授权面全链闭环**（批次1 数据层根治 codes None 消费方 → 批次2 register fail-closed → 批次3 create 单通道 → 批次4 contract 读收口），仓外唯一 [待确认] 生产注册面由 fail-closed 兜底挂 Gate #3；2026-10-21 再续：**M-02 分页稳定性修复闭环（BF-128，Gate #2 销项——8 模型 `Meta.ordering` + 3 处 `.first()` 锁序 + 9 分页点护栏先红后绿，上线前必办余 #3 环境变量核对）**，批外发现 AuthUser 无序分页与 `test_create_throttle` 存量红登记 BF-128 §六；2026-10-21 续：**批外双遗留收口（BF-129）**——throttle 存量红根因实证清零（全量 2046/0）+ AuthUser 登记定性订正与 `auth_id` 决胜键修复，BF-128 全项关闭，AUD-21 → BF-125/126/127/128/129 整链零未决；2026-10-22 续：**M-04 筛选/UI 脱节修复闭环（BF-131——composable 内 `reload()` 保筛选出口替换 `refresh: () => search()`，先红后绿 + 前端门禁四件套直证，P1 余 M-05）**；2026-10-22 续：**M-05 共享 Store 状态污染修复闭环（BF-132——`getList` 增 per-call `silent` 口 + 11 个非列表查询点收敛，手植变异先红×2 后绿 + 门禁四件套 + FR-8 护栏直证，P1 五条全部闭环）***；2026-10-22 续：**P2 批次 A/B/C 修复闭环（BF-133/134/135——批次 A createEntityStore 契约专项 M-15/16/18/20/21 + 批次 B 竞态/缓存/静默降级 M-12/14/17/19/22/25（含报告外 M-25 编号，连带销项 BF-132 §五 [待决策]）+ 批次 C 后端五项 M-06/07/08/09/10，共 16 项；M-09 首版名单法 47 red 经基线 137 甄别后重做为方法感知 fail-closed）**；2026-10-22 续：**P2 批次 D 修复闭环（BF-136——M-11 damaged 出边锁内活跃待审批单拦截 + M-13 审计写入 on_commit 延迟，先红后绿 + 26 测试 capture 对齐 + 全量 2091/0 + T7 实跑 83.4623% gate exit 0）**；2026-10-23 续：**P2 批次 E 修复闭环（BF-137——M-24 登录失败计数 add/incr/touch 原子化 + 11 用例先红后绿 + 全量 2102/0 cov 89.37% + Service 98%，T7 因不在变异面未本地跑留 CI 实证）——P2 全部闭环 19/19，融合审计 M 系计划修复项零遗留**
