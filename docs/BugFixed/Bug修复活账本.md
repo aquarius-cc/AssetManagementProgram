@@ -9140,8 +9140,8 @@ M-25 git 实证：git log -S 仅 a368848；a368848~1 UserForm rg 0 命中
 
 ### 六、遗留与关联事项
 - **vi.hoisted/vi.mock 警告**：`batchB.contract.spec.ts` 内嵌 describe 触发 vitest 警告，**vitest 升版将转 error**——列后续清理项。
-- **[开放] listRequestSeq 共享序竞态**（承 BF-132 §六）：silent 与列表请求共用 seq 计数，与本批三处新守卫并存，独立存档。
-- **keep-alive 返回即最新**（承 BF-132 §六）：`onActivated` 补重取为独立增强项。
+- **[已销项 2026-10-23] listRequestSeq 共享序竞态**（承 BF-132 §六）：silent 与列表请求共用 seq 计数，与本批三处新守卫并存，独立存档 → 由 **BF-138 #2**（方案 2-A：`createEntityStore.ts:221/:227` silent 豁免 seq）关闭。
+- **[已销项 2026-10-23] keep-alive 返回即最新**（承 BF-132 §六）：`onActivated` 补重取为独立增强项 → 由 **BF-138 #3** 关闭，落地形态为 A1 静态 include（`MainView.vue:104-113`，防跨板块 prune）+ `useKeepAliveReload` watch 激活刷新（未引入 `onActivated`，维持全仓 rg=0 现状）。
 - 关联：报告 P2 表 M-12/14/17/19/22 五行（`→ 已修复 BF-134`）、§五批次 B 块、尾注续记；BF-132（§六两注）、BF-133（批次 A）、BF-135（批次 C）。
 
 *登记人：opencode ｜ 状态：【已关闭】（8 用例先红后绿 + 门禁复跑 2218 tests exit 0 + stores 棘轮 96.82% + 行号/M-25 git 实证 + BF-132 待决策连带销项 + 无契约变更免 schema 重导），2026-10-22*
@@ -9303,3 +9303,72 @@ M-24/AUD-25 定位准确，一行根因（读改写非原子）无偏移；修�
 - P2 计划批至此 A~E **全部收官（19/19）**，融合审计 M 系计划修复项零遗留；其余 [AUD] 残留按报告 Gate 表与各账本条目独立跟踪。
 
 *登记人：opencode ｜ 状态：【已关闭】（8 红先红后绿 + 11 用例 + 全量 2102/0 cov 89.37% + Service 98% + mypy 0/228 CT-7 版本逐项对齐 + ruff/C90/format 410+1 绿 + makemigrations dry-run 无遗漏 + T7 变异面外未本地跑如实申报 + 线 rg 实测 + 查重 0 同题），2026-10-23*
+
+## BF-138 【已关闭】P2 批次 F——前端 keep-alive「返回即最新」（A1 静态 include + D 激活刷新）与 silent/list 跨通道 seq 隔离（方案 2-A），T16 变异门禁 79.16→80.65% 过线（登记来源：BF-134 §六 :9143/:9144 两遗留项销项 + 批次 F 计划；关联 `docs/Review/Merge-codegraph-audit-2026-10-20.md:337` M-05 遗留行）
+
+- 发现日期：2026-10-22（BF-134 §六登记）｜执行：2026-10-23 批次 F
+- 严重级别：P2（#2 竞态为数据正确性；#3 为体验增强；T16 为门禁红线）
+- 影响范围：`vue-assetmanagement` 前端（createEntityStore / MainView / useKeepAliveReload / 5 个详情页 / 4 个新 spec）；**纯前端内部逻辑，跨端契约零变化，无需重导出 api-schema-baseline**
+
+### 一、问题现象
+1. **silent/list 跨通道竞态**：`getList` 的 silent 调用与列表调用共用同一 `listRequestSeq` 计数器，后发者作废在途先发者，调用方 `?? []` 拿到假空（BF-134 §六 :9143 `[开放]` 项）。
+2. **keep-alive 返回不刷新**：离开板块时 include 变空 → KeepAlive prune 销毁缓存，跨板块返回必重挂载（筛选状态丢失）；板块内返回实例存活但数据不重取（BF-134 §六 :9144 增强项）。
+3. **T16 变异门禁欠账**：批次 F 开工基线 79.16% < 80 硬红线。
+
+### 二、根因
+| # | 环节 | 事实 |
+|:---|:---|:---|
+| 1 | `createEntityStore.getList` seq 守卫 | 修复前 `const seq = ++listRequestSeq` 无条件自增（HEAD `:219`），silent 与 list 争用同一序 → 双向作废 |
+| 2 | `MainView` keep-alive include | 旧实现动态 computed 取自 `route.matched`，离开板块 include 变空触发 Vue KeepAlive **prune** 销毁缓存；P0-1 先红实证 instanceSeq=2（注释锚 `MainView.vue:105-106`） |
+| 3 | 激活刷新钩子缺失 | `onActivated` 全仓 rg=0 命中（报告 `:99` BF-132 留痕），板块内返回无任何重取 |
+| 4 | T16 存活体机理 | 282 响应回写遮蔽（`response.page_size` 覆写断言不可见）、325 短路右操作数 perTest 不映射、373 从未写测试、530 标签错位（530=`pendingSet.clear` 而 529=`cache.clear`） |
+
+### 三、修复方案
+| # | 变更 | 文件 |
+|:---|:---|:---|
+| 1 | #2 seq 豁免：`options?.silent ? null : ++listRequestSeq`，作废判定 `seq !== null && seq !== listRequestSeq`（silent 恒 null 永不被作废，undefined 语义收敛至 list 通道） | `src/stores/createEntityStore.ts:221`、`:227` |
+| 2 | #3-A1 静态 include：`router.getRoutes()` 一次性静态收集（不再随 route.matched 变化），单一事实来源仍为路由 meta（DR-1），注释留实证 | `src/views/MainView.vue:33`、`:104-113` |
+| 3 | #3-D 激活刷新：`watch(route.name)` 非 immediate（防首挂双取），`route.name === selfName` 判等（板块内子路由切换不触发），reload 失败 logError 吞掉不清空列表；5 页接入 | `src/composables/useKeepAliveReload.ts:33-54` + Contract/AssetType/Storage/User/Department 5 个 Details.vue |
+| 4 | P0-4 实证：逐路由断言真实组件名（name/`__name`）=== `meta.componentName`（include 匹配前提），core 段超时提至 90s（dry-run 并行导入开销） | `src/router/__tests__/keepAliveComponentNames.spec.ts:40`、`:43` |
+| 5 | T16 补杀：t16 spec 24 用例（含 [282] 拒绝路径重写、[325] 缺字段、[373] 跨毫秒并发、[530] 在途 pending）+ composable spec 9 用例 | `src/stores/__tests__/createEntityStore.t16.spec.ts` 等 |
+
+### 四、对抗审核
+- **行号漂移**：登记全部行号以 `rg` 实测（`:221`/`:227`/`MainView:104`/`useKeepAliveReload:33`/`contract.spec:285-286,309`/`BF-134:9143-9144` 均命中一致）。
+- **红证真实性**：5 目标手工变异两轮独立红证（round1 条件假化 4 红 / round2 body 置空 `[282]` 仍红），全量 revert 后 24/24 绿；期间 backup 并行块截断事故已修复，`git diff` 复核源文件仅剩 #2 既定修复（8+/5−），无变异残留。
+- **Fact-1 申报**：run1 变异 exit 0 已实录；**run2 控制台 exit code 因 PowerShell 管道 `Select-Object -First` 截断未留档**——分数以 `mutation.json`（2026-10-23 14:54:24 落盘，2.08MB）node 实测为权威，控制台摘要缺失如实留痕。
+- **契约影响**：无 API 请求/响应形状变化 → schema 基线无需重导出（AGENTS §3 条件未触发）。
+- **P0-4 申报**：页面未补 `defineOptions({ name })` 的依赖为编译期 `__name` 回推（文件名推断），由 P0-4 spec 锁定失配即红；A1 同提交。
+- **双取申报**：保存后 refresh 双取已声明接受；`watch` 非 immediate 防首挂双取。
+- **查重**：BF-132/133/134 对本两议题均为「排除混入、独立存档」（报告 `:337`），无同题关闭条目重复登记。
+
+### 五、验证记录
+```text
+> npm run type-check              → exit 0
+> npm run lint                    → exit 0
+> npm run format:check            → exit 0（All matched files use Prettier code style）
+> npm run test:coverage           → exit 0；175 files / 2258 tests 全绿
+    分层实测：src/**/*.ts 93.17% (4350/4669 ≥80) ｜ src/stores/**/*.ts 96.83% (1130/1167 ≥90) ｜ .vue 18.45% (1464/7937)
+> npx vitest run src/stores/__tests__/createEntityStore.t16.spec.ts → 24/24 绿
+> 先红后绿红证（手工变异逐轮 revert）：
+    round1（282 cond→false + 325→true + 373→空串 + 530→;）→ 4 failed / 20 passed，四目标用例全红
+    round2（282 body→{}，cond 已还原）→ [282] 仍红（expected 20 to be 50）→ cond/body 两变体独立致杀
+    全量 revert 后 24/24 绿；git diff 仅剩 #2 既定修复
+> npm run test:mutate（run1，exit 0 实录）→ 80.33%：1511/1881
+> npm run test:mutate（run2 权威报告 reports/mutation/mutation.json 2026-10-23 14:54:24）
+    → 80.65%：Killed 1517 / Survived 319 / NoCoverage 45 / Ignored 201 / RuntimeError 1，分母 1881（=2083−201−1）
+    五目标全 Killed：282 ConditionalExpression(false)、282 BlockStatement({})、325 ConditionalExpression(true)、
+    373 StringLiteral(空)、530 CallExpression(;)
+    基线轨迹：79.16（批次前）→ 80.33（run1）→ 80.65（run2）—— T16 ≥80 PASS
+（新增用例：t16 24 + useKeepAliveReload 9 + keepAliveLifecycle 3（P0-3/P0-1/P0-2）+ keepAliveComponentNames 2 +
+  contract spec BF-138 跨通道 2 = 40 用例，均绿）
+```
+
+### 六、遗留与关联事项
+- **[已销项] BF-134 §六 :9143 `[开放] listRequestSeq 共享序竞态`** → 由本条 §三-1（方案 2-A）关闭，双向指针已回填。
+- **[已销项] BF-134 §六 :9144 `keep-alive 返回即最新`** → 由本条 §三-2/3（A1+D）关闭，双向指针已回填。
+- **[架构实证] 动态 include prune**：旧动态 `computed(route.matched)` 在离开板块瞬间令 `include` 变空，Vue KeepAlive 据 prune **销毁缓存实例**——「缓存名存实亡」，跨板块返回必重挂载且筛选态丢失（P0-1 先红实证 instanceSeq=2）。A1 改为路由注册表一次性静态收集：实例跨板块不销毁；单一事实来源仍为路由 meta（`keepAlive` + `componentName`），不引入硬编码名单（DR-1）。实证锚：`MainView.vue:104-113` 注释 + `keepAliveComponentNames.spec.ts` 静态断言。
+- **[T16 等价体清单]** survived 中判等价/短路不可判杀共 17 个（不补杀、不虚报）：`createEntityStore.ts` 16 个——208:64 / 265:9 / 265:22（分页 key `list:` 前缀永不过缓存）/ 271:32（total=0 处 `ceil(0/size)` 恒等）/ 286:11 / 71:24（enableDebounce 无调用者）/ 221:48（`--`≡`++` 于相等判断）/ 392:11、409:9、429:9（仅移除第二段 `?.`）/ 488:9、490:9、494:9（各留 1 个全调用型变体，裸 `message.x` 变体已被 message 缺省测试杀）/ 454:14（返回值被忽略）/ 524:9 / 531:27、532:7（ces 不传 `debounced:true`，debounceMap 恒空）；`useKeepAliveReload.ts` 1 个——36:67（keepAlive 真 ⇒ meta 必在，AND 短路）。清单已同步 t16 spec 文件头注释。
+- **[接受]** 保存后 save→refresh 双取（已声明接受）；`vue` 层覆盖率 18.45% 不设无前缀全局阈值（vitest.config.ts P2-2 分层棘轮防假红），ts/stores 双层前缀阈值为准。
+- **[待回填]** run2 变异控制台 exit code 未留档（管道截断），若需完整 CI 级留痕可在下次 `test:mutate` 时以 `reports/mutation/` + exit code 成对存档。
+
+*登记人：opencode ｜ 状态：【已关闭】（前端三项 0×3 + 全量 175/2258 + cov ts 93.17%/stores 96.83% + T16 80.65% PASS + 5 目标两轮红证 + 40 新用例全绿 + 行号 rg 实测 + 查重 0 同题 + 无契约变更免 schema 重导），2026-10-23*
