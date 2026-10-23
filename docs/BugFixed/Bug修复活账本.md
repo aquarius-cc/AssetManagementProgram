@@ -7622,7 +7622,7 @@ twisted 事实链：`requirements/base.txt:85 daphne==4.2.2 → twisted 26.4.0`�
 
 ### 六、遗留与关联事项
 
-- **CI `api-schema-check` 直证待回填**：推送后以 `api-schema-check` job 结果回填本条（oasdiff 本地不可用，比对方向读自 `ci.yml:139`）。
+- **CI `api-schema-check` 直证 [已回填 2026-10-23]**：run 39917334461 job「M-3 - API Schema Diff (oasdiff)」(id=120295780613) **success**——oasdiff breaking=0，本地 oasdiff 不可用的直证缺口由 CI 闭环。同 job 存在非破坏性漂移 warning（`API schema 存在非破坏性漂移 请评估后重导 baseline`）：漂移实体为各 list 端点 GET query 参数 **description 语言漂移**（baseline 英文 → CI 生成中文，实见 `/api/v1/assets/broken-assets/`、`/api/v1/assets/contracts/` 的 ordering/page/page_size/search），按 AGENTS §3 属仅提醒不阻断 → **[待决策]** 在后端工作区干净窗口统一 `--lang` 口径后重导基线（重导命令已由 job 提示：`python manage.py spectacular --format openapi-json --file api-schema-baseline.json --validate`）。
 - **代码与基线必须同 commit**：若基线漏提交，CI `oasdiff breaking` 必红——批次一提交时已核对（见审计票）。
 
 *登记人：opencode ｜ 状态：【已关闭】（description 三层透传 + 必填校验 + 副作用文档 + 基线同批重导 + 先红后绿 3× + 全量 2009 passed / 0 failed），2026-10-19*
@@ -9298,7 +9298,7 @@ M-24/AUD-25 定位准确，一行根因（读改写非原子）无偏移；修�
 - 速率口径复用 BF-128 `monkeypatch.setattr(Throttle, "rate", ...)` 直设范式（test_create_throttle.py 文件头机制不重述）。
 
 ### 六、遗留与关联事项
-- **T7 CI 实证 [待回填]**：本批 mutmut 未本地跑（变异面外 + Windows 平台限制），CI `backend-mutation` 绿后即为完整闭环；若 CI 因故红，以实跑复核（预期分数不降）。
+- **T7 CI 实证 [已回填 2026-10-23]**：本批 mutmut 未本地跑（变异面外 + Windows 平台限制），CI `backend-mutation` 绿后即为完整闭环——run 39917334461 job「后端 - 变异测试」(id=120313089269) **success**（2026-10-23T08:17:24Z）：`变异得分 83.2845%（红≥80.0% / 基线 83.2568%，相对基线 +0.0277pt）（killed=1704 survived=342 timeout=0 no_tests=0 suspicious=0 tested=2046）`——「若 CI 因故红」分支不触发，T7 闭环完成。
 - **测压补充留痕**：并发 10×20 用例在旧实现下曾 3 passed 之一（窗口未撞），其杀伤主要在修复后精确性断言（=200）；读改写红性由 mock 确定性红点承担——两层组合非单一依赖（Fact-1）。
 - P2 计划批至此 A~E **全部收官（19/19）**，融合审计 M 系计划修复项零遗留；其余 [AUD] 残留按报告 Gate 表与各账本条目独立跟踪。
 
@@ -9369,6 +9369,7 @@ M-24/AUD-25 定位准确，一行根因（读改写非原子）无偏移；修�
 - **[架构实证] 动态 include prune**：旧动态 `computed(route.matched)` 在离开板块瞬间令 `include` 变空，Vue KeepAlive 据 prune **销毁缓存实例**——「缓存名存实亡」，跨板块返回必重挂载且筛选态丢失（P0-1 先红实证 instanceSeq=2）。A1 改为路由注册表一次性静态收集：实例跨板块不销毁；单一事实来源仍为路由 meta（`keepAlive` + `componentName`），不引入硬编码名单（DR-1）。实证锚：`MainView.vue:104-113` 注释 + `keepAliveComponentNames.spec.ts` 静态断言。
 - **[T16 等价体清单]** survived 中判等价/短路不可判杀共 17 个（不补杀、不虚报）：`createEntityStore.ts` 16 个——208:64 / 265:9 / 265:22（分页 key `list:` 前缀永不过缓存）/ 271:32（total=0 处 `ceil(0/size)` 恒等）/ 286:11 / 71:24（enableDebounce 无调用者）/ 221:48（`--`≡`++` 于相等判断）/ 392:11、409:9、429:9（仅移除第二段 `?.`）/ 488:9、490:9、494:9（各留 1 个全调用型变体，裸 `message.x` 变体已被 message 缺省测试杀）/ 454:14（返回值被忽略）/ 524:9 / 531:27、532:7（ces 不传 `debounced:true`，debounceMap 恒空）；`useKeepAliveReload.ts` 1 个——36:67（keepAlive 真 ⇒ meta 必在，AND 短路）。清单已同步 t16 spec 文件头注释。
 - **[接受]** 保存后 save→refresh 双取（已声明接受）；`vue` 层覆盖率 18.45% 不设无前缀全局阈值（vitest.config.ts P2-2 分层棘轮防假红），ts/stores 双层前缀阈值为准。
-- **[待回填]** run2 变异控制台 exit code 未留档（管道截断），若需完整 CI 级留痕可在下次 `test:mutate` 时以 `reports/mutation/` + exit code 成对存档。
+- **[已回填 2026-10-23] run2 变异 exit code**：CI run 39917334461 job「前端 - 变异测试」(id=120296953126) **success**，日志直证 `Final mutation score of 80.17 is greater than or equal to break threshold 80`（2026-10-23T07:48:51Z）——CI 内 `npm run test:mutate` exit 0 成对留档成立。**双值并存（Fact-1）**：CI 80.17% / 本地 run2 80.65%（mutation.json 2026-10-23 14:54:24），机器环境差异，双双 ≥80。
+- **[会话 CI 留痕 2026-10-23]**：本轮推送曾致 Duplicate Guard / Security Scan / CD 三 workflow 首轮假红——根因为 **backend 子模块 7 个本地提交（`5592cf2..b0d6f62`）先于推送**，三 workflow 在 checkout 阶段取不到 gitlink 指向的 `b0d6f62` 即失败（日志止于 checkout，护栏/扫描脚本未执行）；backend 补推后 `rerun --failed` 全绿。**CD 历史 run 39917594092 永久 failure 的机制说明**：其 `安全门禁校验` 读取 `github.event.workflow_run.conclusion`（事件 payload，固化为当时的 failure），重跑 job 不可修复——以新的 workflow_run 事件 supersede：39970198992（success）与 39970885189（success，gate + Docker Build & Push + Prune 全绿，部署完成）。
 
 *登记人：opencode ｜ 状态：【已关闭】（前端三项 0×3 + 全量 175/2258 + cov ts 93.17%/stores 96.83% + T16 80.65% PASS + 5 目标两轮红证 + 40 新用例全绿 + 行号 rg 实测 + 查重 0 同题 + 无契约变更免 schema 重导），2026-10-23*
