@@ -1,10 +1,10 @@
 
 ---
 
-### 📄 文档 4：后端业务规范 `/Rules_Fiels/backend-business-rules.md` (v1.19)
+### 📄 文档 4：后端业务规范 `/Rules_Fiels/backend-business-rules.md` (v1.20)
 
 # 后端业务规范与设计思路 (Backend Business Rules)
-> 版本：v1.19 | 最后更新：2026-10-21
+> 版本：v1.20 | 最后更新：2026-10-24
 > 适用范围：Django 6.0 + DRF 3.16 + PostgreSQL 16
 
 ## 一、设计思路（防腐与一致性）
@@ -25,7 +25,7 @@
 | B1 | **API 响应格式** | 统一为 `{"code": 0, "data": {}, "message": "success"}`，**禁止**直接返回 Model 实例 | 使用统一响应包装器 |
 | B2 | **URL 命名** | 资源名使用**复数 snake_case**（如 `/api/assets/`），**禁止**单数或驼峰 | 重构路由 |
 | B3 | **HTTP 方法语义** | GET(查询)、POST(创建)、PUT/PATCH(更新)、DELETE(软删，需二次确认) | 修正方法映射 |
-| B4 | **分页与过滤** | 列表接口必须集成 `django-filter`，统一使用 `page` 与 `page_size` 参数 | 添加 FilterSet |
+| B4 | **分页与过滤** | 列表接口必须集成 `django-filter`，统一使用 `page` 与 `page_size` 参数。**豁免**：非分页列表的聚合/截断类 action 不适用本条——如仪表盘 `limit`（top-N，`dashboard_view.py`，运行时上限 100）与 `days`（时间窗，上限 365），保留自定义参数（M-28 方案 A 豁免，2026-10-24） | 添加 FilterSet |
 | B5 | **状态流转** | 状态变更**必须**调用 Service 层专门方法（如 `checkout()`），**禁止**在 View/Serializer 中直接修改状态字段 | 抽取到 Service |
 | B6 | **事务原子性** | 涉及状态变更、多表写操作的方法**必须**添加 `@transaction.atomic`。通知推送**必须**使用 `send_notification_on_commit()` 确保事务提交后执行，**禁止**在事务内直接调用 `notify_dept_managers()` | 添加装饰器；通知改用 on_commit |
 | B7 | **审计日志** | 所有状态变更**必须**调用 `audit_log` 记录操作人、时间、变更前后状态 | 补上审计调用 |
@@ -297,6 +297,7 @@ repairing ──repair_done──┘    │               │                  �
 | BR-7	| **调用链验证** |	视图（View）→ 服务（Service）→ 选择器（Selector）的纵深不得超过 3 层（View→Service→Selector 为标准深度）。若出现 View→Service→Service→Selector 等 4 层+，必须扁平化或使用事件驱动解耦。|	合并中间层或引入事件 |
 
 ## 六、变更日志
+- v1.20 (2026-10-24): **B4 豁免条款落地（M-28 方案 A，[PATCH-BE] 经用户拍板放行）**——① B4 约束内容追加「非分页列表豁免」：仪表盘 `limit`（top-N，运行时上限 100）与 `days`（时间窗，上限 365）为聚合/截断类 action 参数，不适用 `page`/`page_size` 分页契约；② 配套代码去重：`dashboard_view.py` 两处 `limit` 解析与两处 `days` 同形 `try/except`（各 4 行 ×4 处）收敛为唯一 helper `_parse_int_param(query_params, key, default, upper)`（DR-1），行为逐字等价（缺省/空值/非法回退 default，超上限钳位）；③ 新增测试 10 例（`TestParseIntParam` 8 例单元 + 2 例端点集成，落在 `test_dashboard_view_api.py`）。回归：全量 pytest + cov / `mypy --strict` / ruff check+C90+format / 五护栏 / `makemigrations --dry-run` / OpenAPI 基线零漂移（门禁数字见 BF-140 登记）。登记：BF-140，融合报告 M-28 已修复。
 - v1.19 (2026-10-21): **§4.7 三态表条文订正（AUD-21 授权可见性缺口 / 融合审计 M-01，[PATCH-BE] 经用户「执行，并同步相关文档」放行）**——① 「无 Employee 记录」从 `None` 行移入「空列表」行：`core/department_scope.py:56-57` 修复为最严兜底 `[]`（`if not employee: return []`），superuser 分支（`:50-51`）与 system_admin/auditor 全局角色分支（`:62-63`）语义不变；② 配套注册开关 `AUTH_SELF_REGISTRATION_ENABLED`：`base.py:248` 缺省 True（dev/test 存量行为），`production.py:69` fail-closed 缺省 False（未显式置 true 即关闭），注册双入口 `views.py:116-117`（AuthUserViewSet.create）与 `:237-238`（RegisterAPIView.post）非 system_admin 一律 403，`extend_schema` 同步声明 403；③ 新增只读核查命令 `python manage.py audit_orphan_accounts`（Exists 子查询、`--json`/`--active-only`，只读）。回归：全量 2029 passed / cov 88.93%（≥80）/ Service 98%（≥90）/ `mypy --strict` 0 errors（228 files）/ ruff check+C90+format 绿 / 四护栏 PASS / `makemigrations --dry-run` 无变更 / mutmut 83.2925% ≥ 基线 83.25676365492598（T7 双门禁 PASS）/ OpenAPI 基线 `--lang en` 重导 diff 精确（2×403 + 1×description）。残留：dev/test 开关下 `AuthUserViewSet.create` 匿名建号存量保留（拍板①，单列后续项）；生产注册入口暴露 `[待确认]` 不变。登记：BF-125，融合报告 M-01 已修复。
 - v1.18 (2026-09-29): **BR-6 条文实质修订**——「500 行」补齐口径定义（原条文只写「不含迁移文件」，未定义行数口径，是 D3 连续两次误判的根因）。① 口径统一为**逻辑行**＝物理跨度 − 空行 − 纯 `#` 注释行 − 模块 docstring，唯一实现 `scripts/line_metrics.py`，**BR-4/BR-6 共用**（DR-1 消重）；② **测试文件不再纳入** BR-6（与 BR-4 护栏既有 `is_test()` 排除对齐，用户 2026-09-29 拍板）；③ 新增护栏 `scripts/check_file_length_guard.py` + 台账 `Rules_Fiels/BR6_file_length_ledger.md` + CI `backend-lint` job 内 step，**零存量债，上线即阻断**，不适用 §5.4 沙盒期；④ 明令禁用 PowerShell `Measure-Object -Line`（跳空行，`operation_log_service.py` 真实 508 会被报成 447，低估约 12%）。**连带影响**：BR-4 口径同步剔除 docstring（原为「docstring 计入代码行」），因其台账当时为空表且 0 违规，实测无行为变化，已回归验证。误判纠正记录：D3 先按 `wc -l` 误判 `operation_log_service.py`(508) 违规、继而误判 `contract_service.py`(489) 为唯一目标，两次均系口径未定义所致；按逻辑行口径二者实为 432 / 399，**均不违规，故取消全部拆分动作**，交付物转为「护栏 + 口径定义」。另修复护栏 `read_text` 的 BOM 假绿缺陷：原 `utf-8` 解码遇 BOM 产生 U+FEFF 致 `ast.parse` 失败、文件被静默跳过，超限文件可蒙混过关；改为 `utf-8-sig` 打头（由负向测试发现）。
 - v1.17 (2026-09-26): 新增 §4.8 OpenAPI 契约声明细则（增补）——BF-049 / BF-050 落地。① 记录两条实测机制：`AutoSchema.get_filter_backends()` 的 `_is_list_view()` 门控（非 list 响应静默关闭筛选参数发现，且改 `responses` 会连锁翻转）、`@extend_schema` 手工声明「只替换不校正」；② OS-1~OS-7：显式 opt-in（`ForceFilterDiscoverySchema` + `frozenset`，禁改全局启发式）、名单取 action **方法名**（OS-2，附"写错静默不生效"坑点记录）、自动可产出的不手写、重声明复用共享片段、**文档超前于运行时同属失真**、PR 须 diff 基线、契约端点必须有对照运行时事实的 schema 护栏；③ 明确聚合响应用 `inline_serializer` 且不新增误导性 Serializer。附带订正：v1.16 只更新了变更日志、未升头部版本号（两处均为 v1.15），本次同步至 v1.17。本节属细则增补，不修改 B1-B10、§4.2 矩阵与 BR 条文。

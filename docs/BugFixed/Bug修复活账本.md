@@ -9433,3 +9433,53 @@ M-24/AUD-25 定位准确，一行根因（读改写非原子）无偏移；修�
 - **[口径说明]** PG-only 真并发 2 用例在 `--ds=config.settings.test`（SQLite，CI 变异测试同口径）skipif 跳过；CI 为 postgres:16 实际执行，本地 PG 默认口径亦 31 passed 0 skipped 实证。
 
 *登记人：opencode ｜ 状态：【已关闭】（三缺陷 + 红证 2 failed+1 ImportError → 绿 31/0 + 全量 2132/0 cov 89.42% + Service 98% + mypy 0/229 CT-7 逐项对齐 + ruff/C90/format 414 绿 + 五护栏 PASS + makemigrations dry-run 无遗漏 + schema 基线零漂移 + T7 实跑 83.4623% 双门禁过线含新旧变异体逐文件对账与 15/15 快照全等时序证明 + 红证 stash 定向轮 + 行号 rg 实测 + 查重 0 同题），2026-10-24*
+
+## BF-140【已关闭】P3 批次 BE-2——后端契约/文档批：B4 分页规范补「非分页聚合豁免」（M-28 方案 A）+ dashboard `limit`/`days` 同形解析收敛唯一 helper（DR-1）｜来源：`docs/Review/Merge-codegraph-audit-2026-10-20.md` M-28 行 + P3 清尾六批计划之第 2 批
+
+- **发现时间**：2026-10-20 融合审计（NEW-13，并行会话结论 ▶ 本批逐行核验成立）｜**修复时间**：2026-10-24 批次 BE-2（P3 第 2 批 **4/14**；六批计划 BE-1→BE-2→FE-1→BE-3→FE-2→BE-4 之第 2 批）
+- **严重级别**：P3
+- **影响范围**：backend 2 修改（`apps/assetmanagement/views/dashboard_view.py`、`apps/assetmanagement/tests/test_dashboard_view_api.py`，+71/−17）+ root 1 文档（`Rules_Fiels/backend-business-rules.md` v1.19→**v1.20**）。**零迁移、零 API 响应结构变化、零状态机/枚举变化，跨端契约零破坏**（schema 基线导出 **IDENTICAL** 实证）；前端零改动
+
+### 一、问题分析
+
+| # | 缺陷 | 根因 |
+|:---|:---|:---|
+| M-28 | dashboard `limit` 与 page/page_size 分页契约不一致 | `recent_out_assets`/`recent_recycle_assets` 自行解析 `limit`（全仓唯一 `limit` 消费点，本批 rg 复核成立），与 B4「列表接口统一 page/page_size」条文冲突——但仪表盘为**非分页 top-N 聚合**，语义上不适用分页契约，改 `page_size` 反而错位，故正解为文档豁免（拍板方案 A）。附带：`limit`×2、`days`×2 共 4 处同形 `try/except` 解析（各 4 行）重复（DR-1） |
+
+### 二、修复方案（拍板方案 A 三件套）
+
+1. **B4 豁免条款**（`backend-business-rules.md`）：B4 约束内容追加「非分页列表的聚合/截断类 action 不适用本条——仪表盘 `limit`（top-N，运行时上限 100）与 `days`（时间窗，上限 365），保留自定义参数（M-28 方案 A 豁免，2026-10-24）」；版本号 v1.19→v1.20 + `## 六、变更日志` v1.20 条目（B1-B10 属后端子域自主变更，AGENTS §4.1；[PATCH-BE] 依用户拍板方案 A 为 §4.2 前置批准，无需二次 HALT）。
+2. **代码去重**（`dashboard_view.py`）：新增 `_parse_int_param(query_params: QueryDict, key, default, upper) -> int` 唯一解析点——缺省/空值/非法回退 `default`、超 `upper` 钳位（语义与原 4 处逐字等价）；`limit`（默认 10/上限 100）2 处 + `days`（默认 30/上限 365）2 处全部改调。**命名口径**：拍板写 `_parse_limit`，落地为通用 `_parse_int_param`——因勘察发现 `days` 两处同形块（报告与拍板均未点名），与 limit 去重同文件同形，按 §1.8 从紧一并收敛，避免 helper 成对分裂留重复；本条即为 §1.8「新发现→留痕」义务的履行（就地修复，免开待修复账）。
+3. **测试**：`test_dashboard_view_api.py` 新增 `TestParseIntParam` **10 用例**——8 单元（缺省/透传/钳位/非法/空值 × limit+days 两组参数）+ 2 端点集成（`limit=1` 生效、`limit=abc` 不 500 回退默认）。
+
+### 三、验证（变异红证 + 门禁终态）
+
+- **红证（手植变异，CT-4 回归屏障锚定，BF-138 范式）**：helper 去钳位变异（`min(int(...), upper)` → `int(...)`）→ 定向复跑 **2 failed**（`test_limit_capped_at_upper` / `test_days_capped_at_upper`）+ 8 passed；还原备份后 **10 passed**。**如实申报**：本批为文档 + 行为保持重构，无 stash 缺特性红轮（BF-116~22 批次先例——新增行为用例对旧代码本就等价绿，红性由手植变异锚定杀伤力）。
+- **残留核验**：rg `(limit|days) = min\(int` → **0 命中**（同形块清零）。
+- **门禁终态（2026-10-24 全量复跑直证，PG/pytest.ini 默认 development 口径）**：
+  - 全量 `pytest --cov=. --cov-fail-under=80` → **2142 passed / 0 failed，cov 89.50% ≥80，exit 0**（502s；2142 = BE-1 批 2132 + 10 算术对账）；
+  - Service `coverage report --include="*/services/*" --fail-under=90` → **98.37% exit 0**；
+  - `mypy --strict` → **0 errors / 229 files**（CT-7 版本与 `requirements/dev.txt` 同会话核对：mypy 2.1.0 / django-stubs 6.1.0 / djangorestframework-stubs 3.18.0 / types-channels 4.3.0.20260518 / pytest 9.1.1 / ruff 0.17.1；**检查伪影留痕**：测试文件被 `[tool.mypy] exclude` 排除，显式传参检查会绕过排除报 48 条 `no-untyped-def` 假红——以 CI 同款 `mypy . --strict` 全量 0 errors 为准）；
+  - `ruff check .` / `--select C90 --config lint.mccabe.max-complexity=10` / `ruff format --check .`（**414 files**）→ 全绿 exit 0；
+  - **五护栏** → 全 PASS：BR-6（0 超限，最高 `asset_view.py` 488/500，本批未触及）、BR-4（0 超限函数）、重复不变量、前端不变量（FR-6 55 / FR-8 31）、API 文档 V-1~V-4；
+  - `makemigrations --dry-run` → **No changes detected**（CT-6 ①）；`spectacular --validate` **exit 0** 且导出 JSON 与 `api-schema-baseline.json` 对比 **IDENTICAL**（零漂移——`limit` 参数仍由既有 `_limit_parameter()` 声明，本批未动参数面；validate 输出 23 条 Errors 为基线生成时既有状态，exit 0 不阻断）。
+- **T7 mutmut 本批未本地实跑（面外申报，Fact-1，BF-137 先例）**：`dashboard_view.py` 属 `views/`，不在 `setup.cfg [mutmut] source_paths`（仅 `apps/assetmanagement/services`）——本批对变异面**零触及**，变异体集合与 2026-10-24 02:06 WSL 实跑（83.4623%，killed=1726 / survived=342 / tested=2068）同源；新增测试位于 `apps/assetmanagement/tests`（在 mutmut 测试选择面内），对既有变异体杀灭**单调不减** → 分数 ≥ 83.4623% ≥ 基线 83.25676365492598。CI `backend-mutation` 直证为最终判定（回填 [PENDING] 待 push）。
+
+### 四、根因定性
+
+- [NEW-13] 并行会话结论（▶）本批逐行核验**成立**：`limit` 确为全仓唯一消费点（rg 实证）；缺陷本质是**文档与实现脱节**（B4 条文未区分分页列表与非分页聚合），非实现缺陷——故正解为补文档豁免而非改参数名（拍板方案 A 与代码语义一致）。
+
+### 五、关联
+
+- 融合审计报告：M-28 行 → `已修复 BF-140`；§三分域结论「API 契约」行 M-28 销项；§4.3 P3 行 4/14 注记；§五新增「批次 BE-2 修复追踪」块；尾注 2026-10-24 续记。
+- 规范文档：`Rules_Fiels/backend-business-rules.md` v1.20（B4 豁免 + 变更日志）。
+- 红证方法：手植变异红证（BF-138 范式）+ rg 残留清零（BF-116~22 文档批验收范式）。
+
+### 六、遗留与关联事项
+
+- **[按计划] P3 余 10 项**：M-27/M-29/M-30/M-31/M-32/M-35/M-36/M-37/M-38/M-39 按批次 FE-1(BF-141) → BE-3(BF-142) → FE-2(BF-143) → BE-4(BF-144) 推进。
+- **[PENDING] CI 回填**：`backend-mutation`（T7 面外单调性直证）待 push 后回填本条 §三。
+- **[口径说明]** `limit`/`days` 负值透传为**既有行为**（`min(int("-5"), 100) = -5` → 切片怪癖，原实现同形），不在拍板与报告范围，本批不改；如需收紧须另立条目。
+- **[口径说明]** root §3「分页参数名 page/page_size」契约条目**未改**——该条约束分页列表端点，dashboard 聚合类 action 不构成契约面；豁免落在后端子域 B4 即完整（跨端契约零破坏，schema IDENTICAL 实证）。
+
+*登记人：opencode ｜ 状态：【已关闭】（B4 豁免 v1.20 + `_parse_int_param` 收敛 4 处同形 + 新增 10 用例 + 手植变异红证 2 failed→10 绿 + 全量 2142/0 cov 89.50% + Service 98.37% + mypy 0/229 CT-7 对齐 + ruff/C90/format 414 绿 + 五护栏 PASS + makemigrations dry-run 无遗漏 + schema IDENTICAL 零漂移 + T7 面外单调性申报 + rg 残留 0 + 查重 0 同题），2026-10-24*
