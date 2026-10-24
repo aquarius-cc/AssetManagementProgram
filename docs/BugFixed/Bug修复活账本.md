@@ -9536,3 +9536,66 @@ M-24/AUD-25 定位准确，一行根因（读改写非原子）无偏移；修�
 - **[PENDING] CI 回填**：`frontend-coverage`/`frontend-mutation` 门禁直证待 push 后回填（本地 stryker 80.02 已过 break，CI 为最终判定）。
 
 *登记人：opencode ｜ 状态：【已关闭】（M-29 三处 + M-36 死代码双下线 + 手植红证 3 failed→还原 114 绿 + responseHandler 首跑 2 failed 防御回退 + 全量 175 files/2260 passed 0 failed 分层三层过线 + 前端三项 0 + stryker 80.02 过 break + rg 残留 0 + 查重 0 同题），2026-10-24*
+
+## BF-142【已关闭】P3 批次 BE-3——后端三项：状态机边名纳入校验（M-30：REPAIRING→DAMAGED 双入口共边 tuple 化 + `transition_name` 必校）/ 批量预检与字段白名单过滤抽 helper 收敛（M-31：11 处 + 5 处，DR-1/DR-4）/ 登录双节流 cache key 类名前缀分流（M-32：修共 key 双计数）｜来源：`docs/Review/Merge-codegraph-audit-2026-10-20.md` M-30 行 + M-31 行 + M-32 行（[NEW-15]/[NEW-16]/[AUD-37]）+ §五「P3 批次 BE-3 修复追踪」块
+
+- **发现时间**：2026-10-20 融合双报告（M-30 [NEW-15] / M-31 [NEW-16] / M-32 [AUD-37]）。**修复时间**：2026-10-24 执行 BE-3（P3 清尾六批计划之第 4 批，前序 BE-1(BF-139)/BE-2(BF-140)/FE-1(BF-141)，计划项 **9/14**）。
+- **严重级别**：P3
+- **影响范围**：backend 19 modified + 4 新建（`state_machine/` 5 文件 + `assetmanagement/services/` 8 + `usermanagement/services/` 2 + `unregisteredasset/services.py` + `core/batch_mixins.py` + `core/throttles.py` + `test_state_machine.py`；新建 `utils/update_whitelist.py` + `core/tests/test_batch_size_precheck.py` + `core/tests/test_login_throttle_keys.py` + `utils/tests/test_update_whitelist.py`）。**无 API 响应结构变化、无状态机流转路径增删（仅补边名校验维度，22 边不变）、无枚举键名变化、schema 基线零漂移（IDENTICAL 实证）**。
+
+### 一、问题现象
+
+| # | 缺陷 | 定性 |
+|:---|:---|:---|
+| M-30 | REPAIRING→DAMAGED 格仅声明 `to_damaged` 单边字符串，`repair_failed`（维修失败确认路径）与 `to_damaged` 共用该 cell 但**边名不参与校验**——任意边名均放行，边维护无护栏 | [NEW-15] 审计小项，边名维度缺失 |
+| M-31 | 批量长度内联预检 **11 处**各自复制 `if len(...) > N: raise AppValidationError(f"单次…")`；字段白名单过滤块 **5 处**复制同形 `for key: if key not in ALLOWED: raise …不允许修改字段…` | [NEW-16] DR-1/DR-4 |
+| M-32 | `LoginRateThrottle` 与 `LoginLockoutThrottle` 的 `get_cache_key` 均返回 `throttle_login_{username}`——rate history 与 lockout 计数共享同一 key 双写互串，实际限流密度 ~2.5 次/分（收紧方向偏移） | [AUD-37] |
+
+### 二、修复方案
+
+1. **M-30（边名必校）**：`transitions.py:57` 共边格声明改 `("repair_failed", "to_damaged")` tuple（类型 `dict[AssetState, dict[AssetState, str | tuple[str, ...]]]`）；`core.py:62` `_validate_transition` 增 `transition_name: str | None = None` 参数（`core.py:96` `_transition` 透传）——键缺失文案保持「状态转换不合法: {cur} → {tgt}」（`:84`），边不符新增「状态转换边不合法: {cur} → {tgt} 未声明边 '{name}',允许边: [...]」（`:91`，两前缀不互为子串断言安全）。10 个 Mixin 调用点补边名 + `asset_service.py:53` manual 路径显式传 `None`（注释留痕）；`unregisteredasset` 零调用、`contract_fsm.py` 独立表不入面（grep 实证包内 0 处残留 2-arg 裸调用）。
+2. **M-31a（批量预检收敛）**：`core/batch_mixins.py:44` 新增 `ensure_batch_size(count, max_size, action)`——文案契约 f"单次{action}不能超过 {max_size} 条" + `BATCH_SIZE_EXCEEDED` 逐字不变（`:60`）；11 处收敛（batch_mixins 自身 ×2 + employee ×2 + department ×3 + storage/asset_type/contract/hard_disk ×1 each）。**分层双检保留**（service 层改调 helper 抢先抛 + mixin 兜底，零行为变化满足 DR-1）。
+3. **M-31b（白名单过滤收敛）**：新建 `utils/update_whitelist.py`（DR-4）——`apply_whitelisted_updates`（`:18`，严格：首非法即拒，文案"不允许修改字段: {key}"，`error_code` 可选缺省 `None` 保持 unregistered 默认）+ `filter_whitelisted_fields`（`:51`，宽松，`skip_none` 可选）；5 点收敛（out `:237` / recycle `:313` 均 `error_code="FIELD_NOT_ALLOWED"`；unregistered `:119` 默认 None + `:371` filter；damaged `:121` `skip_none=True`）。
+4. **M-32（key 分流）**：两 `get_cache_key` 改 `f"throttle_{type(self).__name__}_{username}"`（`throttles.py:64`/`:88`，类名前缀运行时派生防漂移）+ M-32 rationale docstring；`login_fail_`/FAIL_KEY 不动。
+
+**口径留痕**：unregistered `views.py:316` 为 `error_response` return 形不入面；serializer `serializers.ValidationError` 族（`batch_mixins.py:340` 存量）不入面——M-31a 面 = service 层内联预检 11 处；`asset_service` IMMUTABLE 黑名单型与白名单 5 处不同族。
+
+### 三、验证记录（先红后绿 + 三跑对账）
+
+- **红证 A（M-30/M-32，CT-4，stash 定向）**：`git stash push -m "BF142-red-M30-M32" -- apps/assetmanagement/state_machine core/throttles.py` → 定向 **11 failed + 2 passed**（2 passed = 向后兼容 `transition_name=None` 用例 + 既有合法路径，按设计保留）→ pop → **13 passed**。
+- **红证 B（M-31，手植三变异同轮）**：batch 文案 单次→批次、whitelist detail ×2 → 字段非法、`if skip_none:` → `if False:` → **8 failed**（5 文案 + 2 detail + 1 skip_none，三变异全杀）→ 精确回滚 → **18 passed** + ruff/format 净。
+- **定向**：state_machine/core/whitelist/throttle 相关套件 **104 passed**（一次过）。
+- **全量**：`pytest --cov=. --cov-fail-under=80` → **2173 passed / 0 failed，cov 89.53% ≥80，exit 0**（520.59s；2173 = 批次 BE-2 2142 + 新增 31 算术对账）；Service `--cov=apps.assetmanagement.services --cov-fail-under=90` → **98.43% exit 0**（24 missed/1529）。
+- **mypy**：`. --strict` → **0 errors / 230 source files**（CT-7 工具链与 dev.txt 声明逐项对齐：mypy 2.1.0 / django-stubs 6.1.0 / drf-stubs 3.18.0 / types-channels / pytest 9.1.1 / ruff 0.17.1）。
+- **ruff**：`check .` / `--select C90 --config lint.mccabe.max-complexity=10` / `format --check .`（**418 files**）全绿。
+- **五护栏**：BR-4 PASS（0 超限函数）/ BR-6 PASS（最大 `asset_view.py` 488/500 逻辑行）/ 重复不变量 G-1~G-5 PASS / 前端不变量 PASS（FR-6 55 文件 / FR-8 31 文件 0 超龄）+ **护栏自测 25 passed**。
+- **迁移/schema**：`makemigrations --dry-run` **No changes detected**（CT-6 ①）；`spectacular --validate` exit 0 且导出与 `api-schema-baseline.json` **IDENTICAL**（23 Errors 为既有存量，零漂移）。
+- **T7 mutmut（面内，三跑对账，Fact-1）**：
+  - 新码首跑（14:28）：**83.6557%**（killed=1730 survived=338 tested=2068），MUTMUT_EXIT=0 / STATS_EXIT=0 / **GATE_EXIT=0**；
+  - 偶发重复跑（14:44，漏 rsync 同码重跑）同数 → **跑次确定性**；
+  - 旧码对账跑（14:48，`stash BF142-recon-old` 再生）：**1726/342 = 83.4623%，与 BF-139 记录逐字吻合**；
+  - 终态跑（14:52，pop+rsync 后）：83.6557% 同数，GATE_EXIT=0。
+  - **per-file 对账（mutmut 生成物 `.meta` exit_code_by_key 口径）**：13 文件变异数 **old=new 逐一相等**（FACE_TOTAL 2068=2068）；kill 差 **+4** 集中于 asset_type/contract/hard_disk/storage 各 +1（其余 9 文件 kill 分布不变）→ 归因 31 条新测试反杀 4 个存量 survived。
+  - 分数 **83.6557 ≥ 红线 80.0 ≥ 基线 83.25676365492598（+0.3989pt）**，双门禁过线。
+- **查重**：`rg` 五连（单次…不能超过 / ensure_batch_size / 白名单过滤 / throttle_login_ / update_whitelis）`complete-patterns.md` **全 0 命中**；批次先例 BF-133~141 均未动台账（末次 c2c43da 2026-10-16），沿例不新增。
+
+### 四、根因定性
+
+- [NEW-15] ▶ 修复前代码逐行核验属实（共边单字符串 + 校验无边名维度）；[NEW-16] 11+5 处复制实测成立；[AUD-37] 共 key 双计经 `rest_framework/throttling.py` 源码 + SimpleNamespace 行为级双证（`allow_request` 读同 history、`throttle_success()` 双写）。
+- M-32 补充定性：双计数使有效限流密度**高于**单节流名义值（~2.5 次/分），属收紧方向偏移而非放宽——修复后恢复名义 5/1、锁定 5/1 双档独立（行为级 5 放行/6 拒锚定）。
+- M-30 补充定性：边名必校**不改变**任何流转路径（22 边集合不变），仅把「传入边名必须在 tuple 格内」变为硬约束；`repair_failed`/`to_damaged` 双入口从隐式共边变为显式声明。
+
+### 五、关联
+
+- 融合审计报告：M-30/M-31/M-32 三行 → `已修复 BF-142`；§三状态机行 M-30 销项 + 鉴权行 M-32 追记；§4.3 P3 行 **9/14** 注记；§五新增「批次 BE-3 修复追踪」块；尾注 2026-10-24 续记。
+- 红证方法：stash 定向红证（BF-139 范式）+ 手植三变异同轮（BF-138/141 范式）+ T7 新旧版本逐文件再生成对账（BF-139 口径扩展至全 13 文件 + 跨跑次确定性）。
+- 复用锚点：`ensure_batch_size`（`core/batch_mixins.py:44`）、`apply_whitelisted_updates`/`filter_whitelisted_fields`（`utils/update_whitelist.py:18/:51`）、`_validate_transition`（`core.py:62`）。
+
+### 六、遗留与关联事项
+
+- **[按计划] P3 余 5 项**：M-37/M-39 按批次 FE-2(BF-143) → M-27/M-35/M-38 按批次 BE-4(BF-144) 推进。
+- **[PENDING] CI 回填**：`backend-mutation` 门禁直证待 push 后回填（本地 T7 双门禁已过，CI 为最终判定）。
+- **[口径说明]** 分层双检保留决策：DR-1 收敛至 helper 而非删除上层 mixin 兜底——View 直调路径与顺序性防御，零行为变化；如后续要删兜底须单独批次评估。
+- **[口径说明]** T7 计数口径差异：BF-139 曾记 storage=36/asset_type=108（其计数口径），本批 `.meta exit_code_by_key` 口径实测 34/104（新旧两跑同口径自洽 old=new），contract 160=160 与 BF-139 记录吻合——非数字打架，属口径差异留痕。
+
+*登记人：opencode ｜ 状态：【已关闭】（M-30/31/32 三项 + 红证 A 11 failed→13 绿 + 红证 B 8 failed→18 绿 + 定向 104 + 全量 2173/0 cov 89.53% + Service 98.43% + mypy 0/230 CT-7 对齐 + ruff/C90/format 418 + 五护栏 + 护栏自测 25 + makemigrations 无遗漏 + schema IDENTICAL + T7 三跑对账 83.6557% 双门禁过线 + rg 五连查重 0 同题），2026-10-24*
