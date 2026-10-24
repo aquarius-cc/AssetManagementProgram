@@ -9483,3 +9483,56 @@ M-24/AUD-25 定位准确，一行根因（读改写非原子）无偏移；修�
 - **[口径说明]** root §3「分页参数名 page/page_size」契约条目**未改**——该条约束分页列表端点，dashboard 聚合类 action 不构成契约面；豁免落在后端子域 B4 即完整（跨端契约零破坏，schema IDENTICAL 实证）。
 
 *登记人：opencode ｜ 状态：【已关闭】（B4 豁免 v1.20 + `_parse_int_param` 收敛 4 处同形 + 新增 10 用例 + 手植变异红证 2 failed→10 绿 + 全量 2142/0 cov 89.50% + Service 98.37% + mypy 0/229 CT-7 对齐 + ruff/C90/format 414 绿 + 五护栏 PASS + makemigrations dry-run 无遗漏 + schema IDENTICAL 零漂移 + T7 面外单调性申报 + rg 残留 0 + 查重 0 同题），2026-10-24*
+
+## BF-141【已关闭】P3 批次 FE-1——前端缓存/路由/死代码批：M-29 三处（① 仅 `code===0` 入缓存 ② 登出带 redirect 回跳 ③ 守卫过期单飞续期）+ M-36 死代码 `navigateToValidPage`/`isValidPage` 下线（拍板删除）｜来源：`docs/Review/Merge-codegraph-audit-2026-10-20.md` M-29 行 + M-36 行 + P3 清尾六批计划之第 3 批
+
+- **发现时间**：2026-10-20 融合审计（M-29 [NEW-14] ▶ / M-36 [AUD-41] ✅，并行会话结论 ▶ 本批核验成立）｜**修复时间**：2026-10-24 批次 FE-1（P3 第 3 批 **6/14**；六批计划 BE-1→BE-2→FE-1→BE-3→FE-2→BE-4 之第 3 批）
+- **严重级别**：P3
+- **影响范围**：frontend 9 文件（生产 4：`src/api/request.ts`、`src/router/guards.ts`、`src/stores/createEntityStore.ts`、`src/stores/entityStoreTypes.ts`；测试 5：`request.spec.ts`、`guards.spec.ts`、`createEntityStore.spec.ts`、`createEntityStore.t16.spec.ts`、`createEntityStore.variants.spec.ts`）。**零后端改动、零 API 响应结构变化、零状态机/枚举变化、跨端契约零破坏**；测试增 11 it / 删 8 it（净 +3）
+
+### 一、问题分析
+
+| # | 缺陷 | 根因 |
+|:---|:---|:---|
+| M-29 | ① `get()` `useCache` 时**无条件** `writeCache`——200 + `code!==0` 业务失败体入缓存后，后续同 key `useCache` 调用直接命中错误数据，绕过重试与错误提示；② `redirectToLogin()` 固定跳 `/login`，重登丢原页面（`LogIn.vue:237-244` 早已消费 `route.query.redirect` 却无生产端）；③ 守卫 `isLoggedIn && access_token` 只验真值不验 `exp`，过期 token 带病放行至首请求 401 才触发刷新 | [NEW-14] 三处小改，逐行核验成立 |
+| M-36 | `navigateToValidPage` 生产零调用方（rg：`.vue` 0 命中，仅类型声明 + 导出 + 测试），`isValidPage` 与之配对同死 | [AUD-41] 拍板**删除**（非透传参数）——死路径补参数语义属 YAGNI，删除为最诚实处置 |
+
+### 二、修复方案（拍板处置三件套 + 死代码下线）
+
+1. **M-29① 缓存条件**：`if (useCache && data.code === 0)` ——仅成功响应入缓存。
+2. **M-29② 回跳构造**：抽纯函数 `buildLoginRedirectUrl(back)`（export 供测试）——回跳 `?redirect=` 经 `encodeURIComponent`；登录页自身 / 根路径 / 非站内路径 / `//`（防开放重定向）一律回退裸 `/login`；`redirectToLogin()` 改调（`window.location` 透传 `pathname`+`search`）。**回跳链路后半段（LogIn.vue 消费端）既有，本批只接通生产端，非新功能**。
+3. **M-29③ 过期续期**：模块级 `isAccessExpired(token)`（复用既有 `decodeJWTPayload` 解析 `exp`；非数值 exp / 非 JWT 不可解析 → `false` **保守放行**，交请求层 401 单飞刷新链兜底，不误踢 refresh 仍有效会话）+ `ensureFreshAccess()` helper（过期 → 既有 `refreshAccessToken(detectAuthChannel())` 单飞续期，成功写回 `authStore.access_token`；失败 `logError` + `silentLogout` + `handleUnauthenticated`）；守卫条件合并为 `isLoggedIn && access_token && (await ensureFreshAccess())` 短路，避免 beforeEach 回调触 ESLint `complexity: 10` 红线。**不可改为过期即踢**——会破坏「access 过期但 refresh 有效」的正常续期链。
+4. **M-36 删除清单**：`createEntityStore.ts` 实现块（原 :275-292 含注释）+ return 导出 2 项；`entityStoreTypes.ts` 类型声明 2 行；测试 3 文件删 8 it。**`getTotalPages` 保留**（定义 + 导出 + 类型全留——两测试文件直接断言覆盖，删 `isValidPage` 后覆盖不到）。
+- **DR-1**：② 回跳 URL 构造唯一实现（纯函数单点）；③ 复用 `decodeJWTPayload`/`refreshAccessToken`/`detectAuthChannel` 三个既有工具，零新轮子。
+
+### 三、验证（手植变异红证 + 门禁终态）
+
+- **红证（CT-4，双处同轮，BF-138 范式）**：① 条件退化 `useCache && data.code === 0` → `useCache`（还原旧缺陷）+ ③ `isAccessExpired` 恒 `false` → 定向复跑 **3 failed**（`cache-skip` ×1 + guards「过期刷新成功/失败」×2）→ 还原 **114 passed**（request 38 + guards 76）。
+- **兼容性双证**：① guards.spec 既有 mock `access_token='valid-token'`（非三段 JWT）→ `decodeJWTPayload` null → 不触发新分支，**既有用例零改动全绿**（向后兼容）；② `responseHandler.spec.ts` location 桩仅 `{href:''}` → 首跑实测 **2 failed `/login?redirect=undefined`** → 以「pathname 缺失/非法 → 裸 `/login`」防御回退修复并补防御用例 1（该 2 failed 即② 的回归屏障实证，如实申报为修复中发现而非预设红轮）。
+- **残留核验**：rg `navigateToValidPage|isValidPage`（生产+测试）→ **0 命中**；受影响 3 store 测试文件定向 **108 passed**。
+- **门禁终态（2026-10-24 前端直证）**：
+  - `npm run type-check` / `npm run lint`（读 flat config 含 `complexity: 10` + `app/complexity-exempt`，未用 `--rule` 旁路，BF-086 口径）/ `npm run format:check` → **三项全 exit 0**；
+  - `npm run test:coverage` → **175 files / 2260 passed / 0 failed，exit 0**（2260 = 批前 2257 + 增 11 − 删 8 算术对账）；分层棘轮（P2-2，`vitest.config.ts` 自动强制）实测：`src/**/*.ts` **S 93.19 / B 86.93 / F 87.59 / L 94.00（≥80 ✓）**，`src/stores/**/*.ts` **S 96.80 / B 92.31 / F 91.16 / L 97.19（≥90 ✓）**，`src/**/*.vue` 层 exit 0（≥12.9 棘轮 ✓）。**口径说明**：全文件并集 46.18% 为含 `.vue` 的展示值，不参与门禁（P2-2 分层设计——无前缀全局阈值会把 80 拖到 42% 假红，`vitest.config.ts` 注释明载）；
+  - `npm run test:mutate`（stryker，scope `src/stores/**` + 指定 composables）→ **80.02 ≥ break 80，exit 0**（9m41s；`createEntityStore.ts` 分 95.45）。**T16 面申报（Fact-1）**：`request.ts`/`guards.ts` 不在 stryker `mutate` 范围，其杀伤力由手植红证 3 failed 覆盖。
+
+### 四、根因定性
+
+- [NEW-14] ▶ 三处**逐行核验成立**（修复前代码对照属实）；[AUD-41] 拍板**删除**处置与代码语义一致（零生产调用方）。
+- ② 补充定性：redirect 消费端先于生产端存在（LogIn.vue 半条链），缺陷是**链路断在生产端**——修复即接通既有链路，不是加回跳新功能（避免误记 FR 需求）。
+- ③ 补充定性：守卫原逻辑对 cookie 模式长开页面（access 过期但 refresh 仍有效）有 401 兜底，故本批是**提前续期降噪**而非修「会挂」缺陷；保守放行分支保证行为上限与旧版一致（向后兼容实证）。
+
+### 五、关联
+
+- 融合审计报告：M-29 行、M-36 行 → `已修复 BF-141`；§三分域结论「缓存体系 余 M-29」销项；§4.3 P3 行 **6/14** 注记；§五新增「批次 FE-1 修复追踪」块；尾注 2026-10-24 续记。
+- 红证方法：手植变异红证双处同轮（BF-138 范式）+ 既有测试首跑红（responseHandler 2 failed 即② 屏障）+ rg 残留清零（BF-116~22 清单批验收范式）。
+- 复用锚点：`decodeJWTPayload`（`src/utils/decodeJwt.ts`）、`refreshAccessToken`（`src/utils/tokenRefresh.ts`）、`detectAuthChannel`（`src/utils/device.ts`）、LogIn.vue redirect 消费（`:237-244`）。
+
+### 六、遗留与关联事项
+
+- **[按计划] P3 余 8 项**：M-27/M-30/M-31/M-32/M-35/M-37/M-38/M-39 按批次 BE-3(BF-142) → FE-2(BF-143) → BE-4(BF-144) 推进。
+- **[口径说明]** M-29③ 只处理「守卫入口过期」，不改变请求层 401 单飞刷新链（双链同源 `refreshAccessToken`）；非 JWT / 无 exp 的 token 一律保守放行交 401 链兜底——行为向后兼容以既有 `valid-token` 用例零改动绿实证。
+- **[口径说明]** 本次未动 `.vue` 组件与设计令牌（F1-F5 零涉及）；回跳值经 LogIn.vue 既有白名单（`startsWith('/') && !startsWith('//')`）+ 本批 `buildLoginRedirectUrl` 双端夹击。
+- **[关注]** `request.spec.ts` 头部存量 `TECHNICAL_DEBT: >500 lines` 标注（批前 622 行，本次新增 <50 行，按 DR-5 存量豁免不拆分）。
+- **[PENDING] CI 回填**：`frontend-coverage`/`frontend-mutation` 门禁直证待 push 后回填（本地 stryker 80.02 已过 break，CI 为最终判定）。
+
+*登记人：opencode ｜ 状态：【已关闭】（M-29 三处 + M-36 死代码双下线 + 手植红证 3 failed→还原 114 绿 + responseHandler 首跑 2 failed 防御回退 + 全量 175 files/2260 passed 0 failed 分层三层过线 + 前端三项 0 + stryker 80.02 过 break + rg 残留 0 + 查重 0 同题），2026-10-24*
