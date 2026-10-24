@@ -164,7 +164,7 @@
 
 ### 2.4 P3（14 条）
 
-**M-26 | P3 | 并发 500 | [NEW-11] ▶ | `contract_service.py:162-177`、`employee_service.py:243-248`、`department_service.py:72-108`、`storage_service.py:51-57`、`asset_type_service.py:95-105`**
+**M-26 | P3 | 并发 500 | [NEW-11] ▶ | `contract_service.py:162-177`、`employee_service.py:243-248`、`department_service.py:72-108`、`storage_service.py:51-57`、`asset_type_service.py:95-105` → 已修复 BF-139（2026-10-24 批次 BE-1：`re_raise_or_map_integrity_error` 多规则匹配器（PG/SQLite 双消息形）+ 5 service 落库点内层 atomic(savepoint)→业务 error_code 兜底 + `DepartmentSelector.exists_by_code` 预检收敛）**
 - exists→create 无锁无 IntegrityError→DUPLICATE 映射（对照 damaged_asset_service 有），并发重复建号→500（有 partial unique 兜底不脏数据）。修复：`re_raise_or_map_integrity_error` 同批收敛。
 
 **M-27 | P3 | 目录树并发 | [NEW-12] ▶ | `department_service.py:117-152,226-230`**
@@ -185,10 +185,10 @@
 **M-32 | P3 | 限流口径 | [AUD-37] ✅ | `throttles.py:55-59,72-81`**
 - 双节流共用 `throttle_login_{username}` key 双计数，实际 ~2.5 次/分（收紧方向）。修复：key 加类名前缀。
 
-**M-33 | P3 | 查询 | [AUD-38] ✅ | `asset_view.py:184-190`**
+**M-33 | P3 | 查询 | [AUD-38] ✅ | `asset_view.py:184-190` → 已修复 BF-139（2026-10-24 批次 BE-1：对齐同文件 `search_assets` 的 `paginate_queryset`+`get_paginated_response`，extend_schema 仅声明 name 参数、schema 基线零漂移）**
 - `get_asset_by_name` 全库唯一漏分页资产查询入口。修复：对齐同文件 paginate_queryset。
 
-**M-34 | P3 | 安全披露 | [AUD-39] ✅ | `authusermanagement/services.py:285-316` + `usermanagement/models.py:283-290`**
+**M-34 | P3 | 安全披露 | [AUD-39] ✅ | `authusermanagement/services.py:285-316` + `usermanagement/models.py:283-290` → 已修复 BF-139（2026-10-24 批次 BE-1：新建 `core/token_blacklist.blacklist_user_tokens` 批量 upsert 单一实现（`expires_at` 过滤 + 差集幂等），失败由静默升格 error 告警、不中断主流程取舍不变，两调用点收敛 DR-1）**
 - 改密/改角色黑名单逐 token N+1 + 吞异常（有意取舍，旧 refresh 最长 7 天窗口）。修复：批量 upsert + 失败升 error 告警。
 
 **M-35 | P3 | 架构 | [AUD-40] ✅ | `usermanagement/selectors.py:265-302`**
@@ -226,7 +226,7 @@
 |:---|:---|
 | 状态机 | **FSM 零旁路**（双方独立结论一致：22 边吻合、域外直写 0）。**M-11 ✅已修复（2026-10-22 批次 D，BF-136——damaged 出边锁内活跃待审批单拦截）**；遗留 M-30（边名维护）；M-03（fail_repair 前态搁浅）已消解（BF-130） |
 | 鉴权/RBAC | 密钥四层 env 驱动 clean。**M-01 ✅已修复（2026-10-21，②None→[] + ①注册开关 fail-closed 双入口 403 组合，BF-125）**；**续收口：BF-126 create 仅 system_admin 单通道 + BF-127 contract 读面按矩阵 `:144` 收至 system_admin（O-7 留痕 storage/asset_type 分批）**；**M-08/M-09/M-10 ✅已修复（2026-10-22 批次 C，BF-135——刷新竞态原子化 / 方法感知 fail-closed / Secure 缺省翻转）**；**M-24 ✅已修复（2026-10-23 批次 E，BF-137——登录失败计数 add/incr 原子化，零遗留）** |
-| 服务层 | 锁/幂等/事务纪律成熟（双方一致）。**M-06 ✅已修复（2026-10-22 批次 C，BF-135——出库前态锁内复检）**；**M-13 ✅已修复（2026-10-22 批次 D，BF-136——审计写入 on_commit 延迟）**；遗留 M-26/M-27（建号/目录树并发）、M-35（Selector 写） |
+| 服务层 | 锁/幂等/事务纪律成熟（双方一致）。**M-06 ✅已修复（2026-10-22 批次 C，BF-135——出库前态锁内复检）**；**M-13 ✅已修复（2026-10-22 批次 D，BF-136——审计写入 on_commit 延迟）**；**M-26 ✅已修复（2026-10-24 批次 BE-1，BF-139——IntegrityError→业务错误码 savepoint 兜底）**；遗留 M-27（目录树并发）、M-35（Selector 写） |
 | API 契约 | 信封零旁路、枚举 8 键一致、分页参数合规（除 dashboard limit=M-28）。**M-02 无序分页为最大契约面问题 → ✅已修复（2026-10-21，8 模型 `Meta.ordering` + 3 处 `.first()` 锁序 + 9 分页点回归护栏，BF-128）** |
 | 前端 | 枚举 clean+守卫测试、401 单飞、XSS 零命中。根因模式集中于 createEntityStore 契约缺口（M-05/15/16/18/20/21 同源 → ✅全部闭环 BF-132/BF-133）+ 竞态守卫遗漏（M-14/17/22 ✅已闭环 BF-134，余 M-39）+ 缓存体系（M-12/19 ✅已闭环 BF-134，余 M-29） |
 | 机械门禁 | 2011/0 + 88.91% + mypy/ruff/四护栏/前端三项全绿 + schema 字节一致；SC-1/SC-3/SC-6/OC-6 通过；SC-8 CI 权威。**NEW-01 假红撤销**（未复现） |
@@ -251,7 +251,7 @@
 
 - P1 剩余：无（M-01~M-05 全部闭环，~~M-01/M-02/M-03/M-04 已闭环，见 §五与账本 BF-128/BF-130/BF-131~~；M-05 已闭环 2026-10-22 见 BF-132）
 - P2×19（M-23 待复现项已于 2026-10-21 由 BF-129 消解）：~~优先 createEntityStore 契约专项（一次消解 M-15/16/18/20/21，M-05 已由 BF-132 先行闭环）与后端小批（M-06/08/09/10/13）~~ **批次 A/B/C/D/E 已闭环 2026-10-22/23（BF-133/134/135/136/137，消解 M-15/16/18/20/21 + M-12/14/17/19/22/25 + M-06/07/08/09/10 + M-11/13 + M-24，共 19 项——P2 全部执行完毕 19/19）**
-- P3×14：随批次清尾（M-26~M-39）
+- P3×14：随批次清尾（M-26~M-39）→ **2026-10-24 批次 BE-1 已闭环 3/14（M-26/M-33/M-34，BF-139），余 11 项按六批计划 BE-2→FE-1→BE-3→FE-2→BE-4 推进**
 - **批外新增（M-02 执行中发现，2026-10-21）**：`AuthUserViewSet` 两处分页 `views.py:118/:167` 同属无序分页（注册 `AuthUser` 不继承 `BaseModel`、无 `created_at`——`models.py:99`），排序键须另定（如 `-auth_id`），登记 BF-128 §六待决 → **已收口 2026-10-21（BF-129②）**：定性订正（`models.py:192` `Meta.ordering=["auth_username"]` 自 2026-07-15 已存在，非无序），真残留为并列决胜缺失——Meta 加 `auth_id` 决胜（**不采纳** `-auth_id`，保前端字母序，用户拍板）+ 迁移 `0007_alter_authuser_options` + 护栏 `test_user_pagination_order_stability.py` 先红后绿
 
 ### 4.4 融合会话声明
@@ -405,6 +405,20 @@
 
 **门禁终态（2026-10-23 后端直证）**：全量 `pytest --cov=. --cov-fail-under=80` **2102 passed / 0 failed，cov 89.37% ≥80 exit 0**（+11 恰为新增用例）；Service 层 `coverage report --include="*/services/*"` **98% ≥90**；`mypy --strict` **0 errors（228 files）**（CT-7 版本与 `dev.txt` 逐项一致：mypy 2.1.0 / django-stubs 6.1.0 / drf-stubs 3.18.0 / types-channels 4.3.0.20260518）；`ruff check .` / `--select C90 --config lint.mccabe.max-complexity=10` / `ruff format --check .`（411 files）全绿；`makemigrations --dry-run` **No changes detected**（CT-6 ①）。**T7 mutmut 本批未本地实跑（如实申报）**：`core/throttles.py` 不在 `setup.cfg [mutmut] source_paths`（仅 `apps/assetmanagement/services`）——本批对变异面零触及（dirty services 3 文件均为批次 C 遗留排除项、非本批变更），变异体集合与批次 D 同（2068）；新增测试对既有变异体杀灭单调不减（分数 ≥ 83.4623% ≥ 基线 83.25676365492598），本地 Windows 平台 mutmut 拒跑（T7 规则明载），以 CI `backend-mutation` 门禁实证为最终判定。
 
+**2026-10-24 P3 批次 BE-1 修复追踪（BF-139，并发建号兜底 M-26 + 漏分页 M-33 + 黑名单批量收敛 M-34）**：
+
+> 修复批次：P3 清尾六批计划之第 1 批（2026-10-24，BE-1，3/14；M-28 拍板方案 A、M-36 拍板删除等终版修订按后续批次推进）。登记：BF-139。
+
+| 文件 | 变更 | 验证（实测） |
+|:---|:---|:---|
+| `core/exceptions.py` + 5 service（contract/storage/asset_type/department/employee）+ `usermanagement/selectors.py` | **M-26**：新增 `match_integrity_error_rules`（多规则按序匹配，PG 约束名形 + SQLite 表.列形双消息形）+ `re_raise_or_map_integrity_error` 单 token 薄包装（`raise exc`，独立可调）；5 落库点内层 `atomic()` savepoint + `except IntegrityError` → 业务 error_code（新增 `DUPLICATE_DEPARTMENT_NAME`/`DUPLICATE_ASSET_TYPE_NAME`，G-4 前端零消费账本留痕）；`DepartmentSelector.exists_by_code` 预检收敛（DR-3） | `core/tests/test_m26_integrity_fallback.py`（新建）**24 用例**：匹配器单元 3 + 5 service×（双消息形映射 / 非目标约束重抛 / 预检快失败）+ PG 真并发 2（`skipif sqlite`，本地 PG 与 CI postgres:16 均实际执行） |
+| `views/asset_view.py`（+8 行，488/500） | **M-33**：`get_asset_by_name` 对齐同文件 `search_assets` `:245-250` 范式改 `paginate_queryset` + `get_paginated_response`；`extend_schema` 仅声明 `name`（page/page_size 靠 spectacular 自动推断——显式声明反致键序噪音），加注释留口径 | `test_asset_view_api.py::TestAssetViewSet::test_get_asset_by_name_is_paginated`（新增）：`page_size=1` 截断 + `total_pages=2` 断言；**schema 基线 `git diff` 空**（零漂移） |
+| `core/token_blacklist.py`（新建）+ `authusermanagement/services.py` + `usermanagement/models.py` | **M-34**：`blacklist_user_tokens(outstanding, *, context)` 单一实现——pending ids（`expires_at__gt` 过滤，订正「未过期」注释与实现偏差）→ 黑名单差集幂等 → `bulk_create(ignore_conflicts=True)` 内层 atomic；失败 `logger.error(exc_info=True)` 返回 0 不上抛（取舍不变、静默升格 error 告警）；`AuthService.invalidate_user_refresh_tokens` 与 `Employee._blacklist_user_tokens` 两调用点改调 helper（DR-1） | `core/tests/test_token_blacklist.py`（新建）5 用例（单次 bulk_create / 过期过滤 / 幂等 / 空集 / 失败 error 告警）+ `test_services.py::test_invalidate_refresh_tokens_error_tolerant` 改写（patch bulk_create + caplog error 断言） |
+
+**红证（先红后绿，2026-10-24）**：`git stash push` 12 个源文件保留用例定向复跑 → M-26 **collection ImportError**（`match_integrity_error_rules` 缺失）+ M-33 **KeyError**（`test_asset_view_api.py:222` 旧响应无分页键）+ M-34 **assert False**（旧实现吞异常无 error 日志），`2 failed, 1 collection error`；如实申报：M-34 helper 5 单元用例对 stash 不敏感（未跟踪新文件保留），红性由服务集成用例承担。stash pop 恢复后绿：定向 **31 passed / 0 skipped**（PG 口径，含 2 真并发实跑）。
+
+**门禁终态（2026-10-24 全量复跑直证）**：全量 `pytest --cov=. --cov-fail-under=80` **2132 passed / 0 failed，cov 89.42% ≥80 exit 0**（588s；2132 = 2102 + 24 + 1 + 5 对账）；Service `--include="*/services/*" --fail-under=90` **98% exit 0**；`mypy --strict` **0 errors（229 files）**（CT-7 版本与 `dev.txt` 逐项一致：mypy 2.1.0 / django-stubs 6.1.0 / drf-stubs 3.18.0 / types-channels 4.3.0.20260518 / pytest 9.1.1 / ruff 0.17.1）；`ruff check .` / `--select C90` / `ruff format --check .`（**414 files**）全绿；**五护栏** PASS（BR-6 最高 `asset_view.py` 488/500 / BR-4 0 超限 / 重复不变量 / 前端不变量 / API 文档 V-1~V-4）；`makemigrations --dry-run` **No changes detected**（CT-6 ①）；schema 基线零漂移。**T7 mutmut 本批实跑（WSL + PG16，2026-10-24 02:06 完成）**：gate exit 0，**83.4623% ≥80 且 ≥基线 83.25676365492598**，killed=1726 / survived=342 / tested=2068 / no_tests=0 / suspicious=0。**同数口径证明（Fact-1）**：变异面 3 文件以 mutmut 自身生成器新旧对账——contract **160=160** / storage **36=36** / asset_type **108=108**，`create_contract` 新旧均零变异体（既有盲区，同 BF-136 `change_asset_status` 型）→ 本批零新增变异体，2068 与批次 D 同为算术必然；时序（同步 00:07–00:57 → 运行完成 02:06）+ 15 dirty 文件换行归一逐字节 15/15 全等，直证非陈旧运行。
+
 ---
 
-*融合生成：2026-10-20 | 核验方：本会话（对 NEW 条目抽查 9 项，全部落定：7 证实 / 1 未复现降级 / 1 环境裁决）| 2026-10-21 追加 §五：M-01 修复追踪（BF-125）；2026-10-21 续：BF-126 create 单通道 + BF-127 contract 读收口（O-7 留痕）——**AUD-21 授权面全链闭环**（批次1 数据层根治 codes None 消费方 → 批次2 register fail-closed → 批次3 create 单通道 → 批次4 contract 读收口），仓外唯一 [待确认] 生产注册面由 fail-closed 兜底挂 Gate #3；2026-10-21 再续：**M-02 分页稳定性修复闭环（BF-128，Gate #2 销项——8 模型 `Meta.ordering` + 3 处 `.first()` 锁序 + 9 分页点护栏先红后绿，上线前必办余 #3 环境变量核对）**，批外发现 AuthUser 无序分页与 `test_create_throttle` 存量红登记 BF-128 §六；2026-10-21 续：**批外双遗留收口（BF-129）**——throttle 存量红根因实证清零（全量 2046/0）+ AuthUser 登记定性订正与 `auth_id` 决胜键修复，BF-128 全项关闭，AUD-21 → BF-125/126/127/128/129 整链零未决；2026-10-22 续：**M-04 筛选/UI 脱节修复闭环（BF-131——composable 内 `reload()` 保筛选出口替换 `refresh: () => search()`，先红后绿 + 前端门禁四件套直证，P1 余 M-05）**；2026-10-22 续：**M-05 共享 Store 状态污染修复闭环（BF-132——`getList` 增 per-call `silent` 口 + 11 个非列表查询点收敛，手植变异先红×2 后绿 + 门禁四件套 + FR-8 护栏直证，P1 五条全部闭环）***；2026-10-22 续：**P2 批次 A/B/C 修复闭环（BF-133/134/135——批次 A createEntityStore 契约专项 M-15/16/18/20/21 + 批次 B 竞态/缓存/静默降级 M-12/14/17/19/22/25（含报告外 M-25 编号，连带销项 BF-132 §五 [待决策]）+ 批次 C 后端五项 M-06/07/08/09/10，共 16 项；M-09 首版名单法 47 red 经基线 137 甄别后重做为方法感知 fail-closed）**；2026-10-22 续：**P2 批次 D 修复闭环（BF-136——M-11 damaged 出边锁内活跃待审批单拦截 + M-13 审计写入 on_commit 延迟，先红后绿 + 26 测试 capture 对齐 + 全量 2091/0 + T7 实跑 83.4623% gate exit 0）**；2026-10-23 续：**P2 批次 E 修复闭环（BF-137——M-24 登录失败计数 add/incr/touch 原子化 + 11 用例先红后绿 + 全量 2102/0 cov 89.37% + Service 98%，T7 因不在变异面未本地跑留 CI 实证）——P2 全部闭环 19/19，融合审计 M 系计划修复项零遗留**
+*融合生成：2026-10-20 | 核验方：本会话（对 NEW 条目抽查 9 项，全部落定：7 证实 / 1 未复现降级 / 1 环境裁决）| 2026-10-21 追加 §五：M-01 修复追踪（BF-125）；2026-10-21 续：BF-126 create 单通道 + BF-127 contract 读收口（O-7 留痕）——**AUD-21 授权面全链闭环**（批次1 数据层根治 codes None 消费方 → 批次2 register fail-closed → 批次3 create 单通道 → 批次4 contract 读收口），仓外唯一 [待确认] 生产注册面由 fail-closed 兜底挂 Gate #3；2026-10-21 再续：**M-02 分页稳定性修复闭环（BF-128，Gate #2 销项——8 模型 `Meta.ordering` + 3 处 `.first()` 锁序 + 9 分页点护栏先红后绿，上线前必办余 #3 环境变量核对）**，批外发现 AuthUser 无序分页与 `test_create_throttle` 存量红登记 BF-128 §六；2026-10-21 续：**批外双遗留收口（BF-129）**——throttle 存量红根因实证清零（全量 2046/0）+ AuthUser 登记定性订正与 `auth_id` 决胜键修复，BF-128 全项关闭，AUD-21 → BF-125/126/127/128/129 整链零未决；2026-10-22 续：**M-04 筛选/UI 脱节修复闭环（BF-131——composable 内 `reload()` 保筛选出口替换 `refresh: () => search()`，先红后绿 + 前端门禁四件套直证，P1 余 M-05）**；2026-10-22 续：**M-05 共享 Store 状态污染修复闭环（BF-132——`getList` 增 per-call `silent` 口 + 11 个非列表查询点收敛，手植变异先红×2 后绿 + 门禁四件套 + FR-8 护栏直证，P1 五条全部闭环）***；2026-10-22 续：**P2 批次 A/B/C 修复闭环（BF-133/134/135——批次 A createEntityStore 契约专项 M-15/16/18/20/21 + 批次 B 竞态/缓存/静默降级 M-12/14/17/19/22/25（含报告外 M-25 编号，连带销项 BF-132 §五 [待决策]）+ 批次 C 后端五项 M-06/07/08/09/10，共 16 项；M-09 首版名单法 47 red 经基线 137 甄别后重做为方法感知 fail-closed）**；2026-10-22 续：**P2 批次 D 修复闭环（BF-136——M-11 damaged 出边锁内活跃待审批单拦截 + M-13 审计写入 on_commit 延迟，先红后绿 + 26 测试 capture 对齐 + 全量 2091/0 + T7 实跑 83.4623% gate exit 0）**；2026-10-23 续：**P2 批次 E 修复闭环（BF-137——M-24 登录失败计数 add/incr/touch 原子化 + 11 用例先红后绿 + 全量 2102/0 cov 89.37% + Service 98%，T7 因不在变异面未本地跑留 CI 实证）——P2 全部闭环 19/19，融合审计 M 系计划修复项零遗留**；2026-10-24 续：**P3 批次 BE-1 修复闭环（BF-139——M-26 并发建号 IntegrityError savepoint 兜底 + M-33 get_asset_by_name 补分页 + M-34 黑名单批量 upsert 收敛，红证 2 failed+1 ImportError → 绿 31/0 + 全量 2132/0 cov 89.42% + Service 98% + schema 零漂移 + T7 实跑 83.4623% 双门禁过线含新旧变异体逐文件对账 160=160/36=36/108=108）——P3 计划项 3/14，余 11 项按六批计划推进**

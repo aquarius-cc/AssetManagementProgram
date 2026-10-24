@@ -9373,3 +9373,63 @@ M-24/AUD-25 定位准确，一行根因（读改写非原子）无偏移；修�
 - **[会话 CI 留痕 2026-10-23]**：本轮推送曾致 Duplicate Guard / Security Scan / CD 三 workflow 首轮假红——根因为 **backend 子模块 7 个本地提交（`5592cf2..b0d6f62`）先于推送**，三 workflow 在 checkout 阶段取不到 gitlink 指向的 `b0d6f62` 即失败（日志止于 checkout，护栏/扫描脚本未执行）；backend 补推后 `rerun --failed` 全绿。**CD 历史 run 39917594092 永久 failure 的机制说明**：其 `安全门禁校验` 读取 `github.event.workflow_run.conclusion`（事件 payload，固化为当时的 failure），重跑 job 不可修复——以新的 workflow_run 事件 supersede：39970198992（success）与 39970885189（success，gate + Docker Build & Push + Prune 全绿，部署完成）。
 
 *登记人：opencode ｜ 状态：【已关闭】（前端三项 0×3 + 全量 175/2258 + cov ts 93.17%/stores 96.83% + T16 80.65% PASS + 5 目标两轮红证 + 40 新用例全绿 + 行号 rg 实测 + 查重 0 同题 + 无契约变更免 schema 重导），2026-10-23*
+
+## BF-139【已关闭】P3 批次 BE-1——后端三项：并发建号 IntegrityError→业务错误码 savepoint 兜底（M-26）/ `get_asset_by_name` 补分页（M-33）/ 刷新 token 黑名单批量 upsert 收敛（M-34）｜来源：`docs/Review/Merge-codegraph-audit-2026-10-20.md` M-26/M-33/M-34 行 + P3 清尾六批计划之第 1 批
+
+- **发现时间**：2026-10-20 融合审计（NEW-11 / AUD-38 / AUD-39）｜**修复时间**：2026-10-24 批次 BE-1（P3 首批 **3/14**；六批计划 BE-1→BE-2→FE-1→BE-3→FE-2→BE-4 之第 1 批）
+- **严重级别**：P3
+- **影响范围**：backend 12 修改 + 3 新建——`core/exceptions.py`、`core/token_blacklist.py`（新建）、`core/tests/test_m26_integrity_fallback.py`（新建）、`core/tests/test_token_blacklist.py`（新建）、contract/storage/asset_type/department/employee 5 个 service、`usermanagement/selectors.py`、`usermanagement/models.py`、`authusermanagement/services.py`、`asset_view.py`、`test_asset_view_api.py`、`authusermanagement/tests/test_services.py`。**不改 API 响应结构/状态机/枚举，跨端契约零变化**（schema 基线 `git diff` 空实证）；前端零改动；2 个新 error_code 前端零消费（G-4 定案无需注册，§六留痕）
+
+### 一、问题分析（三缺陷根因）
+
+| # | 缺陷 | 根因 |
+|:---|:---|:---|
+| M-26 | 并发重复建号 500 | `exists` 预检与 `create` 落库之间无锁：预检失效窗口内并发重复写由 partial unique 约束拦截（不脏数据），但 `IntegrityError` 未经映射直落全局 handler → **HTTP 500**。5 个落库点（contract/employee/department/storage/asset_type）均无兜底 try（对照组 `damaged_asset_service` 已有映射——报告原对照） |
+| M-33 | 漏分页查询 | `get_asset_by_name` 直接返回全库匹配列表，**全仓唯一漏分页的资产查询入口**（同文件 `search_assets` 早已 paginate）；响应无 `total_pages`，前端 `assetStore.getByName` 读 `response.results` |
+| M-34 | 黑名单 N+1 + 吞异常 | 改密/改角色逐 token 循环 `token.blacklist()`（N+1）+ `except Exception` 静默吞掉；注释称「未过期」但实现**未过滤 `expires_at`**（语义偏差）；`AuthService` 与 `Employee._blacklist_user_tokens` 两处各写一套（DR-1 重复） |
+
+### 二、修复方案
+
+1. **M-26**：`core/exceptions.py` 新增 `match_integrity_error_rules(exc, rules)` 多规则匹配器——同一 `IntegrityError` 消息按序命中首条规则，**双消息形兼容**（PG 约束名形 `duplicate key value violates unique constraint...` / SQLite 表.列形 `UNIQUE constraint failed: t.c`）；`re_raise_or_map_integrity_error` 为单 token 薄包装（**`raise exc` 而非裸 `raise`**，见 §六踩坑），独立可调可测。5 service 落库点改「内层 `transaction.atomic()`（savepoint）包裹 create + `except IntegrityError` → 业务 error_code」——savepoint 保证异常不污染外层事务（审计写入不受 abort 影响）。`DepartmentSelector.exists_by_code` 预检收敛至 Selector（DR-3）。新增 `DUPLICATE_DEPARTMENT_NAME`、`DUPLICATE_ASSET_TYPE_NAME`（`DUPLICATE_STORAGE_NAME` 已存在）。
+2. **M-33**：`get_asset_by_name` 对齐同文件 `search_assets`（`:245-250`）的 `paginate_queryset` + `get_paginated_response` 范式（DR-1 同文件复用）。`extend_schema` **仅声明 `name` 参数**——spectacular 自动推断已产出 `page/page_size`（旧基线已有、带 description），显式声明反致键序噪音，故加注释说明口径，**schema 基线零漂移**。
+3. **M-34**：新建 `core/token_blacklist.py::blacklist_user_tokens(outstanding, *, context)` 单一实现（DR-1）：pending 待黑名单 ids 查询（**`expires_at__gt=now` 过滤**，订正注释与实现的偏差）→ 与既有黑名单集合差集（幂等）→ `bulk_create(ignore_conflicts=True)` 包内层 atomic；失败 `logger.error(..., exc_info=True)` 返回 0 **不中断主流程**（保留原「有意取舍」，仅将静默升格为 error 级告警）。`AuthService.invalidate_user_refresh_tokens` 与 `Employee._blacklist_user_tokens` 两处改调 helper（依赖方向沿既有双向 import，helper 置 core/）。
+
+### 三、验证（先红后绿 + 门禁终态）
+
+- **红基线**（`git stash push` 12 个源文件、保留用例，定向复跑 `--ds=config.settings.test`）：
+  - M-26：`core/tests/test_m26_integrity_fallback.py` **collection ImportError**——`cannot import name 'match_integrity_error_rules' from 'core.exceptions'`（缺特性红）；
+  - M-33：`test_get_asset_by_name_is_paginated` **FAILED KeyError**（`test_asset_view_api.py:222`——旧响应无分页键）；
+  - M-34：`test_invalidate_refresh_tokens_error_tolerant` **FAILED assert False**（旧实现吞异常、无 error 日志）；
+  - 合计 `2 failed, 1 collection error`。**如实申报**：M-34 helper 5 个单元用例对 stash 不敏感（helper 为未跟踪新文件、stash 保留故仍绿），其红性由上述服务集成用例承担。
+- **绿**（stash pop 恢复后）：定向复跑 **31 passed / 0 failed**（PG 口径 0 skipped——含 2 个 PG-only 真并发用例 `TestConcurrentCreateRealRace` 实际执行；SQLite 口径 29 passed + 2 skipped，`skipif connection.vendor=="sqlite"` 按设计跳过）。
+- **门禁终态（2026-10-24 全量复跑直证，PG/pytest.ini 默认 development 口径）**：
+  - 全量 `pytest --cov=. --cov-fail-under=80` → **2132 passed / 0 failed，cov 89.42% ≥80，exit 0**（588s；2132 = 批次 E 2102 + 24（M-26）+ 1（M-33）+ 5（M-34）算术对账）；
+  - Service `coverage report --include="*/services/*" --fail-under=90` → **98% exit 0**；
+  - `mypy --strict` → **0 errors / 229 files**（CT-7 版本与 `requirements/dev.txt` 逐项一致：mypy 2.1.0 / django-stubs 6.1.0 / djangorestframework-stubs 3.18.0 / types-channels 4.3.0.20260518 / pytest 9.1.1 / ruff 0.17.1，venv 实装核对）；
+  - `ruff check .` / `--select C90 --config lint.mccabe.max-complexity=10` / `ruff format --check .`（**414 files**）→ 全绿 exit 0；
+  - **五护栏** → 全 PASS：BR-6（0 超限，最高 `asset_view.py` **488/500**）、BR-4（0 超限函数）、重复不变量、前端不变量（FR-6 55 / FR-8 31）、API 文档 V-1~V-4；
+  - `makemigrations --dry-run` → **No changes detected**（CT-6 ①）；`spectacular` schema 基线 `git diff` **空**（零漂移——M-33 仅声明 name 参数的直接收益）。
+- **T7 mutmut 本批实跑（WSL Ubuntu + PG16，2026-10-24 02:06 完成）**：gate **exit 0**，**83.4623% ≥80.0 且 ≥ 基线 83.25676365492598**，killed=1726 / survived=342 / timeout=0 / no_tests=0 / suspicious=0 / tested=2068。
+  - **与批次 D 同数（2068）的口径证明（Fact-1，不以巧合充当证据）**：变异面（`setup.cfg source_paths` 仅 `apps/assetmanagement/services`）本批触及 3 文件，用 **mutmut 自身生成器**对新旧版本逐文件对账——`contract_service` **160=160**、`storage_service` **36=36**、`asset_type_service` **108=108**，函数集与每函数变异数逐一相等；`create_contract` 新旧**均零变异体**（既有盲区，与 BF-136 `change_asset_status` 同型，非本批引入）。故本批**零新增变异体**，2068 与批次 D 相同是算术必然，分数同源可比。
+  - **运行时序证明**：WSL 快照源码同步 00:07–00:57 → mutmut 运行完成 02:06（stats/meta mtime）；15 个 dirty 文件经**换行归一逐字节比对 15/15 全等**（Windows 工作区 vs WSL 快照），直证运行所含代码 = 当前提交代码，非陈旧运行。
+
+### 四、根因定性
+
+- M-26 [NEW-11]、M-33 [AUD-38] 定位准确无偏移；M-26 报告自带的「对照 damaged_asset_service 有映射」即为本次修复范式的来源（DR-1 复用既有范式，未造轮子）。
+- M-34 [AUD-39] **定性维持「有意取舍的风险披露」**（非行为缺陷）——本次只做效率（N+1→批量）与可观测性（静默→error 告警）收敛，**不改变「失败不中断主流程」的取舍本身**。
+
+### 五、关联
+
+- 融合审计报告：M-26 / M-33 / M-34 三行 → `已修复 BF-139`；§三分域结论「服务层」行 M-26 销项（余 M-27/M-35）；§4.3 P3 行 3/14 注记；§五新增「批次 BE-1 修复追踪」块；尾注 2026-10-24 续记。
+- 范式复用：damaged_asset_service 既有 IntegrityError 兜底（M-26 对照组）、同文件 `search_assets` 分页范式（M-33）、BF-136 T7 实跑与口径对账范式（本批 §三 T7 段）。
+- 红证方法复用：`git stash push -- <源文件>` 保用例的定向红轮（源自 bug-surgical-fix 先红后绿纪律）。
+
+### 六、遗留与关联事项
+
+- **[按计划] P3 余 11 项**：M-27~M-39（除本批三项）按批次 BE-2(BF-140) → FE-1(BF-141) → BE-3(BF-142) → FE-2(BF-143) → BE-4(BF-144) 推进。
+- **[G-4 留痕]** `DUPLICATE_DEPARTMENT_NAME` / `DUPLICATE_ASSET_TYPE_NAME` 为服务层 error_code，仅供批量 `fail_items` 日志、前端零消费——按 2026-10-13 G-4 定案**无需注册**，本条即为账本留痕。
+- **[踩坑留痕]** 薄包装首版用裸 `raise`，独立调用（单测直调）抛 `RuntimeError: No active exception to reraise`（实测命中）→ 改 `raise exc` 并以单测直调锚定。裸 `raise` 仅在 except 块内合法，跨函数传播不可用。
+- **[关注] BR-6 接近上限**：`asset_view.py` 488/500（M-33 增 8 行后）——后续修改该文件须留意 500 红线（LT-3 以护栏 `--print` 为准）。
+- **[口径说明]** PG-only 真并发 2 用例在 `--ds=config.settings.test`（SQLite，CI 变异测试同口径）skipif 跳过；CI 为 postgres:16 实际执行，本地 PG 默认口径亦 31 passed 0 skipped 实证。
+
+*登记人：opencode ｜ 状态：【已关闭】（三缺陷 + 红证 2 failed+1 ImportError → 绿 31/0 + 全量 2132/0 cov 89.42% + Service 98% + mypy 0/229 CT-7 逐项对齐 + ruff/C90/format 414 绿 + 五护栏 PASS + makemigrations dry-run 无遗漏 + schema 基线零漂移 + T7 实跑 83.4623% 双门禁过线含新旧变异体逐文件对账与 15/15 快照全等时序证明 + 红证 stash 定向轮 + 行号 rg 实测 + 查重 0 同题），2026-10-24*
