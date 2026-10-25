@@ -9644,3 +9644,52 @@ M-24/AUD-25 定位准确，一行根因（读改写非原子）无偏移；修�
 - **[PENDING] CI 回填**：前端 CI 门禁直证待 push 后回填（本地门禁已全绿，CI 为最终判定）。
 
 *登记人：opencode ｜ 状态：【已关闭】（M-37/39 两项 + stash 红证 7 failed → 还原 68 绿 + 全量 175/2267 0 failed 分层三层过线 + 前端三项 0 + stryker 80.02 ≥ break + 双护栏 PASS + rg 查重 0 同题），2026-10-24*
+
+## BF-144【已关闭】P3 批次 BE-4（末批）——后端三项：目录树并发行锁（M-27：`lock_rows_for_move` 单查询定序锁 + 锁内前态复检）/ Selector 写下沉（M-35：`batch_update_sort` 迁 Service，Selector 拆两个读方法）/ docstring 键名漂移（M-38：`{code, msg}` → `{code, message}`）｜来源：`docs/Review/Merge-codegraph-audit-2026-10-20.md` M-27 行 + M-35 行 + M-38 行（[NEW-12]/[AUD-40]/[AUD-43]）+ §五「P3 批次 BE-4 修复追踪」块
+
+- **发现时间**：2026-10-20 融合双报告（M-27 [NEW-12] / M-35 [AUD-40] / M-38 [AUD-43]）。**修复时间**：2026-10-25 执行 BE-4（P3 清尾六批计划之第 6 批即末批，前序 BE-1(BF-139)/BE-2(BF-140)/FE-1(BF-141)/BE-3(BF-142)/FE-2(BF-143)，计划项 **14/14 收官**）。
+- **严重级别**：P3
+- **影响范围**：backend 4 生产 + 4 测试（`apps/usermanagement/services/department_service.py`、`apps/usermanagement/selectors.py`、`apps/usermanagement/services/employee_service.py`、`apps/usermanagement/views/employee_view.py` + `test_department_service.py`/`test_services.py`/`test_admin_permissions.py`/`test_employee_openapi_contract.py` 共 +11 用例）。**无跨端契约变化**：API 响应结构/枚举/分页参数零变动；batch_sort 仅方法 docstring 文案变 → schema 基线重导 **精确 1 行 diff**（operation description），非破坏性。
+
+### 一、问题现象
+
+| # | 缺陷 | 定性 |
+|:---|:---|:---|
+| M-27 | `move_department` 读写全程无 `select_for_update`（`:162` 无锁读移动方、`_validate_move_hierarchy:207` 无锁读目标父）：并发互换移动（A→B 与 B→A 同时）双读通过循环校验后各写各 → 终态成环；并发同移一方 → path/level lost update | [NEW-12] 并发 |
+| M-35 | `EmployeeSelector.batch_update_sort` 含 `transaction.atomic` + `bulk_update` 写操作（原 :264-302），Selector 层持写违五层铁律（后端 AGENTS §1.2）；View 直调 Selector 越过 Service | [AUD-40] 架构 |
+| M-38 | `EmployeeViewSet` 类 docstring 五行仍描述旧 `msg` 键（`{code, msg, data}`），AUD-16 后实现（ResponseWrapperMixin/`success_response`）已统一为 `message` → 文档与实现漂移。**报告文件名错位实证**：merge 报告记 `authusermanagement/views.py:66-70`（该文件 `rg "msg"` 0 命中，:66-70 实为 get_permissions docstring 无关键名），源报告 `MimoCode-codegraph-audit-2026-10-20.md:51` 明确「docstring 残留 employee_view.py:66-70」——行号逐字吻合，以源报告为准 | [AUD-43] 文档漂移 |
+
+### 二、修复方案
+
+1. **M-27（行锁 + 前态复检）**：`DepartmentSelector.lock_rows_for_move(department_code, target_parent_code)` 新增——单查询 `select_for_update().filter(department_code__in=codes).order_by("department_code")` 定序获取移动双方（两行在同一定序下取，防互换移动双向持锁死锁；移为根/自身移动时单行）。`move_department` 改经锁入口读取，`department`/`target_parent` 判空（DEPARTMENT_NOT_FOUND/PARENT_DEPARTMENT_NOT_FOUND，文案与 error_code 不变）全部提前到锁后执行；`_validate_move_hierarchy` 签名改收锁内 `target_parent` 实例、删内部再查询（**前态复检 = 持锁状态下重跑存在性/循环/层级三校验**），自环判定改 `target_parent.department_code`。**取舍留痕**：子孙/祖先链行不入锁面（其变更方各自持「移动双方」锁互斥），三节点互换环由两两共享锁点串行化后被锁内复检拦截——非全树锁，锁面收敛在移动双方。
+2. **M-35（写下沉 Service，读收敛 Selector）**：删 `EmployeeSelector.batch_update_sort`（写），拆两个纯读方法——`get_employees_by_jobcodes`（工号→员工映射，一次查询）与 `get_employees_ordered_by_sort`（升序回读）；新增 `EmployeeService.batch_update_sort`（`@transaction.atomic` + `bulk_update` 标 `# [HALT]`，不存在工号静默忽略语义逐字保留）；View `batch_sort` 接线改 `EmployeeService.batch_update_sort`，方法 docstring（P3-45 → P3-45/M-35 五层口径）、extend_schema 内联注释（「直接调 Selector」→「直接调 Service」）、契约测试 docstring 三处同步。
+3. **M-38（docstring 同步）**：`employee_view.py:66-70` 五行 `{code, msg, data}` → `{code, message, data}`。
+
+### 三、验证记录（先红后绿）
+
+- **红证（四手植变异同轮，BF-138/141 范式）**：M-27a 删 `select_for_update()` → `test_move_department_sql_emits_for_update` **FAILED** ✓；M-27b 锁入口参数错序 → `test_move_department_acquires_row_lock` spy 断言 **FAILED** ✓；M-35a 注释 `bulk_update` → 排序行为 + 端点落库 **3 FAILED** ✓；M-35b Selector 加回 `batch_update_sort` 属性 → 分层守卫 `test_batch_sort_write_lives_in_service_not_selector` **FAILED** ✓ → 全部还原后定向 **66 passed**，`rg REDPROOF` 0 残留。
+- **新增测试 +11（算术对账 2173+11=2184）**：M-27 六（锁双行映射 / 移根单行 / 缺目标不入映射 / spy 行锁入口 / FOR UPDATE SQL 屏障 / **PG 真并发互换移动**：恰一方成功 + 一方 CIRCULAR_REFERENCE + 沿 parent 链无环）；M-35 五（排序对调落库升序回读 / 未知工号忽略 / Selector 禁写守卫 / 端点 403 / 端点 200 落库）。
+- **环境认知订正（Fact-1）**：本地测试库**实为 PostgreSQL**——`pytest.ini` `DJANGO_SETTINGS_MODULE=config.settings.development`（`settings.test` 才是 SQLite 且非默认），故 `requires_row_lock` 本地**不跳过**、PG 真并发用例实跑直证（此前「本地 SQLite」为 settings.test 文档误读）。
+- **全量门禁**：**2184 passed / 0 failed / cov 89.71% ≥80**（首跑 2184 全绿；`apps.assetmanagement.services` 覆盖率跑 **98.43%** ≥90；`apps.usermanagement.services` 覆盖率跑 2183 passed + feishu `test_unknown_path_404` 瞬态 1 failed → 单跑复验 **1 passed 甄别**（BF-136 已知抖动），**97.34%** ≥90）+ **mypy --strict 0/230**（CT-7：mypy 2.1.0 / django-stubs 6.1.0 / drf-stubs 3.18.0 / types-channels 4.3.0 / pytest 9.1.1 / ruff 0.17.1 与 dev.txt 声明一致）+ ruff check / C90(max10) / format **418 文件全绿** + **五护栏 PASS**（BR-6 0 违规/222 py、BR-4 0 超限、重复不变量、API 文档 V-1~V-4、前端 FR-6/FR-8）+ `makemigrations --dry-run` **No changes detected** + **schema 重导精确 1 行 diff**（仅 batch_sort description，`--validate` exit 0、23 errors 既有存量；M-38 类 docstring 未泄入 schema 实证）。
+- **T7 面外申报**：`setup.cfg [mutmut] source_paths` 仅 `apps/assetmanagement/services`；本批四生产文件全在 `apps/usermanagement/`（service×2/selectors/views）→ 变异面与 `pytest_add_cli_args_test_selection`（仅 assetmanagement tests）**零触及**，本地无需实跑（BE-2 dashboard_view 同口径）；分数不受本批影响（面内源与面内测试均未动），CI `backend-mutation` 直证 **[PENDING]** 待回填。
+- **查重**：`rg`（batch_update_sort / lock_rows_for_move / get_employees_by_jobcodes / 互换移动）`complete-patterns.md` **0 新增**（唯一命中为历史影子 services.py 条目 :170，与本批无关）→ 沿批次先例（BF-133~143）不动台账。
+
+### 四、根因定性
+
+- [NEW-12] 属实：与 [M-07] 同函数不同缺陷——M-07 修的是移动后旧祖先缓存失效，本条修读写无锁；`@transaction.atomic` 只保证事务性不保证串行化，PG READ COMMITTED 下双读-校验-写窗口可互穿。
+- [AUD-40] 属实：五层铁律 Selector 只读；且 View 直调 Selector 使写路径绕过 Service 的 atomic 装饰（原实现自带 `with transaction.atomic()` 属自下而上补事务，分层倒挂的伴生症状）。
+- [AUD-43] 属实：实现先改（AUD-16/BF-119 统一 `message`）docstring 后滞，属文档-实现漂移家族（OS-6 同类）；报告文件名错位一并订正（见 §一 M-38 行）。
+
+### 五、关联
+
+- 融合审计报告：M-27/M-35/M-38 三行 → `已修复 BF-144`；§三架构/并发行销项 + 文档漂移行追记；§4.3 P3 行 **14/14 收官**注记；§五新增「批次 BE-4 修复追踪」块；尾注 2026-10-25 续记。
+- 红证方法：四手植变异同轮（BF-138/141 范式扩展至含 SQL 层与 spy 层屏障）+ PG 真并发行为直证。
+- 复用锚点：`requires_row_lock` 跳过标记范式（BF-092 I-4 / unregistered `test_concurrent.py` 同款就地定义）；锁查询 `select_for_update` A-29 家族先例（damaged/out/contract `get_for_update` 同族）；[HALT] 批量写标注沿 `ensure_batch_size` 批次口径。
+
+### 六、遗留与关联事项
+
+- **[已清] P3 计划项 14/14 全部关闭**（BE-1 3 + BE-2 1 + FE-1 2 + BE-3 3 + FE-2 2 + BE-4 3 = 14）。
+- **[PENDING] CI 回填**：`backend-mutation`（T7 面外申报的 CI 直证）与整体 CI 门禁待 push 后回填（本地门禁全绿，CI 为最终判定）。
+- **[口径说明] 报告文件名错位**：merge 报告 M-38 行文件名 `authusermanagement/views.py` 系源报告转写错位，本批按源报告 `MimoCode-codegraph-audit-2026-10-20.md:51` 修复于 `usermanagement/views/employee_view.py:66-70`，已随报告翻转注明——后续引用 M-38 以 employee_view 为准。
+
+*登记人：opencode ｜ 状态：【已关闭】（M-27/35/38 三项 + 四手植红证全命中 → 还原 66 绿 + 全量 2184/0 cov 89.71% + 双 Service 98.43%/97.34% + mypy 0/230 CT-7 对齐 + ruff/C90/format 418 + 五护栏 + makemigrations 无遗漏 + schema 精确 1 行 diff + T7 面外申报 + rg 查重 0 同题；**P3 14/14 收官**），2026-10-25*
