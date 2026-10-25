@@ -9820,3 +9820,81 @@ M-24/AUD-25 定位准确，一行根因（读改写非原子）无偏移；修�
 - **[PENDING] CI 回填**：前端全量 test:coverage 随下次 push 由 CI 权威判定。
 
 *登记人：atomcode ｜ 状态：【已关闭】（1 红证 → 转绿 + 32/32 + type-check/lint 全绿 + 零契约变化零迁移 + 同型残留 4 端点已登记），2026-10-25*
+
+## BF-148【已关闭】通知查询口径统一+软删过滤（AUD-52：P3 查询一致性——列表/未读不过滤 is_deleted，unread_count 绕过 Selector）｜来源：`docs/Review/codegraph-audit-2026-10-25.md` AUD-52 行
+
+- **发现时间**：2026-10-25 六域审计（域③）。**修复时间**：2026-10-25 批次 H2。
+- **严重级别**：P3
+- **影响范围**：backend 4 生产 + 1 测试（`apps/notification/selectors.py`、`views.py`、`services/notification_service.py` + `services/__init__.py` 导出面 + `test_notification.py` +3 用例）。**零跨端契约变化**：API 响应结构/状态码零变动（软删行本就不存在——见根因）。
+
+### 一、问题现象
+
+| # | 缺陷 | 定性 |
+|:---|:---|:---|
+| AUD-52a | `list_for_user` 基础 filter 仅 `recipient_jobcode`，软删通知仍在列表 | [P3] 查询一致性 |
+| AUD-52b | `unread_count` 直查 ORM 绕过 Selector（DR-3） | [P3] 分层 |
+| [扩充] | `mark_read`（`objects.get`）与 `mark_all_read`（`filter().update()`）同型：绕 Selector 且不过滤 is_deleted——`mark_all_read` 会把软删通知标已读 | [P3] 审计口径扩充 |
+
+### 二、修复方案
+
+1. **读收敛 Selector**：`list_for_user` 基础 filter 补 `is_deleted=False`；新增 `get_for_user(recipient_jobcode, notification_id)` 单条读（不存在/软删返回 None）。
+2. **写下沉 Service（M-35 范式）**：新增 `mark_notification_read(notification)` 与 `mark_all_notifications_read(recipient_jobcode)`（filter 含 `is_deleted=False`）；views 三端点（`unread_count` 复用 `list_for_user(jobcode, is_read="false").count()` / `mark_read` / `mark_all_read`）全部经 Selector/Service。
+3. **定性留痕**：全仓 rg 直证**无任何 `is_deleted=True` 写入点**（仅字段定义 + 0002 迁移）——现状无实际脏数据，本批属**防御性一致 + DR-3 收敛**，非现行数据丢失。`is_active` 不在审计口径内不混做。
+
+### 三、验证记录（先红后绿）
+
+- **红证 3/3**：软删行不入列表 / 不入未读计数 / `mark_all_read` 不触碰软删行（`marked_count==1` + 软删行 `is_read` 保持 False）→ 实现后转绿。
+- **域门禁**：`pytest apps/notification/` **60 passed / 0 failed** + ruff All checks passed（F841 未用变量 1 处顺手修）+ mypy --strict 0 issues。
+
+### 四、根因定性
+
+- 通知模块建模块时 Selector 只收敛了列表查询，unread/mark 三端点各自直查 ORM；is_deleted 字段由 0002 迁移统一补入但查询侧未跟进——属**分层收敛缺口 + 字段-查询不同步**。
+
+### 五、关联
+
+- 审计报告：AUD-52 行 → `已修复 BF-148`。
+- 复用锚点：M-35 写下沉 Service 范式（batch_update_sort）；BF-128 的 is_read 参数语义（"false"→未读）。
+
+### 六、遗留与关联事项
+
+- **[留痕] 软删写入者缺失**：is_deleted 恒 False，前端无删除通知入口；如需「删除通知」功能另立条目（届时 Selector 过滤已就位）。
+- **[PENDING] CI 回填**：全量 pytest 由 CI 权威判定。
+
+*登记人：atomcode ｜ 状态：【已关闭】（3 红证转绿 + 域 60/0 + ruff/mypy 全绿 + 零契约变化 + mark_* 两端点口径扩充），2026-10-25*
+
+## BF-149【已关闭】通知类型/优先级类型化（AUD-53：P3 契约脆弱——notification_type/priority 裸字符串传递，未引用模型 TextChoices）｜来源：`docs/Review/codegraph-audit-2026-10-25.md` AUD-53 行
+
+- **发现时间**：2026-10-25 六域审计（域③）。**修复时间**：2026-10-25 批次 H3（与 BF-148 同提交，双案同文件无法干净拆分）。
+- **严重级别**：P3
+- **影响范围**：backend 4 生产（`services/notification_service.py` 三函数 + `helpers.py` 两入口 + `assetmanagement/services/repair_asset_service.py`/`damaged_asset_service.py` 调用方）+ 1 测试（契约锚 1 条）。**零运行时契约变化**：TextChoices 是 str 子类，注解/默认值/引用化不影响任何传值。
+
+### 一、问题现象
+
+| # | 缺陷 | 定性 |
+|:---|:---|:---|
+| AUD-53 | 通知链路 notification_type/priority 全程裸字符串（`"approval"`/`"status_change"`/`"high"` 等），未引用 `Notification.NotificationType`/`Priority`——键名漂移无静态检查拦截 | [P3] 契约脆弱 |
+
+### 二、修复方案
+
+1. **注解 + 默认值**：`persist_notifications` / `send_notification_sync` / `send_notification`（service）+ `notify_dept_managers` / `send_notification_on_commit`（helpers 转发层）签名改 `Notification.NotificationType` / `Notification.Priority`，默认值 `Notification.Priority.MEDIUM`。
+2. **调用方引用化**：repair（2 处 `STATUS_CHANGE` + 2 处 priority）/ damaged（2 处 `APPROVAL` + 2 处 priority）共 8 处字面量改枚举成员引用。
+3. **范围界定**：View 层 query param 保持 `str | None`（HTTP 查询串不强转枚举，防契约变更）；异步版 `send_notification` **全仓零生产调用方**（config/core 消费端 grep 零命中）仅注解一致化，消费端缺失不属本批；WS 载荷读持久化实例字段逐字不变。
+
+### 三、验证记录
+
+- **验证**：mypy --strict **0 issues in 11 files**（类型化即门禁，无行为变化故无先红）+ 契约锚 1 条（枚举成员值 == 既有字面量 6 断言，防值漂移）+ 通知域 **60 passed** + 调用方域（damaged/repair/lifecycle）**104 passed** + ruff 全绿。
+
+### 四、根因定性
+
+- TextChoices 定义与调用链先后形成（模型枚举晚于服务接线），后续未回头收敛；字符串字面量跨 4 文件 8+ 处复制传播，无静态防线。
+
+### 五、关联
+
+- 审计报告：AUD-53 行 → `已修复 BF-149`；与 BF-148 同提交（`2cdca12`）因 notification_service.py 双案改动同文件。
+
+### 六、遗留与关联事项
+
+- **[留痕] 异步版零调用方**：`send_notification`（async）与 WS 消费端接线全仓缺失，属独立条目（前端 ws 通道实际可达性另行核查）。
+- **[PENDING] CI 回填**：全量 pytest/mypy 由 CI 权威判定。
+
+*登记人：atomcode ｜ 状态：【已关闭】（mypy strict 0 + 契约锚 1 + 域 60/0 + 调用方域 104/0 + 零运行时契约变化），2026-10-25*
