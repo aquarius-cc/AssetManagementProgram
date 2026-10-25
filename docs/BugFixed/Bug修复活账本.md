@@ -9599,3 +9599,48 @@ M-24/AUD-25 定位准确，一行根因（读改写非原子）无偏移；修�
 - **[口径说明]** T7 计数口径差异：BF-139 曾记 storage=36/asset_type=108（其计数口径），本批 `.meta exit_code_by_key` 口径实测 34/104（新旧两跑同口径自洽 old=new），contract 160=160 与 BF-139 记录吻合——非数字打架，属口径差异留痕。
 
 *登记人：opencode ｜ 状态：【已关闭】（M-30/31/32 三项 + 红证 A 11 failed→13 绿 + 红证 B 8 failed→18 绿 + 定向 104 + 全量 2173/0 cov 89.53% + Service 98.43% + mypy 0/230 CT-7 对齐 + ruff/C90/format 418 + 五护栏 + 护栏自测 25 + makemigrations 无遗漏 + schema IDENTICAL + T7 三跑对账 83.6557% 双门禁过线 + rg 五连查重 0 同题），2026-10-24*
+
+## BF-143【已关闭】P3 批次 FE-2——前端两项：EP 事件入口吞错（M-37：`swallowEntryRejection` 包装四入口，阻断 unhandled rejection）/ 可出库列表竞态守卫（M-39：`listRequestSeq` seq 守卫三分支 + currentPage 请求前写，范式复用 [M-14]/[M-22]）｜来源：`docs/Review/Merge-codegraph-audit-2026-10-20.md` M-37 行 + M-39 行（[AUD-42]/[AUD-44]）+ §五「P3 批次 FE-2 修复追踪」块
+
+- **发现时间**：2026-10-20 融合双报告（M-37 [AUD-42] / M-39 [AUD-44]）。**修复时间**：2026-10-24 执行 FE-2（P3 清尾六批计划之第 5 批，前序 BE-1(BF-139)/BE-2(BF-140)/FE-1(BF-141)/BE-3(BF-142)，计划项 **11/14**）。
+- **严重级别**：P3
+- **影响范围**：vue-assetmanagement 2 生产 + 2 测试（`src/composables/usePaginationSearch.ts`、`src/composables/useExportableAssets.ts` + 两 spec 共 +7 用例）。**无跨端契约变化、无 API 签名变化（useExportableAssets 对外返回逐字不变）、`SmartListContainerExpose` 契约逐字吻合（refresh/searchWithReset 声明 `Promise<void>`，common.ts:136/:160）**。
+
+### 一、问题现象
+
+| # | 缺陷 | 定性 |
+|:---|:---|:---|
+| M-37 | `usePaginationSearch` 四个 EP 事件入口直接 await 会 rethrow 的内层（`loadList`:100 throw、state `performSearch`/`performSearchWithParams` :112/:204 rethrow），rejection 逸出到 EP 事件处理器与 `void` 调用（`AssetContentDetails.vue:328`）→ unhandled rejection；内层虽已 logError+ElMessage，提示不阻断 rejection 逸出 | [AUD-42] 错误处理 |
+| M-39 | `useExportableAssets.fetchList` 无请求序号守卫，慢响应可覆盖新请求的数据；`currentPage` 在响应到达后才回写（原 :34），请求在途期间页码状态滞后，快速翻页/搜索产生竞态覆盖 | [AUD-44] 竞态 |
+
+### 二、修复方案
+
+1. **M-37（入口吞错）**：新增 local helper `swallowEntryRejection(action)`（Promise 双回调吞错）；包装四入口——`handleSizeChange`、`handleCurrentChange`（含越界二跳重搜整段入包）、`refreshCurrentPage`、`searchWithReset`。**内层 rethrow 契约保留不动**：既有测试 `usePaginationSearch.spec:107/:175/:670` 锁定 + state seq 逻辑依赖 throw 做过期分支（state :195）；logError+ElMessage 提示仍由内层统一发出，入口仅阻断 unhandled rejection——吞 rejection 不吞提示。包装后返回 `Promise<void>` 与 expose 声明逐字吻合；watch(refreshFlag) 既有 catch（:208）保留作纵深防御。
+2. **M-39（seq 守卫 + 请求前写）**：`const seq = ++listRequestSeq` 于 `fetchList` 首行；成功写回 / 失败清空（logError+ElMessage+清 list/total）/ loading finally 三分支均带 seq 校验（过期响应丢弃、过期失败跳过清空与弹错、非最新不复位 loading）；`currentPage.value = page` 移至请求发出前。范式逐字对齐 `usePagedList` [M-14]（:68-89）与 `useGroupedAssetList` [M-22]（:95-123）——全仓 seq 范式第 4 处（createEntityStore:104 / usePagedList:70 / useGroupedAssetList:97 / 本批 :29）。对外返回 API 逐字不变。
+
+### 三、验证记录（先红后绿）
+
+- **红证 A（CT-4，stash 源文件留测试，两缺陷同轮一次证红）**：`git stash push -m "M37M39-redproof" -- src/composables/useExportableAssets.ts src/composables/usePaginationSearch.ts` → 定向两 spec **7 failed + 53 passed（60）**（7 failed = 4×M-37 入口 rejects + 3×M-39 请求前写/覆盖/过期清空，全命中）→ pop → 定向三 spec（含 routing）**68 passed**。
+- **全量**：`npx vitest run --coverage` → **175 files / 2267 passed / 0 failed，exit 0**（2267 = 批前 2260 + 增 7 算术对账）——分层棘轮（P2-2）三层过线：`src/**/*.ts` ≥80 / `src/stores/**/*.ts` ≥90 / `src/**/*.vue` ≥12.9 棘轮；无前缀全局阈值按 P2-2 制度废除（46.29% 含 .vue 的汇总数**非门禁值**，vitest.config.ts:34-35 注释留痕）。
+- **前端三项**：`npm run type-check` / `npm run lint` / `npm run format:check` 全 exit 0。
+- **T16 stryker**：`npm run test:mutate` → **80.02 ≥ break 80，exit 0**（9m29s）。mutate 面 = `src/stores/**` + `useGroup*.ts` + `useKeepAliveReload.ts`，与本批两文件**零交集** → T16 面申报：杀伤力由 stash 红证 7 failed 覆盖（FE-1 同口径先例）。
+- **护栏**：FR-6/FR-8 PASS（55 composables 0 超限 0 孤儿登记 / 31 stores 0 超限）+ 重复不变量 PASS。
+- **查重**：`rg`（swallowEntryRejection / listRequestSeq）`complete-patterns.md` **0 命中**；seq 范式复用点取证 `rg "RequestSeq\s*=" src` = 4 处（3 既有 + 本批新增，DR-2 范式复用非复制）。
+
+### 四、根因定性
+
+- [AUD-42] 属实：Vue 模板 EP 事件绑定与 `void` 调用均为 fire-and-forget，不消费 Promise rejection——内层已提示，rejection 仍逸出为 unhandled rejection，属入口层缺失兜底。
+- [AUD-44] 属实：与 [M-14]/[M-22] 同源的竞态守卫遗漏——同仓已有两处成熟守卫范式，`useExportableAssets` 为第三处遗漏点，修法为范式复用（DR-2）而非新造轮子；「响应后才写页码」使在途期间 `changePage` 同页守卫（`page === currentPage.value`）判据也依赖响应，请求前写一并修正。
+
+### 五、关联
+
+- 融合审计报告：M-37/M-39 两行 → `已修复 BF-143`；§三前端行竞态守卫销项 + EP 入口吞错追记；§4.3 P3 行 **11/14** 注记；§五新增「批次 FE-2 修复追踪」块；尾注 2026-10-24 续记。
+- 红证方法：stash 源文件留测试（BF-142 红证 A 同法，两缺陷同轮合证）。
+- 复用锚点：`swallowEntryRejection`（usePaginationSearch.ts 内 helper）；seq 范式上游 `usePagedList` [M-14]、`useGroupedAssetList` [M-22]。
+
+### 六、遗留与关联事项
+
+- **[按计划] P3 余 3 项**：M-27/M-35/M-38 按批次 BE-4(BF-144) 推进（P3 末批）。
+- **[PENDING] CI 回填**：前端 CI 门禁直证待 push 后回填（本地门禁已全绿，CI 为最终判定）。
+
+*登记人：opencode ｜ 状态：【已关闭】（M-37/39 两项 + stash 红证 7 failed → 还原 68 绿 + 全量 175/2267 0 failed 分层三层过线 + 前端三项 0 + stryker 80.02 ≥ break + 双护栏 PASS + rg 查重 0 同题），2026-10-24*
