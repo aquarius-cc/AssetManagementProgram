@@ -9693,3 +9693,130 @@ M-24/AUD-25 定位准确，一行根因（读改写非原子）无偏移；修�
 - **[口径说明] 报告文件名错位**：merge 报告 M-38 行文件名 `authusermanagement/views.py` 系源报告转写错位，本批按源报告 `MimoCode-codegraph-audit-2026-10-20.md:51` 修复于 `usermanagement/views/employee_view.py:66-70`，已随报告翻转注明——后续引用 M-38 以 employee_view 为准。
 
 *登记人：opencode ｜ 状态：【已关闭】（M-27/35/38 三项 + 四手植红证全命中 → 还原 66 绿 + 全量 2184/0 cov 89.71% + 双 Service 98.43%/97.34% + mypy 0/230 CT-7 对齐 + ruff/C90/format 418 + 五护栏 + makemigrations 无遗漏 + schema 精确 1 行 diff + T7 面外申报 + rg 查重 0 同题；**P3 14/14 收官**），2026-10-25*
+
+## BF-145【已关闭】通知广播可靠性——批量持久化 + 失败死信（AUD-45：`notify_dept_managers` 逐收件人 INSERT 且 per-recipient 吞错仅 warning，持久化失败静默丢失）｜来源：`docs/Review/codegraph-audit-2026-10-25.md` AUD-45 行（[P2][可靠性]，`codegraph node send_notification_on_commit` 影响面 39 符号）
+
+- **发现时间**：2026-10-25 六域并行审计（通知子系统首次深查，域③）。**修复时间**：2026-10-25 同日修复（批次 H 首项）。
+- **严重级别**：P2
+- **影响范围**：backend 2 生产 + 1 测试（`apps/notification/helpers.py` 广播路径改组装、`apps/notification/services/notification_service.py` 新增 `push_notification_ws`/`persist_notifications`、`services/__init__.py` 导出面、`tests/test_notification.py` +3 用例）。**零跨端契约变化**：API 响应/枚举/分页参数零变动，WS `group_send` 载荷字段逐字不变（改从持久化实例读取，值恒等）；无迁移。
+
+### 一、问题现象
+
+| # | 缺陷 | 定性 |
+|:---|:---|:---|
+| AUD-45 | `notify_dept_managers` 逐收件人 `send_notification_sync`（每条独立 INSERT，无 bulk_create），per-recipient `except Exception` 仅 `logger.warning` 无重试/死信——DB 抖动时该收件人通知静默丢失；on_commit 回调内无补偿机制 | [P2] 可靠性 |
+
+### 二、修复方案
+
+1. **`persist_notifications(recipients, *, ...)`（service 层新增，补偿单点收敛）**：一次 `bulk_create`（内层 `transaction.atomic` 保证批写入原子，Django 6 RETURNING 回填 id、pre_save 填充 created_at——源码级直证 `compiler.py:1744-1751`/`query.py:825,848`）→ 批失败降级**逐条** `objects.create`（内层 atomic，失败粒度收窄不放大）→ 单次重试（瞬时抖动）→ 仍失败 **error 级结构化死信日志**（含 recipient/type/title/message/priority/asset/url 全量重建载荷）。任何持久化失败不向调用方抛异常。**取舍留痕**：死信暂以结构化日志承载，不建死信模型（新表+迁移+只增表治理成本 > 审计追溯收益），模型化留作后续独立条目。
+2. **WS 推送与持久化解耦**：新增 `push_notification_ws(notification)` 单点（sync 版 `send_notification_sync` 同步重构复用，载荷逐字不变）；`notify_dept_managers` 改为「查经理清单 → `persist_notifications` 批量落库 → 循环推送」——持久化失败不再互相拖累，WS 失败仅 warning（通知已落库，刷新可见，非数据丢失面）。
+3. **DR-3 分层**：helpers 只查经理清单与组装，持久化/补偿/死信全部收敛 service 层；`send_notification_sync`（单条 API）与 Consumer 异步版签名行为不变，on_commit 三锚（`in_atomic_block` 守卫 / `robust=True` / 回调吞错）不动。
+
+### 三、验证记录（先红后绿）
+
+- **红证**：新增 3 用例先行——`ImportError`（persist_notifications 未实现）**3 FAILED** ✓ → 实现后转绿。执行期两处测试侧修正：patch 目标 `Notification.bulk_create` → `Notification.objects.bulk_create`（实现在 Manager）；降级循环由 `_build()+save()` 改 `objects.create` 与 patch 目标对齐。
+- **新增测试 +3**：bulk 路径 id/created_at 回填断言（WS 载荷与分页依赖）· bulk 整批失败降级逐条全部落库 · bulk+逐条+重试均失败 → error 级死信日志（caplog 断言含 recipient 且 levelno==ERROR）不抛异常。
+- **四锚保绿**：`test_sends_to_managers`/`test_bulk_create_single_manager`（DB 计数口径天然兼容，后者 docstring「单个 manager 时也使用 bulk_create」名实归正）/`test_callback_exception_is_swallowed_and_logged`/`test_send_notification_on_commit_raises_outside_atomic_block` 全部未改动通过。
+- **域门禁**：`pytest apps/notification/` **54 passed / 0 failed**（含 API 视图/Consumer 用例）+ ruff **All checks passed** + mypy --strict **0 issues in 11 source files**。
+- **T7 面外申报**：`setup.cfg` mutmut `source_paths=apps/assetmanagement/services`，本批改动全在 `apps/notification/` → 变异面零触及，本地无需实跑；CI `backend-mutation` 待回填。
+
+### 四、根因定性
+
+- 广播路径按「逐条独立发送」直觉实现（每条 try/except 局部兜底），未随 M-02/BF-128 时代「批量语义 + 补偿收敛」的范式升级而重构；`send_notification_sync` 的 WS 兜底（warning「通知已持久化」）掩盖了持久化本身失败无补偿的事实。属**可靠性设计缺口**（非并发/契约类）。
+
+### 五、关联
+
+- 审计报告：`codegraph-audit-2026-10-25.md` AUD-45 行 → `已修复 BF-145`；批次 H 剩余 AUD-52/53（查询口径/类型化）仍待修。
+- 复用锚点：bulk_create 生产先例 `role_service.py:234`（ignore_conflicts）；auto_now_add/pk 回填断言先例 M-34（blacklisted_at）；死信 error 级留痕对齐 M-13 失败语义口径。
+- 关联缺陷：AUD-46（通知 Meta ordering 无决胜键，批次 G）与本批互补——落库量随批量语义上升，排序稳定性同步待修。
+
+### 六、遗留与关联事项
+
+- **[待修] 批次 H 余量**：AUD-52 通知查询不过滤 is_deleted + unread_count 绕 Selector；AUD-53 notification_type/priority 裸字符串未类型化。
+- **[留痕] 死信模型化**：结构化 error 日志已可人工补偿（载荷完整可重建），死信表（模型+迁移）按需另立条目。
+- **[PENDING] CI 回填**：全量 pytest/mutmut 随下次 push 由 CI 权威判定（本批域内 54/0 + ruff/mypy 全绿）。
+
+*登记人：atomcode ｜ 状态：【已关闭】（3 红证 → 转绿 54/0 + 四锚保绿 + ruff/mypy 域内全绿 + 零契约变化零迁移 + T7 面外申报），2026-10-25*
+
+## BF-146【已关闭】分页稳定性决胜键（AUD-46：M-02 同型残留——3 处 ordering 无决胜键，同值并列跨页次序未定义）｜来源：`docs/Review/codegraph-audit-2026-10-25.md` AUD-46 行（[P2][分页稳定性]）
+
+- **发现时间**：2026-10-25 六域审计（域④/域③顺带）。**修复时间**：2026-10-25 批次 G1。
+- **严重级别**：P2
+- **影响范围**：backend 3 生产 + 2 迁移 + 2 测试（`apps/unregisteredasset/models.py`、`apps/unregisteredasset/views.py`、`apps/notification/models.py` + 两个 `0003_alter_*_options.py` 迁移 + 两份 `test_pagination_order_stability.py` 各 3 用例）。**零跨端契约变化**：`-id` 仅入 Meta/视图默认序，**不入 `ordering_fields`**（避免扩大客户端可排序面）；迁移为纯状态变更（AlterModelOptions，无 DDL）。
+
+### 一、问题现象
+
+| # | 缺陷 | 定性 |
+|:---|:---|:---|
+| AUD-46a | `UnregisteredAsset.Meta.ordering = ["-created_at"]`（models.py:263）无决胜键，同毫秒并列跨页次序未定义 | [P2] M-02 同型 |
+| AUD-46b | `UnregisteredAssetViewSet.ordering = ["-discovery_date"]`（views.py:131）为 **DRF 视图默认序**（覆盖 Meta 序）同日并列同型缺陷 | [P2] M-02 同型 |
+| AUD-46c | `Notification.Meta.ordering = ["-created_at"]`（models.py:72）无决胜键，BF-145 批量落库后 created_at 并列更常见 | [P2] M-02 同型 |
+
+### 二、修复方案
+
+1. **三处补 PK 决胜键**：两处 Meta → `["-created_at", "-id"]`；视图默认序 → `["-discovery_date", "-id"]`（与 M-02 八模型 / BF-128 `(-created_at,-id)` 同模式，语义中性不改排序观感）。
+2. **`-id` 不入 `ordering_fields`**：视图默认序不受 `ordering_fields` 约束（该集合只约束客户端传参），加入会扩大客户端可排序面 = 跨端契约变更。
+3. **迁移**：`makemigrations unregisteredasset notification` → 2 × `AlterModelOptions`，CT-6 三步全过（`--check --dry-run` No changes detected / `migrate --plan` 尾部仅 2 条本批迁移 / 危险操作 Remove*·Rename* 0 命中）。
+
+### 三、验证记录（先红后绿）
+
+- **红证 5/5**：3 个修复源断言（Meta×2 + 视图默认序，修复前旧值）+ 2 个两页序断言（PG 真库并列次序实测红）→ 修复后 **5/5 转绿**。
+- **域全量**：`pytest apps/unregisteredasset/ apps/notification/` **205 passed / 0 failed**（含 BF-145 的 54 用例与既有导出/审批用例）。
+- **门禁**：ruff All checks passed（新测试文件 I001 import 排序 `--fix` 3 处）+ mypy --strict 0 issues in 22 files。
+- **T7 面外申报**：生产改动为 Meta/视图属性（非 services 目录）→ mutmut 变异面外，CI `backend-mutation` 待回填。
+
+### 四、根因定性
+
+- unregisteredasset / notification 两模块建模块时未遵循 M-02 时代确立的「ordering 必带 PK 决胜键」范式（当时仅扫了 8 个 assetmanagement 模型 + authusermanagement）；视图默认序（AUD-46b）是易漏点——`OrderingFilter` 存在时 Meta 序被覆盖，仅查 Meta 会漏判。
+
+### 五、关联
+
+- 审计报告：AUD-46 行 → `已修复 BF-146`。
+- 关联缺陷：AUD-55（batch-delete 宽前缀失效，P3）与本批无关保留；域④审计「导出走 Meta 序、列表走视图序」的排序字段口径不一致留痕不改（是字段不同非稳定性问题）。
+- 护栏范式：`test_pagination_order_stability.py` 两份沿用 BF-128 `test_user_pagination_order_stability.py` 三件套（warning 零容忍 + 两页全覆盖无重复 + 全序断言）+ 修复源断言先红锚。
+
+### 六、遗留与关联事项
+
+- **[PENDING] CI 回填**：全量 pytest 随下次 push 由 CI 权威判定。
+- **[无残留]** 三处 ordering 全部覆盖，两模型分页稳定性护栏已锚定。
+
+*登记人：atomcode ｜ 状态：【已关闭】（5 红证 → 转绿 + 域 205/0 + 2 迁移 CT-6 全过 + ruff/mypy 全绿 + 零契约变化），2026-10-25*
+
+## BF-147【已关闭】mark-broken 后资产列表缓存精确失效（AUD-47：M-19 残留——列表 key 5min 旧状态）｜来源：`docs/Review/codegraph-audit-2026-10-25.md` AUD-47 行（[P2][缓存失效遗漏]）
+
+- **发现时间**：2026-10-25 六域审计（域⑤）。**修复时间**：2026-10-25 批次 G2。
+- **严重级别**：P2
+- **影响范围**：前端 1 生产 + 2 测试（`src/api/asset.ts` markAssetAsBroken + `src/api/__tests__/asset.spec.ts` / `cache.spec.ts`）。**零契约变化、零迁移**；失效为方向安全操作（只多一次重取，不脏读）。
+
+### 一、问题现象
+
+| # | 缺陷 | 定性 |
+|:---|:---|:---|
+| AUD-47 | mark-broken 仅清详情 key `/assets/assets/{code}/`，列表 key `/assets/assets/?page=...` 不匹配 → 列表 5min 旧状态（对照 :369 batch-delete 已用前缀） | [P2] M-19 残留 |
+
+### 二、修复方案
+
+1. **精确 pattern**：`clearCacheByPattern('/assets/assets/?')` —— 已直证 `clearByPattern` 为 `key.includes(pattern)` 子串匹配（cache.ts:64-70）：列表 key（`/assets/assets/?page=...`）命中，他资产详情 key（`/assets/assets/{code}/`）与 statistics 等聚合端点 key 不命中。
+2. **不用宽前缀 `/assets/assets/`**：会连带清他资产详情与 statistics 缓存，放大 AUD-55 过宽面（P3 已登记方向安全但非必要）。
+
+### 三、验证记录（先红后绿）
+
+- **红证**：API 层断言（patterns 含 `/assets/assets/?` + 不含宽前缀）修复前 **1 FAILED** → 实现后转绿。
+- **cache 三点式**：`cache.spec.ts` 新增「`/assets/assets/?` 只命中列表 key」用例（① 列表全清 ② 他资产详情保留 ③ statistics 保留），实现前后均绿（纯语义锚定）。
+- **门禁**：`vitest run`（cache+asset 两 spec）**32 passed / 0 failed** + type-check 0 错 + lint 0 错。
+
+### 四、根因定性
+
+- M-19 批次只覆盖了「详情缓存」失效面（写 URL 拦截器不清 GET 详情缓存的盲区），列表 key 因含 `?page=` 查询串被遗漏；拦截器按写 URL 清缓存的机制（request.ts:363 `url.split('?')[0]`）天然够不到列表 key。
+
+### 五、关联
+
+- 审计报告：AUD-47 行 → `已修复 BF-147`。
+- 关联缺陷：AUD-55（batch-delete 宽前缀过宽，P3）留痕保留，本批未动（精确化可并入后续）。
+
+### 六、遗留与关联事项
+
+- **[同型残留] 写后列表缓存未失效 4 端点**（本批范围裁决仅 mark-broken，未混修）：`asset.ts` `create`(:114) / `update`(:158) / `delete`(:167) / `batch-create`(:381) 写后均无列表失效调用——update/delete 的详情缓存由拦截器覆盖（写 URL == 详情 URL），但列表 key 同样够不到，新行/删行/改值后列表 5min 旧状态。建议随 AUD-55 精确化同批处理。
+- **[PENDING] CI 回填**：前端全量 test:coverage 随下次 push 由 CI 权威判定。
+
+*登记人：atomcode ｜ 状态：【已关闭】（1 红证 → 转绿 + 32/32 + type-check/lint 全绿 + 零契约变化零迁移 + 同型残留 4 端点已登记），2026-10-25*
