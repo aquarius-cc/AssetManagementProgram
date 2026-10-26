@@ -10014,3 +10014,45 @@ M-24/AUD-25 定位准确，一行根因（读改写非原子）无偏移；修�
 - **[PENDING] CI 回填**：前端全量 test:coverage 随下次 push 由 CI 权威判定。
 
 *登记人：atomcode ｜ 状态：【已关闭】（3 红证转绿 + asset.spec 23/23 + 全仓 2277/0 + type-check/lint 全绿 + AUD-55 裁决留痕 + BF-147 残留销项），2026-10-26*
+
+---
+
+## BF-153【已关闭】pillow 12.3.0→13.0.0 升级解 37 项已知漏洞（M-40 L①：pip-audit 同口径 45→8，DRF 3 项 + twisted 5 项留存待 L②/正式版）｜来源：`docs/Review/Merge-audit-2026-10-26.md` M-40 行
+
+### 一、缺陷
+
+| # | 缺陷 | 定性 |
+|:---|:---|:---|
+| AUD-56 | pip-audit 实测 46 漏洞 / 3 包：pillow 12.3.0×37（抽样 CVSS 8.1，GHSA-78g4-xqwv-q3g8）、DRF 3.17.2×3、twisted 26.4.0×6（其中 CVE-2026-106454 无修复版，CI 已 ignore）；CI `Python 依赖安全扫描` fail-closed 即红 | [P0] 生产依赖漏洞 |
+
+本批（L①）范围：仅 pillow。DRF 撞 base.txt 禁升 3.18.x 红线（many=True 错误响应结构变更＝根 §3 契约），立项 L②；twisted 不在 base.txt（daphne 传递依赖）且 26.10.0 仅 rc1 预发布（稳定版最新即带洞的 26.4.0），rc 不入生产 ASGI 链路，等正式版。
+
+### 二、修复方案
+
+1. **base.txt:43 `pillow==12.3.0 → 13.0.0`**：13.0.0 为 37 项 advisory 的修复线（PyPI 稳定版已发布）；调用面仅 `qrcode[pil]`（asset_service QR 生成），qrcode 8.2 约束 pillow>=9.1.0 无上限，兼容已验证；版本说明注释同步改写（原「修复25个已知CVE」过时）。
+2. **环境纪律**：单包 `pip install pillow==13.0.0`，禁整包 `pip install -r base.txt`（本机 Django 5.2.17 会被连带跳 6.0.8，破坏本地基线）。
+3. **明确不做**：不钉 twisted rc1、不升 DRF（L② 目标 3.18.3 走根 §5 [HALT]，联动件 drf-spectacular 0.29.0→0.30.0 评估 + mypy --strict 复跑 + schema 基线重导 + 前端错误分支回归）、不扩 CI ignore 清单。
+
+### 三、验证记录
+
+- **pip-audit CI 镜像口径**（`--ignore-vuln CVE-2026-106454`，PYTHONUTF8=1）：base 45→**8**、dev 45→**8**（DRF×3 + twisted×5，全待 L②/正式版），exit 1 为预期状态，不得判为失败（CT-7：本地 Python 3.13.13 / Django 5.2.17 漂移，CI 3.12 为权威）。
+- **功能回归**：qrcode→PIL 用例 35 passed；assetmanagement 域 1332 passed；**全量 pytest 2196 passed / 0 failed**（与升级前基线一致）。
+- **静态门禁**：ruff check / format --check 全 exit 0；4 护栏 BR-4 / BR-6 / G / FR 全 exit 0（改依赖文件不触碰代码，基线不变式不受影响）。
+
+### 四、根因定性
+
+- 计划内依赖升级，非代码缺陷。OSV 于 10-25 后新披露 pillow 37 项 advisory，CI fail-closed 门禁按设计变红。
+- **验收口径订正（本批核心交付之一）**：原 L 批「`pip-audit -r requirements/base.txt` exit 0」为永远不可达条件——CI 实际命令带 `--ignore-vuln CVE-2026-106454`（无修复版）且双跑 base+dev，未修复项恒存 → 口径改为「双口径各 8 项、exit 1 记『已知未清』非失败」。
+
+### 五、关联
+
+- 审计报告：M-40 行 → `L① 已落地（10-26，BF-153）`（状态 + 验收口径同步更新）。
+- **L② 立项**：DRF 3.17.2→3.18.3 走根 §5 变更流程 [HALT]（many=True 契约面实测证据已备：全仓 many=True 仅输出侧、`_extract_drf_message` 双形态兼容、前端 pickErrorMessage 已覆盖数组分支——实际破坏面很可能为零，仍按 base.txt 既定条文走流程）。
+
+### 六、遗留与关联事项
+
+- **[PENDING] twisted 5 项**：等 26.10.0 正式版（OSV 修复线目前仅 rc1）发布后补一轮显式 pin（可援引 base.txt urllib3 显式 pin 先例）；其中 CVE-2026-115877 为 twisted.web HTTP 请求走私，daphne 构建于其上，属真实暴露面，不建议用 ignore 换绿灯。
+- **[PENDING] L② DRF 3 项**：目标 3.18.3（最新稳定；pip-audit 修复线 3.18.2），联动 drf-spectacular / stubs / mypy / schema 基线 / 前端回归。
+- **[预期红] CI `Python 依赖安全扫描`**：本批推送后 python-audit job 将红 8 项——已知未清状态，非回归，提交信息已留痕。
+
+*登记人：atomcode ｜ 状态：【已关闭】（pillow 37 项清零 + 45→8 双口径实测 + 全量 2196/0 + 静态门禁全绿 + 验收口径订正），2026-10-26*
