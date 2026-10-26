@@ -10056,3 +10056,142 @@ M-24/AUD-25 定位准确，一行根因（读改写非原子）无偏移；修�
 - **[预期红] CI `Python 依赖安全扫描`**：本批推送后 python-audit job 将红 8 项——已知未清状态，非回归，提交信息已留痕。
 
 *登记人：atomcode ｜ 状态：【已关闭】（pillow 37 项清零 + 45→8 双口径实测 + 全量 2196/0 + 静态门禁全绿 + 验收口径订正），2026-10-26*
+
+## BF-154【已关闭】员工创建 IntegrityError 扩为三规则映射，phone/auth_user 并发冲突 500→400（M-45 / ①AUD-49）｜来源：`docs/Review/Merge-audit-2026-10-26.md` M-45 行
+
+### 一、缺陷
+
+| # | 缺陷 | 定性 |
+|:---|:---|:---|
+| AUD-49 | `employee_service.create_employee` 兜底仅映射 `employee_jobcode` 单 token，`unique_employee_phone_not_deleted` / `unique_employee_auth_user_not_deleted` 并发冲突原样重抛 → **500**；同批 storage/asset_type/department 三服务早已接 `match_integrity_error_rules` 多规则，employee 是唯一未接的 exists→create 落库点 | [P2] 并发窗口 500 |
+
+### 二、修复方案
+
+1. **employee_service.py :251 起改接 `match_integrity_error_rules`**：三规则按序匹配 employee_jobcode / employee_phone / auth_user，错误码 `DUPLICATE_EMPLOYEE_JOBCODE` / `DUPLICATE_EMPLOYEE_PHONE` / `DUPLICATE_EMPLOYEE_AUTH_USER`；保留 `# AI_REVIEW_NEEDED` 标注 matcher 的 unique-constraint 前提待人工复核。
+2. **M-26 锚点同步（CT-4，独立提交 `11056b8`）**：`test_m26_integrity_fallback.py` 该用例原把旧限制编码为契约（docstring 原文「仅 jobcode 命中映射, 其余原样重抛」）——phone/auth_user 用例改为映射断言，**非映射列（employee_name）原样重抛屏障保留**，文件头三规则口径同步。
+3. **隔离技巧**：auth_user 并发用例给 AU01/AU02 显式互异手机号——`employee_phone` 无 default 存 `""`，两空号行会先撞 phone 唯一约束掩盖 auth_user 冲突。
+
+### 三、验证记录
+
+- `pytest ... -k duplicate` 4 passed（jobcode/phone/auth_user × mock 双消息形/真实约束）；`test_m26_integrity_fallback.py` 25 passed；usermanagement 域 204 passed。
+- 静态门禁：ruff check/format exit 0；`mypy . --strict` 230 files 0（CT-7 对齐：mypy 2.1.0 / django-stubs 6.1.0 / DRF-stubs 3.18.0 = dev.txt 钉版）。
+- 全量：**2202 passed / 0 failed**（feishu-webhook 404 用例单轮红经复跑甄别为瞬态，14/14 绿）；cov 89.77%（≥80）。
+
+### 四、根因定性
+
+- M-26/BF-139 落地时 employee 只接了单 token 兜底，未跟进三服务已有的多规则范式，形成口径孤岛；同名「非目标列必须原样重抛」的回归屏障与新契约相撞，属测试契约同步而非回归。
+
+### 五、关联
+
+- 审计报告：M-45 行 → `M 批已落地（10-26，BF-154）`。
+- 范式锚点：`core/exceptions.py match_integrity_error_rules` + department/storage/asset_type 三先例；error_code 无需注册（G-4 定案，账本既有留痕）。
+
+### 六、遗留与关联事项
+
+- **[AI_REVIEW_NEEDED] matcher 前提**：FK/非唯一索引的 IntegrityError 消息是否可能被误判为 unique 冲突，待人工复核 matcher 实现（本批未改 matcher 本身）。
+
+*登记人：atomcode ｜ 状态：【已关闭】（三规则接入 + M-26 锚点同步 + 4 冲突用例绿 + 全量 2202/0），2026-10-26*
+
+## BF-155【已关闭】登录失败计数键 username → username+IP 复合，封堵锁定投放 DoS（M-48 / ①AUD-50，已拍板）｜来源：`docs/Review/Merge-audit-2026-10-26.md` M-48 行
+
+### 一、缺陷
+
+| # | 缺陷 | 定性 |
+|:---|:---|:---|
+| AUD-50 | `core/throttles.py:92` `login_fail_{username}` **仅 username 维度**：匿名者 5 次失败即可把任意用户名锁 15 分钟（锁定投放 DoS）；不存在用户也计数、空名共享桶；`authusermanagement/views.py:298,316` 消费 | [P3] 设计级 DoS 面 |
+
+### 二、修复方案（拍板：username+IP 复合键）
+
+1. **`core/throttles.py` 单点收敛**：新增 `_fail_key(username, request)` = `login_fail_{username}_{ip}`，`allow_request` / `record_failure` / `record_success` 三处（原 :92/:119/:129）全部改用；warning 日志行带 `username@ip`。
+2. **IP 来源复用既有单一信任边界**：`_client_ip(request)` 内部复用 `RequestContextMiddleware._get_client_ip`（`hasattr(request, "META")` 防御 → 回退 `"unknown"`），零改动该模块；`TRUST_PROXY_HEADERS=False` 下按 remote_addr 取值，无代理头盲信风险。
+3. **口径注记**：`_thread_locals = threading.local()`（非 contextvars）对 ASGI 不可靠，故按 request 直取而非按线程取 IP；登录**频率**节流 rate key 维持 username-only（M-32 非目标，不在本批内）。
+
+### 三、验证记录
+
+- FAIL_KEY 8 处精确断言（:33/:66/:67/:74/:94/:113/:150/:170）经常量统一改 `login_fail_lock_u1_unknown`；新增 2 用例：跨 IP 独立计数、`record_success` 只清当前桶不清他桶。
+- `test_login_throttle_keys.py` docstring 订正为复合键；lockout+keys 17 passed；request_context+create_throttle 10 passed；authusermanagement 域 98 passed；ruff / format / `mypy . --strict` 230 files 全绿。
+
+### 四、根因定性
+
+- 存量设计取舍（防暴破强度 vs 投毒面）未随 M-48 复核闭环；本批人工拍板取 username+IP 复合键，牺牲少量跨 IP 暴破累计换取投毒面消除。
+
+### 五、关联
+
+- 审计报告：M-48 行 → `M 批已落地（10-26，BF-155，已拍板）`。
+- 信任边界锚点：`core/request_context.py:73-85 _get_client_ip`（SC 家族，零改动复用）。
+
+### 六、遗留与关联事项
+
+- **[PENDING] 登录频率节流 rate key** 仍为 username-only（M-32 非目标）；若未来放开，需同一拍板口径复核。
+- **未采纳方案留痕**：「不存在用户名不计锁定」仅封一半投毒面（真实用户仍可被锁），拍板时弃用。
+
+*登记人：atomcode ｜ 状态：【已关闭】（复合键单点收敛 + 8 断言常量统一 + 2 新用例 + 17/10/98 域测试绿），2026-10-26*
+
+## BF-156【已关闭】权限 fail-closed 对空 admin_actions 生效（M-49 方案 B，已拍板 / ①AUD-51）｜来源：`docs/Review/Merge-audit-2026-10-26.md` M-49 行
+
+### 一、缺陷
+
+| # | 缺陷 | 定性 |
+|:---|:---|:---|
+| AUD-51 | `core/permissions.py:235` 判断为 `if admin_actions and ...`，**空清单时失效** → 落到缺省 `IsAuthenticated`；`asset_grouped_view.py:148`、`unregisteredasset/views.py:139` 即传 `[]`，未来复用空清单新增写 action 即对全体登录用户开放 | [P3] 越权隐患 |
+
+### 二、修复方案（拍板：方案 B——空清单同走 fail-closed）
+
+1. **删 `admin_actions and`**：条件改 `action is not None and (method is None or method.upper() not in _SAFE_METHODS)`，未登记 action + 写方法（或 method=None）无条件返回 `admin_permission`；读方法仍缺省 `IsAuthenticated`。
+2. **docstring 重写**：注明「与 admin_actions 是否为空无关」及方案 B 缘由，**保留只读语义写端点须 action_overrides 显式登记的例外条款**（HardDiskSN 例）。
+3. **测试同步**：空清单 POST 用例断言反转为 `IsSystemAdmin`（改名 `test_empty_admin_actions_write_fails_closed`）+ 补空清单 GET → `IsAuthenticated` 读路径屏障用例。
+
+### 三、验证记录
+
+- 影响分析：dispatch 期 3 个空清单调用点零变更（grouped/children 为 GenericViewSet 只读、无写路由；unregistered 9 个 action 全落 `_ACTION_PERMISSION_OVERRIDES`）。
+- **schema 基线 `spectacular --validate` 重导字节零漂移**：drf-spectacular 按 authentication_classes 编码 security、不编码 permission 类 → 预期中的 grouped/children 权限 delta 不入 OpenAPI，白名单空集即过。
+- `test_batch_c_fixes.py` 21 passed；grouped/children/unregistered 212 passed；ruff/format/`mypy . --strict` 230 files 全绿。
+
+### 四、根因定性
+
+- M-09/NEW-07 引入 fail-closed 时把 `admin_actions 非空` 当作前置条件，未考虑「空清单 ViewSet 新增写 action」的未来面；属守卫条件过窄。
+
+### 五、关联
+
+- 审计报告：M-49 行 → `M 批已落地（10-26，BF-156，已拍板方案 B）`。
+- 拍板记录：用户在方案 A（仅断言禁止/保持现状）与方案 B（空清单同走 admin_permission）间选定 B。
+
+### 六、遗留与关联事项
+
+- 无（schema 面、dispatch 面、测试面均已闭环）。
+
+*登记人：atomcode ｜ 状态：【已关闭】（条件收紧 + 用例反转 + 读路径屏障 + schema 字节零漂移），2026-10-26*
+
+## BF-157【已关闭】员工预检/绑定/在岗查询下沉 EmployeeSelector（M-50 / ①AUD-57，纯重构行为不变）｜来源：`docs/Review/Merge-audit-2026-10-26.md` M-50 行
+
+### 一、缺陷
+
+| # | 缺陷 | 定性 |
+|:---|:---|:---|
+| AUD-57 | `employee_service.py` 3 处裸 ORM 查询（:67 auth_user 绑定链 `filter().first()`、:242 jobcode 预检 `filter().exists()`、:341 在岗字典 `filter()`）+ `department_service.py:387` 裸计数——storage/asset_type/department 均走 Selector，employee 侧 **DR-3 口径不一致** | [P3] DR-3 口径孤岛 |
+
+### 二、修复方案（纯重构，行为不变）
+
+1. **`selectors.py` 新增 3 方法**：`exists_by_jobcode(jobcode)`、`get_employee_by_auth_user(auth_user, exclude_jobcode)`、`exists_by_department(department)`；:341 在岗字典**复用既有 `get_employees_by_jobcodes`**（M-35 已存在 :265-271，DR-1 不重复实现）。
+2. **Service 调用点改造**：employee_service 三处 + department_service:387 全部下沉；import 清 `Employee`、加 `EmployeeSelector`，employee_service 加 `AuthUser`。
+3. **DR-3 范围口径**：`rg` 验收仅限两 Service 文件（`employee_serializers.py`、`providers.py` 等范围外命中属 Serializer/其他层，DR-3 只管 Service 层过滤链）。
+
+### 三、验证记录
+
+- `rg` 两服务文件裸查询 **0 命中**；豁免恰 3 处：`:50` `select_for_update` 锁读、`:250` `create`、`:389` `bulk_update`（非过滤链查询，语义不同不可下沉）。
+- usermanagement 域 204 passed；`mypy`（三文件定向）0；ruff / format exit 0。
+
+### 四、根因定性
+
+- M-35/DR-3 收敛其余服务查询时 employee 侧遗漏，历次复核未清；纯重构，无行为与契约变更。
+
+### 五、关联
+
+- 审计报告：M-50 行 → `M 批已落地（10-26，BF-157，纯重构行为不变）`。
+- 复用锚点：`EmployeeSelector.get_employees_by_jobcodes`（DR-3 / M-35 既有）。
+
+### 六、遗留与关联事项
+
+- 无。
+
+*登记人：atomcode ｜ 状态：【已关闭】（3 新方法 + 1 复用 + rg 0 命中 + 204 域测试绿，纯重构），2026-10-26*
