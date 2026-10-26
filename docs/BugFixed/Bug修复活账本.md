@@ -9898,3 +9898,119 @@ M-24/AUD-25 定位准确，一行根因（读改写非原子）无偏移；修�
 - **[PENDING] CI 回填**：全量 pytest/mypy 由 CI 权威判定。
 
 *登记人：atomcode ｜ 状态：【已关闭】（mypy strict 0 + 契约锚 1 + 域 60/0 + 调用方域 104/0 + 零运行时契约变化），2026-10-25*
+
+## BF-150【已关闭】分页失败页码回滚（AUD-48：P2 竞态回滚缺失，M-39 修复不完整——乐观写后 catch 不回滚，失败页被早退守卫永久锁死）｜来源：`docs/Review/codegraph-audit-2026-10-25.md` AUD-48 行
+
+- **发现时间**：2026-10-25 六域审计（域②）。**修复时间**：2026-10-26 批次 I1。
+- **严重级别**：P2
+- **影响范围**：前端 3 生产 + 3 测试（`useExportableAssets.ts` / `usePagedList.ts` / `useGroupedAssetList.ts` + 对应 spec）。**零契约变化**：纯交互行为修复，API/状态契约零动。
+
+### 一、问题现象
+
+| # | 缺陷 | 定性 |
+|:---|:---|:---|
+| AUD-48 | `useExportableAssets.fetchList` 请求前乐观写 `currentPage`，catch 清 list/total 不回滚；`changePage` 的 `page === currentPage` 早退守卫使失败页**永久不可达**（再点同页被拦，须先点别页） | [P2] M-39 残留 |
+| [同型] | `usePagedList.changePage`（:102-106）/`useGroupedAssetList.changePage`（:144-149）同构：早退守卫 + 乐观写 + catch 不回滚——审计仅点名 useExportableAssets，本批 rg 直证同型并归并 | [P2] 同型扩面 |
+
+### 二、修复方案
+
+1. **`lastLoadedPage` 回滚锚**（3 composable 同构落地）：初始 1；成功路径锚定实际加载页；catch 分支 `currentPage.value = lastLoadedPage`——失败页解锁，可原地重试。
+2. **锚重置语义**：`search()`（新查询）前重置为 1——搜索失败回第 1 页而非旧筛选的旧页；`useGroupedAssetList.reload()`（保筛选回到第 1 页）同重置。
+3. **seq 守卫语义不动**：过期响应跳过回滚（回滚也须最新请求才执行，与既有 skip 口径一致）。
+
+### 三、验证记录（先红后绿）
+
+- **红证 4/4**：useExportableAssets（失败回滚 + 失败页重试不被早退拦截）、usePagedList、useGroupedAssetList 各红 → 实现后转绿。
+- **回归**：三 spec 全量 **61/61**（含 M-14/M-22/M-39 seq 守卫既有锚）+ 全仓 vitest **2277/0**。
+
+### 四、根因定性
+
+- M-39 修复时只解决了「慢响应覆盖新数据」（seq 守卫）与「页码回退」（请求前乐观写），未考虑**请求失败**路径的页码一致性；乐观写把「失败页锁定」的隐性副作用引入。同型三处说明是范式级遗漏而非单点笔误。
+
+### 五、关联
+
+- 审计报告：AUD-48 行 → `已修复 BF-150`。
+- 复用锚点：M-39/M-14/M-22 seq 守卫范式；账本 M-39 条目「失败页码回滚」描述与实现不符的口径差异由本批对齐。
+
+### 六、遗留与关联事项
+
+- **[PENDING] CI 回填**：前端全量 test:coverage 随下次 push 由 CI 权威判定。
+
+*登记人：atomcode ｜ 状态：【已关闭】（4 红证转绿 + 三 spec 61/61 + 全仓 2277/0 + 零契约变化 + 同型 2 处归并），2026-10-26*
+
+## BF-151【已关闭】开放重定向边角——反斜杠协议相对归一化（AUD-54：P3——redirect 校验拒绝 `//` 但未拒 `/\evil.com`）｜来源：`docs/Review/codegraph-audit-2026-10-25.md` AUD-54 行
+
+- **发现时间**：2026-10-25 六域审计（域②）。**修复时间**：2026-10-26 批次 I2。
+- **严重级别**：P3
+- **影响范围**：前端 1 新增 + 2 生产 + 1 测试（`src/utils/redirect.ts` 新增 `sanitizeRedirect` 纯函数；`LogIn.vue` 登录回跳 / `api/request.ts` `buildLoginRedirectUrl` 会话失效回跳两处改引用 + `redirect.spec.ts` 4 用例）。**零契约变化**：仅收紧非法输入面，合法站内路径行为逐字不变。
+
+### 一、问题现象
+
+| # | 缺陷 | 定性 |
+|:---|:---|:---|
+| AUD-54 | 两处站内路径校验 `startsWith('/') && !startsWith('//')` 未拒 `/\evil.com`——部分浏览器将路径首字符反斜杠归一化为 `/`，退化为协议相对跳转 `//evil.com`；现经 router.push 风险低，属防御性缺口 | [P3] 安全边角 |
+| [同型] | 同一校验模式 2 处复制（LogIn.vue:241 + request.ts:114）——单点修会留另一处缺口 | [P3] 复制漂移 |
+
+### 二、修复方案
+
+1. **共享纯函数**：`sanitizeRedirect(redirect: unknown, fallback: string): string`（`src/utils/redirect.ts`）——拒非字符串/空串/`//` 协议相对/`/\` 反斜杠归一化，合法站内路径原样返回；fallback 由调用方按语义传入。
+2. **两处调用点接线**（DR-1 收敛）：LogIn.vue `target = sanitizeRedirect(route.query.redirect, '/main')`；request.ts `buildLoginRedirectUrl` 首行 `const pathname = sanitizeRedirect(back?.pathname, '/login')`（后续 `/login` 前缀短路逻辑不动，语义逐字等价）。
+
+### 三、验证记录（先红后红转绿）
+
+- **红证 4/4**（`redirect.ts` 缺失 → import 失败整 suite 红）→ 实现后 4 用例转绿：`//evil.com` 拒 / `/\evil.com` 拒 / 站内路径保留（含 `/login`）/ 非字符串与空串回退。
+- **消费点回归**：`redirect.spec` + `LogIn.spec` + `request.spec` + `router/index.spec` **64/64**（buildLoginRedirectUrl 既有 M-29 行为锚零翻转）+ 全仓 2277/0。
+
+### 四、根因定性
+
+- 浏览器 URL 解析中反斜杠在路径首字符的归一化差异（IE 时代遗留行为，现代浏览器部分保留）未纳入校验面；两处复制的校验逻辑使防线无单点可测。
+
+### 五、关联
+
+- 审计报告：AUD-54 行 → `已修复 BF-151`。
+- 复用锚点：M-29 buildLoginRedirectUrl 纯函数可测范式。
+
+### 六、遗留与关联事项
+
+- **[无残留]**：两处校验面全部收敛共享防线。
+
+*登记人：atomcode ｜ 状态：【已关闭】（4 红证转绿 + 消费点 64/64 + 全仓 2277/0 + 零契约变化 + 同型 2 处归并），2026-10-26*
+
+## BF-152【已关闭】资产写端点列表缓存精确失效 + batch-delete 裁决留痕（AUD-55：P3 缓存失效过宽 + BF-147 残留销项）｜来源：`docs/Review/codegraph-audit-2026-10-25.md` AUD-55 行 + BF-147 §六
+
+- **发现时间**：2026-10-25 六域审计（域⑤）+ BF-147 执行期登记。**修复时间**：2026-10-26 批次 I3。
+- **严重级别**：P3
+- **影响范围**：前端 1 生产 + 1 测试（`src/api/asset.ts` update/delete/batchCreate 三端点 + `asset.spec.ts` 3 断言）。**零契约变化**：失效为方向安全操作（只多一次重取，不脏读）。
+
+### 一、问题现象
+
+| # | 缺陷 | 定性 |
+|:---|:---|:---|
+| AUD-55 | `batchDeleteAssets` 宽前缀 `/assets/assets/` 连带清 statistics/聚合端点缓存 | [P3] 过宽（方向安全） |
+| [残留] | BF-147 登记的写后列表未失效 4 端点：create/update/delete/batch-create——rg 直证 **create 经拦截器已宽前缀覆盖**（写 URL `/assets/assets/` 本身即宽前缀），**实际待修 3 个**：update/delete（拦截器只覆盖详情）、batch-create（写 URL 含 `batch-create/` 段够不到列表 key） | [P3] BF-147 残留 |
+
+### 二、修复方案
+
+1. **AUD-55 裁决：留痕接受宽前缀**。batch-delete 入参是 `asset_code`（后端按 `asset_code__in` 过滤），详情缓存 key 按 `recordcode` 形态，**无法逐条精确失效**；宽前缀方向安全（只多取不脏读），强行两点式收益仅省 statistics 一次重取。不修，本条目即裁决留痕。
+2. **三端点补列表精确失效**：update/delete/batchCreate 各追加 `clearCacheByPattern('/assets/assets/?')`（BF-147 确立的列表精确 pattern：子串匹配下只命中 `/assets/assets/?page=...` 列表 key，不误清详情与聚合端点）。
+
+### 三、验证记录（先红后绿）
+
+- **红证 3/3**：三端点「写后 `/assets/assets/?` 被调用」断言修复前失败 → 实现后 **23/23**（asset.spec 全量含 BF-147 的 mark-broken 精确失效锚）。
+- **回归**：全仓 vitest **2277/0** + type-check/lint 全绿。
+
+### 四、根因定性
+
+- 缓存失效面在 M-19 时代按「详情缓存盲区」建模（拦截器只清写 URL 本身），列表 key（带 `?page=` 查询串）不在建模面内；端点逐个补漏而非统一清单，直至本批收敛。
+
+### 五、关联
+
+- 审计报告：AUD-55 行 → `已修复 BF-152（裁决留痕 + 同型销项）`。
+- **BF-147 §六残留销项**：4 端点裁决 1 修 3（create 经拦截器天然覆盖，注明）——BF-147 遗留清零。
+
+### 六、遗留与关联事项
+
+- **[裁决留痕] AUD-55**：batch-delete 宽前缀接受（理由见 §二.1），后续若聚合端点缓存命中率成为性能项再精确化。
+- **[PENDING] CI 回填**：前端全量 test:coverage 随下次 push 由 CI 权威判定。
+
+*登记人：atomcode ｜ 状态：【已关闭】（3 红证转绿 + asset.spec 23/23 + 全仓 2277/0 + type-check/lint 全绿 + AUD-55 裁决留痕 + BF-147 残留销项），2026-10-26*
