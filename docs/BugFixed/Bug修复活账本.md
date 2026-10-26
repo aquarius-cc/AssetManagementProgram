@@ -10195,3 +10195,44 @@ M-24/AUD-25 定位准确，一行根因（读改写非原子）无偏移；修�
 - 无。
 
 *登记人：atomcode ｜ 状态：【已关闭】（3 新方法 + 1 复用 + rg 0 命中 + 204 域测试绿，纯重构），2026-10-26*
+
+
+## BF-158【已关闭】M-43 asset.ts prettier 单文件格式化 + M-44 状态机注释 :39 订正（N 批）｜来源：`docs/Review/Merge-audit-2026-10-26.md` M-43 / M-44 行
+
+### 一、缺陷
+
+| # | 缺陷 | 定性 |
+|:---|:---|:---|
+| AUD-59 | `npx prettier --check src/` **exit 1**，全 src 唯一违规文件 = `src/api/asset.ts`（T17 第三项不过）；CI 未接 prettier step，不红 CI | [P2] 规范门禁欠账 |
+| AUD-61 | `src/types/asset.ts:39` 注释仍写 `in_use → damaged: 提交报废申请`——V2.8 已移除该边（`transitions.py` 实表 `in_use` 无 →damaged 出边，业务决策「须先回收再申请报废」），注释误导 | [P2] 文档失真 |
+
+### 二、修复方案
+
+1. **M-43**：`npx prettier --write src/api/asset.ts` 单文件（1 处 `request.put(...)` 链换行重排），`prettier --check src/` → exit 0。
+2. **M-44**：:39 定稿改为 `* - recycled_pending → damaged: 提交报废申请（in_use 不可直接报废，须先回收 —— V2.8 业务规则）`——与 :37 行 `in_use → recycled_pending` 衔接成完整路径，**无虚构边**（审计建议中 `in_store → recycled_pending` 直达边实表不存在，未照抄）；其余 7 行注释与 `transitions.py` 实表逐行比对一致，不动。
+3. CI 补 `format:check` 门禁 = 新红线 → §5.4 沙盒后续项，**本批不入**（报告② AUD-59 原文佐证）。
+
+### 三、验证记录
+
+- T17 三项依序 0 错：type-check → lint → format:check（**exit 直取无管道**，规避本轮实测的管道伪影两类：`grep -c` 假 0 / `tail` 截断矛盾）。
+- `npm run test:coverage` exit 0：阈值三层过线 **ts 93.37%**（4409/4722，阈值 80）/ **stores 96.8%**（1121/1158，阈值 90）/ **vue 18.45%**（阈值 12.9 棘轮）；全量 **176 文件 / 2277 passed / 0 failed**。
+- T16 变异面外申报：diff 零可执行逻辑变更（1 处格式换行 + 1 行注释），不触及 core Store/Composable 变异面。
+- frontend commit **`0e3189e`**（2 files，+4/-2）。
+
+### 四、根因定性
+
+- M-43：`asset.ts:158` 多行链式调用未按 prettier 换行规则排版；CI 无 prettier step 故长期潜伏（本地 T17 即可发现）。
+- M-44：V2.8 状态机改造移除 `in_use → damaged` 直达边后，注释未同步更新，属**注释与实现漂移**（枚举 8 键本身正确，仅 :39 一行失真）。
+
+### 五、关联
+
+- 审计报告：M-43 / M-44 行 → `N 批已落地（10-26，BF-158，frontend 0e3189e）`。
+- 同批处置：**M-51 复核不成立关闭**（处置留痕在 Merge-audit M-51 行，**账本零改动**——BF-144 全文无 `apply_field_guard` 且 `git log -S` 账本史零命中，DOC-1 挂错条目；真双 helper 登记 = BF-142 M-31 :9558）。
+- 转移表依据：`asset_management_backend/apps/assetmanagement/state_machine/transitions.py:34-45` + `:32-33` 业务决策注释；V2.8 标签双证据：`ExpiredAuditReport/AtomCode-2026-09-23.md:111` + 10-26 报告 §3.2。
+
+### 六、遗留与关联事项
+
+- CI 补 `prettier format:check` 门禁 = 新红线 → 根 §5.4 沙盒流程（后续独立项）。
+- M-46/M-47 留 O 批；L②（DRF 3.18.3）随后独立立项。
+
+*登记人：atomcode ｜ 状态：【已关闭】（三项 0 错 + 覆盖率三层过线 + 176/2277 绿，M-51 同批复核关闭），2026-10-26*
