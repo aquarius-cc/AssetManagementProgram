@@ -23,8 +23,8 @@
 | ID | 级别 | 源 | file:line | 问题摘要 | 修复 / 优化建议 | 建议验证方式 | 状态 |
 |---|---|---|---|---|---|---|---|
 | **M-40** | P0 | ②AUD-56 | `requirements/base.txt:13-16,45-46` + `security-scan.yml:172-173` | pip-audit 实测 **46 漏洞 / 3 包**：DRF 3.17.2×3（2 项 CVSS **7.5**：Accept-header CPU DoS、JSONParser 攻击者指定 codec；另 TokenProxy.delete 撤销失效 5.9）、pillow 12.3.0×37（抽样 CVSS **8.1**）、twisted 26.4.0×6（抽样 CVSS **7.5**）；CI fail-closed 即红。死结：DRF 修复线 3.18.2 撞 base.txt「禁升 3.18.x」（many=True 错误响应结构变更＝根 §3 契约） | 分三步：① pillow→13.0.0、twisted→26.10.0（**零契约耦合，先解 43 项**）② DRF→3.18.2 单独立项，走根 §5 变更流程（错误响应结构评估 + `api-schema-baseline.json` 重导 + 前端错误分支回归）③ 升级后 `pip-audit` 归零 | `pip-audit -r requirements/base.txt --ignore-vuln CVE-2026-106454` 双口径 8 项 + CI `Python 依赖安全扫描` 绿（终态需 L② + twisted 正式版） | **L① 已落地（10-26，BF-153）**：pillow→13.0.0 解 37 项，46→8；twisted 5 项等 26.10.0 正式版（rc1 不入生产 ASGI 链路）、DRF 3 项立项 L② 目标 3.18.3 走根 §5 [HALT]；CI python-audit 预期红 8 项，非回归 |
-| **M-41** | P1 | ②AUD-57 | `apps/notification/helpers.py:13`、`apps/notification/selectors.py:77`、`apps/notification/services/notification_service.py:70`、`apps/unregisteredasset/views.py:131` | `ruff format --check .` **exit 1**（4 文件待格式化 / 416 已格式化），ruff 0.17.1＝dev.txt 钉版＝CI 同版；子模块已推 origin → CI `backend-lint`（`ci.yml:37`，无容错）**必红** | `python -m ruff format .` 仅上述 4 文件 → 复跑 `ruff check .` / `ruff format --check .` / BR-4·BR-6 护栏（format 会重排行数，见 ci.yml 注释）→ 提交 | `ruff format --check .` exit 0 + 护栏 PASS + CI 绿 | 待修（10-26 10:0x 复跑 exit=1） |
-| **M-42** | P1 | ②AUD-58 | `vue-assetmanagement/package.json`（axios 1.20.0 → follow-redirects 1.16.0） | `npm audit --omit=dev` **1 high**（GHSA-q3jh-wrc6-jgq8 跨域凭据剥离、GHSA-8r9p-f939-6h3c 头泄露），**生产依赖**；CI `security-scan.yml:216` 以 `--audit-level=high` 判红 | `npm audit fix`（或 `overrides` 钉修复版）→ 提交 lockfile → 复跑 audit + 全量 vitest | `npm audit --omit=dev` exit 0；CI `Node.js 依赖安全扫描` 绿 | 待修（10-26 实测） |
+| **M-41** | P1 | ②AUD-57 | `apps/notification/helpers.py:13`、`apps/notification/selectors.py:77`、`apps/notification/services/notification_service.py:70`、`apps/unregisteredasset/views.py:131` | `ruff format --check .` **exit 1**（4 文件待格式化 / 416 已格式化），ruff 0.17.1＝dev.txt 钉版＝CI 同版；子模块已推 origin → CI `backend-lint`（`ci.yml:37`，无容错）**必红** | `python -m ruff format .` 仅上述 4 文件 → 复跑 `ruff check .` / `ruff format --check .` / BR-4·BR-6 护栏（format 会重排行数，见 ci.yml 注释）→ 提交 | `ruff format --check .` exit 0 + 护栏 PASS + CI 绿 | **K 批已落地（10-26）**：ruff format 4 文件（backend 2393c12），CI backend-lint 绿；本地多出 2 个「reformat」为纯 CRLF 行尾差异，提交 LF blob 已验证合规 |
+| **M-42** | P1 | ②AUD-58 | `vue-assetmanagement/package.json`（axios 1.20.0 → follow-redirects 1.16.0） | `npm audit --omit=dev` **1 high**（GHSA-q3jh-wrc6-jgq8 跨域凭据剥离、GHSA-8r9p-f939-6h3c 头泄露），**生产依赖**；CI `security-scan.yml:216` 以 `--audit-level=high` 判红 | `npm audit fix`（或 `overrides` 钉修复版）→ 提交 lockfile → 复跑 audit + 全量 vitest | `npm audit --omit=dev` exit 0；CI `Node.js 依赖安全扫描` 绿 | **K 批已落地（10-26）**：follow-redirects 1.16.0→1.16.2（frontend 0240467，仅 lockfile、package.json 零改动；`npm audit fix` 会连带 bump dev 工具链故改 `npm update follow-redirects` 最小 diff），vitest 2277 绿，CI Node 依赖扫描绿 |
 | **M-43** | P2 | ②AUD-59 | `vue-assetmanagement/src/api/asset.ts` | `prettier --check src/` **exit 1**（违反 T17）；CI 未接 prettier step（仅 ESLint/vue-tsc/complexity），故不红 CI | `npx prettier --write src/api/asset.ts` → 复跑三项；建议 CI 补 `format:check`（**属新红线 → 根 §5.4 沙盒流程**） | `npx prettier --check src/` exit 0 | 待修（10-26 复跑 exit=1） |
 | **M-44** | P2 | ②AUD-61 | `vue-assetmanagement/src/types/asset.ts:39` | 注释仍写 `in_use → damaged: 提交报废申请`，V2.8 已移除该边（枚举 8 键本身正确） | 删除或改写为 `in_store/in_use → recycled_pending → damaged`，与 `VALID_TRANSITIONS` 逐行一致 | 注释与后端转移表比对 | 待修（10-26 复核仍在） |
 | **M-45** | P2 | ①AUD-49 | `apps/usermanagement/services/employee_service.py:256-261` | 兜底仅映射 `employee_jobcode` 单 token；`unique_employee_phone_not_deleted` / `unique_employee_auth_user_not_deleted` 并发冲突原样重抛 → **500**（同批 storage/asset_type/department 已接 `match_integrity_error_rules`，employee 未接） | 扩为多规则接入 `core/exceptions.py:147 match_integrity_error_rules`（范式现成，3 处先例可抄） | 并发双写 mock 断言双消息形 + 域测试全绿 | 待修（10-26 代码复核：仍单 token） |
@@ -77,8 +77,8 @@
 
 | 批次 | 条目 | 动作摘要 | 流程要求 | 验证门槛 | 预期收益 |
 |---|---|---|---|---|---|
-| **K — 门禁解红（立即）** | M-41 + M-42 | `ruff format .`（4 文件）+ `npm audit fix` | 常规修复，无契约变更 | `ruff format --check .` 0、BR-4/BR-6 PASS、`npm audit --omit=dev` 0、vitest 2277 绿 | 解除 CI `backend-lint` 与 `Node 依赖扫描` 两条红 |
-| **L — 依赖安全（分三步，含契约评估）** | M-40 | ① pillow 12.3.0→13.0.0、twisted→26.10.0（先解 43 项）② DRF 3.17.2→3.18.2 **走根 §5**：契约影响评估（many=True 错误响应）+ schema 基线重导 + 前端错误分支回归 ③ 复扫归零 | ②属跨端契约变更 → **[HALT] 审批** | `pip-audit` exit 0 + 全量 pytest + `manage.py spectacular --validate` | 解除安全门禁，消除 2×CVSS7.5 DoS 攻击面 |
+| **K — 门禁解红（立即）** ✅ 已落地 10-26 | M-41 + M-42 | `ruff format .`（4 文件，backend 2393c12）+ follow-redirects 1.16.2（frontend 0240467，`npm update` 最小 diff） | 常规修复，无契约变更 | `ruff format --check .` 0、BR-4/BR-6 PASS、`npm audit --omit=dev` 0、vitest 2277 绿 | 解除 CI `backend-lint` 与 `Node 依赖扫描` 两条红（✅ 均绿） |
+| **L — 依赖安全（分三步，含契约评估）**（L① ✅ 已落地 / L② 待审批） | M-40 | ① pillow 12.3.0→13.0.0 解 37 项（BF-153）✅；twisted 5 项等 26.10.0 **正式版**（现仅 rc1，不入生产 ASGI 链路）② DRF 3.17.2→**3.18.3** **走根 §5**：契约影响评估（many=True 错误响应，实测 4 条证据见 BF-153 §五）+ schema 基线重导 + 前端错误分支回归 ③ 复扫归零 | ②属跨端契约变更 → **[HALT] 审批** | CI 镜像口径双跑（`--ignore-vuln CVE-2026-106454`）各 8 项 + 全量 pytest + `manage.py spectacular --validate`（原「exit 0」为不可达口径，已订正） | 解除安全门禁，消除 2×CVSS7.5 DoS 攻击面 |
 | **M — 后端余量** | M-45 + M-48 + M-49 + M-50 | Employee 多规则接入（抄 3 处先例）；锁定投毒改复合键（**先拍板**）；fail-closed 空清单收敛；预检下沉 Selector | M-48 需人工裁决后执行 | 并发双写用例、锁定投毒用例、`rg` 无裸查询、域测试绿 | 消除 1 个并发 500 面 + 1 个 DoS 面 + 1 个越权隐患 |
 | **N — 前端与文档余量** | M-43 + M-44 + M-51 | prettier 格式化；注释对齐状态机；BF-144 账本措辞订正 | M-43 若补 CI 门禁 → §5.4 沙盒 | 三项检查 0 错、`rg` 断言 | 规范闭环，消除误导 |
 | **O — 质量优化（低优）** | M-46 + M-47 | 补 notification 覆盖盲区；两处 `pass` 补日志 | 纳入 CT-2 清单属规则收紧 → §5.4 | cov≥90、用例仍绿 | 可观测性与回归保护增强 |
@@ -106,7 +106,7 @@
 
 **合并后的上线前置动作**：
 1. **代码**：清 K 批（M-41/M-42）→ `ruff format --check .` / `npm audit --omit=dev` 双 0。
-2. **安全**：执行 L①（pillow/twisted），L②（DRF）按契约流程立项——**不建议以 46 个已知漏洞的状态上线**，至少先消掉无契约耦合的 43 项。
+2. **安全**：L①（pillow 37 项）✅ 已落地 10-26（BF-153，同口径 45→8）；L②（DRF 3 项，目标 3.18.3）按契约流程立项待 [HALT] 审批；twisted 5 项等 26.10.0 正式版——**不建议在 8 项已知未清状态上线**（待 L② + twisted 正式版归零）。
 3. **运维**（沿用①）：生产网关确认注册端点暴露情况（AUD-21 [待确认] 销项）；上线初期观察通知触达（相关缺陷 M-52 已修，观察期可缩短）。
 4. **口径**：以 CI（声明版本工具链）为权威复核 CT-7；本机依赖对齐（M-62）。
 
@@ -121,7 +121,7 @@ ruff check . --select C90 --config lint.mccabe.max-complexity=10
 cd vue-assetmanagement && npx vitest run               # 176 文件 / 2277 passed
 npx vue-tsc --noEmit && npx eslint . && npx prettier --check src/   # M-43 现 exit 1
 # 安全（M-40/M-42）
-$env:PYTHONUTF8="1"; pip-audit -r requirements/base.txt --timeout 60   # 46 vulns / 3 pkgs
+$env:PYTHONUTF8="1"; pip-audit --requirement requirements/base.txt --ignore-vuln CVE-2026-106454 --timeout 60   # L① 后：8 vulns / 2 pkgs（DRF×3 + twisted×5，待 L②/正式版；exit 1 为已知未清非回归，dev.txt 同口径同 8）
 npm audit --omit=dev                                   # 1 high
 # 护栏与迁移
 python scripts/check_file_length_guard.py --print      # max 488 < 500
