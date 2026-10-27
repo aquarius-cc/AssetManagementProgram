@@ -10236,3 +10236,64 @@ M-24/AUD-25 定位准确，一行根因（读改写非原子）无偏移；修�
 - M-46/M-47 留 O 批；L②（DRF 3.18.3）随后独立立项。
 
 *登记人：atomcode ｜ 状态：【已关闭】（三项 0 错 + 覆盖率三层过线 + 176/2277 绿，M-51 同批复核关闭），2026-10-26*
+
+## BF-159【已关闭】L② DRF 3.17.2→3.18.3 升级（案 A：采纳 many=True dict 新形态 + 前端递归展开）｜来源：`docs/Review/Merge-audit-2026-10-26.md` M-40 / L 批次行
+
+- **发现日期**：2026-10-27（来源：Merge-audit-2026-10-26.md M-40 行，根 §5 变更流程）
+- **严重级别**：P0（SC-7：2×CVSS7.5 DoS 修复线被 base.txt「禁升 3.18.x」红线卡死的死结）
+- **影响范围**：`asset_management_backend/requirements/base.txt:17-26`（pin+红线注释改写）、`asset_management_backend/api-schema-baseline.json`（+8 行加法性 `default`）、`vue-assetmanagement/src/api/request.ts:217-240` + `src/api/__tests__/request.responseHandler.spec.ts`（+25 行 3 用例）；**契约影响**：envelope 根 `{code,message,data}` 恒稳，14 格 `data.items` 值形态 list→dict（案 A 已批）
+
+### 一、缺陷（M-40 死结）
+
+| # | 缺陷 | 定性 |
+|:---|:---|:---|
+| 1 | DRF 3.17.2 挂 3 项 pip-audit 漏洞（Accept-header DoS CVSS7.5 / JSONParser 指定 codec 7.5 / TokenProxy.delete 5.9），修复线全在 3.18.x，被 base.txt:19-20「禁升 3.18.x」红线卡死 | [P0] 安全-契约死结 |
+| 2 | 3.18 起 many=True 错误响应 list→dict 将改变错误载荷形态，未经 §5 评估即升级＝绕过根 §3 契约变更流程 | [P0] 契约变更未评估 |
+
+### 二、评估与决策（根 §5，2026-10-27 [HALT] 已批）
+
+1. **一手取证**：3.18.0 changelog Breaking（PR #9837「Change errors for list serializers (many=True) to dict format」）；3.18.1 兼容开关（PR #10027，过渡物，不采纳）；3.18.2 三安全修复（GHSA-33wh-fxxf-88vv / GHSA-3547-9m27-7rxg / GHSA-xw6w-gcfp-cf8m）；3.18.3 = `order_by_precedence` 回归修复；PyPI `requires_dist django>=5.2`（本机 5.2.17→对齐后 6.0.8 与 base.txt 双边成立）；TokenProxy 全仓 `rg` 0 命中（零适用留痕）。
+2. **37 格适用性矩阵**（用户全量直证；30→37 订正留痕：全 3 项 11 处 ×3 + 仅子项 3 + 对照 1——原「9×3+3=30」漏计 #12/#14 部门/员工批量创建）。
+3. **双版快照实测**（临时脚本仓库内、跑完即删；基线 `%TEMP%\l2-snapshot-{3.17.2,3.18.3}.json`）：**23 格零漂移 identical + 14 子项格仅 `data.items` 值 list→dict（内容等价 `{str(i):v}`）、envelope code/message/status 不变、unexpected 0——分叉门禁通过**。
+4. **案 A（采纳）vs 案 B（3.18.1 兼容开关，留痕不采纳）**：开关系过渡物（3.18.1 同版已 Expand deprecation classes）；案 A 前端增量成本有界（单函数 dict 分支 + 3 用例），UX 净改善——子项错误格今天（3.17）已是 `items: [object Object]`，案 A 修复后逐键可读；3.18 单独上线对子项格 UX 持平（预判经 3.18 实测形态确认）。
+
+### 三、修复方案
+
+| # | 变更 | 文件 |
+|:---|:---|:---|
+| 1 | pin 3.17.2→3.18.3 + 原红线注释改写为「已按根 §5 于 2026-10-27 完成评估，案 A 定案」（含三 GHSA 与零命中核实） | `requirements/base.txt:17-26` |
+| 2 | schema 基线重导（8 行加法性 `default` 元数据：readOnly bool×3 + RepairStatusEnum default×5，非破坏） | `api-schema-baseline.json` |
+| 3 | 新增 `flattenFieldMsgs` 三分支递归展开（数组取首条保旧形态 / 对象递归拼路径 / 叶子 `String()`），`formatFieldErrors` 改收集数组，`parts` 空回退 `null` | `src/api/request.ts:217-240` |
+| 4 | 新增 3 用例：真实 3.18 嵌套 index-keyed 形态 / 递归叶子标量 / 空对象回退 message（覆盖 T16 变异面 4 分支） | `request.responseHandler.spec.ts`（+25 行） |
+
+### 四、对抗审核
+
+- **行号漂移**：`base.txt:17-26`、`request.ts:217-240` 均 `rg` 修复后实测，非估写。
+- **虚报验证**：「五、验证记录」全部本轮实际执行，exit 直取（无管道）。
+- **契约影响**：根结构未破坏（37 格 envelope 恒 `{code,message,data}`）；14 格值形态变更属案 A 已批范围；schema +8 行加法性；**§3 跨端契约四要素未动**（响应根 / 状态 8 键 / 分页 / 日期格式）。
+- **扫描对抗点**：pip-audit 6 项全 twisted（与 DRF 无关，advisory DB 新增条目）→ 进「六、遗留」，不静默吞掉。
+- **登记遗漏**：Merge-audit M-40 行 / L 批次行 / §五上线判定 / §四命令注释四处同步；M-42（npm audit）另案不受影响；BF-153（L①）不改写。
+
+### 五、验证记录
+
+```text
+双版快照：pytest test_l2_snapshot_tmp.py → 3.17.2 基线 37/37 sanity OK（10.05s）；3.18.3 同 37/37 OK（3.40s）；diff → 23 零漂移 identical / 14 子项 list→dict 等价 / unexpected 0（GATE 案 A 通过）
+CT-7 对齐：pip install -r requirements/dev.txt → Django 6.0.8 / DRF 3.18.3 / mypy 2.1.0 / django-stubs 6.1.0 / djangorestframework-stubs 3.18.0 / ruff 0.17.1 / pytest 9.1.1 与声明一致（本地漂移消除）
+后端：python -m pytest --cov=. --cov-fail-under=80 → 2202 passed，总覆盖 89.78%（≥80）；Service 专项 98%（1531 stmts，≥90）
+mypy . --strict → Success: no issues found in 230 source files（exit 0）
+ruff check . → All checks passed；ruff format --check . → 420 files already formatted（双 0）
+schema：manage.py spectacular --validate exit 0（Warnings25/Errors23 为存量非阻断）；重导 +8 行加法性 default，随批入库
+CT-6：makemigrations --dry-run → No changes detected；migrate --plan 复核（无新迁移文件，③ 不适用）
+pip-audit：PYTHONUTF8=1 -r requirements/base.txt → 6 项（全 twisted 26.4.0，DRF 0；GBK 解码伪影已用 UTF8 模式绕开）；CI 豁免口径 --ignore-vuln CVE-2026-106454 → 余 5 项 exit 1（已知非回归）
+前端三项：type-check 0 / lint 0 / format:check 0（T17 依序，exit 直取）
+前端测试：npm run test:coverage exit 0；176 文件 / 2280 passed（2277+3 新用例）/ 0 failed；stores 96.8%（≥90），ts/vue 阈值三层过线
+```
+
+### 六、遗留与关联事项
+
+- **twisted 5 项等 26.10.0 正式版**（现仅 rc1，不入生产 ASGI 链路）：L② 改动 base.txt 将触发 push 路径全量 audit → **下次 CI security-scan 预期红 5 项（非回归，advisory DB 新增）**，CD `security-gate` 将按 fail-closed 拦截部署——独立处置项（升 26.10.0 正式版或 §5 豁免评审），不在本批。
+- 本地 `fastembed 0.8.0 requires pillow<13.0` 与 L① 已升级 pillow 13.0.0 冲突警告（L① 遗留，resolver 提示非阻断）。
+- 快照基线文件留 `%TEMP%` 作证据（仓库外不入库）；临时脚本 `apps/assetmanagement/tests/test_l2_snapshot_tmp.py` 已删除，`git status` 零残留。
+- 本地环境曾漂移（Django 5.2.17 / mypy 1.15.0），本轮随 `dev.txt` 对齐后全部门禁在声明版本下取得（CT-7）。
+
+*登记人：atomcode ｜ 状态：【已关闭】（37 格分叉门禁 23+14 全过 + 后端五门 + 前端五门全绿，[HALT] 案 A 已批），2026-10-27*
