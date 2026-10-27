@@ -10298,3 +10298,44 @@ pip-audit：PYTHONUTF8=1 -r requirements/base.txt → 6 项（全 twisted 26.4.0
 - 本地环境曾漂移（Django 5.2.17 / mypy 1.15.0），本轮随 `dev.txt` 对齐后全部门禁在声明版本下取得（CT-7）。
 
 *登记人：atomcode ｜ 状态：【已关闭】（37 格分叉门禁 23+14 全过 + 后端五门 + 前端五门全绿，[HALT] 案 A 已批），2026-10-27*
+
+## BF-160【已关闭】O 批 M-46 + M-47：notification 异步路径补测至 98% + 两处裸 `pass` 补 warning 日志｜来源：`docs/Review/Merge-audit-2026-10-26.md` M-46 / M-47 行（O 批次行）
+
+- **发现日期**：2026-10-26（Merge-audit 六域审计）。**修复日期**：2026-10-27（O 批 = BF-160，N(BF-158) → L②(BF-159) → O 顺延）。
+- **严重级别**：P3（两案均为工程面欠账，不改行为契约）
+
+### 一、缺陷（审计原文）
+
+| # | 缺陷 | 定性 |
+|:---|:---|:---|
+| M-46 | `apps/notification/services/notification_service.py:220-253`（异步版 `send_notification` 主体）实测覆盖 82%，漏 11 行；notification 不在 CT-2 核心 90% 清单不触发红线 | [P3] 覆盖盲区 |
+| M-47 | `apps/usermanagement/services/department_service.py:145-146`（`except Department.DoesNotExist: pass`）与 `apps/assetmanagement/selectors/out_asset_selector.py:117-118`（`except (ValueError, TypeError): pass`）无任何日志，排障无痕迹（弱化 OC-2） | [P3] 可观测性 |
+
+### 二、修复方案
+
+1. **M-46 补测（非删码）**：新增 `TestSendNotificationAsync` 4 用例——① `asyncio.run(send_notification(...))` 持久化 + WS 载荷 **8 字段逐字段断言**（id/type/title/message/priority/related_asset_code/related_url/created_at.isoformat()，固化异步路径自身载荷契约）；② 异步路径 WS 载荷与 `push_notification_ws`（BF-145 单点）**同实例逐字段恒等断言**（双通道对齐升级项）；③ WS 异常仅 warning 降级、持久化不受影响（caplog）；④ channel layer 为 None 走 RuntimeError 吞错路径（caplog）。patch 全部落 import-site（`apps.notification.services.notification_service.*`）。**定性依据**：该异步函数全仓零生产调用方已有独立留痕（账本 :9881/:9897「异步版零调用方，删除须独立评估」、:8013「只搬不删」）——故补测而非删死代码，避免与 M-46 同题双登记。
+2. **M-47 补日志（每文件 3 行，不改控制流）**：`import logging` + `logger = logging.getLogger(__name__)`（对齐 `notification_service.py:21` 先例）+ `pass` → `logger.warning`（各含现场变量：ancestor_path / years=%r）。异常类型不同，caplog 用例分别设计（DoesNotExist 路径 vs `int()` ValueError 路径），另各配 1 条反例（祖先存在 / years="0" 不触发 warning）杀反向变异体。
+
+### 三、验证记录（本轮实取）
+
+```text
+notification 专项：pytest apps/notification/ --cov=apps.notification.services --cov-fail-under=90 → 64 passed，98.41%（61 stmts 仅剩 :32 一行，≥90 达标；M-46 12%→98%）
+全量：pytest --cov=. --cov-fail-under=80 → 2210 passed（+8 新用例），总覆盖 89.35%（≥80）
+ruff check . → All checks passed（C408 已改字面量、I001 已 sort）；ruff check . --select C90 → All checks passed
+mypy（三目标文件）→ Success: no issues found in 3 source files
+CT-6：makemigrations --dry-run → No changes detected（无迁移，③ N/A）；CT-7 本会话已对齐 dev.txt（mypy 2.1.0 / pytest 9.1.1），无需重装
+```
+
+### 四、门禁与 CI 预期
+
+- **caplog 必选定性**：`ci.yml:241` backend-mutation 为阻断式双门禁（≥80 且 ≥基线 83.2567，B 批已去 continue-on-error）；本批给 2 个源文件新增 logger 行 = 变异面新增，4 条 caplog 断言杀字面量/变量替换变异体，防分数下探基线。
+- **CI 预期**：O 批零 requirements 变更 → 依赖变更探测判无变更 → Security Scan 跳过路径 → **四 workflow 全绿 + CD 正常部署**（与 L② BF-159 的 twisted 红 5 项不同路径，勿混淆排查）。
+- **[PENDING] CI 回填**：backend-mutation 分数与四 workflow 全绿待 push 后以 CI run 直证回填；若 mutation 红 → 转 mutmut-kill-loop skill。
+
+### 五、关联
+
+- 审计报告：M-46 / M-47 行 → `O 批已落地（2026-10-27，BF-160）`；O 批次行同步。
+- 台账留痕引用：:9881/:9897（BF-149 段「异步版零调用方」）+ :8013（迁移期「只搬不删」）——零生产调用方定性出处，本批为补测闭环，删除评估仍留独立条目。
+- 同域先例：BF-145（push_notification_ws 单点）· BF-149（枚举注解化）· logger 先例 `notification_service.py:21`。
+
+*登记人：atomcode ｜ 状态：【已关闭】（M-46 补测 98.41% + M-47 双文件日志 + caplog 4 杀变异面 + 全量 2210/0 cov 89.35% + ruff/C90/mypy/CT-6 全绿；CI 回填 PENDING），2026-10-27*
