@@ -10292,6 +10292,7 @@ pip-audit：PYTHONUTF8=1 -r requirements/base.txt → 6 项（全 twisted 26.4.0
 ### 六、遗留与关联事项
 
 - **twisted 5 项等 26.10.0 正式版**（现仅 rc1，不入生产 ASGI 链路）：L② 改动 base.txt 将触发 push 路径全量 audit → **下次 CI security-scan 预期红 5 项（非回归，advisory DB 新增）**，CD `security-gate` 将按 fail-closed 拦截部署——独立处置项（升 26.10.0 正式版或 §5 豁免评审），不在本批。
+  **CI 直证回填（push `b03ddbe`，2026-10-27）**：① CI Pipeline `40438959535` → **success**（54m17s，全量门禁绿）；② Duplicate Guard `40438959473` → success；③ Dependency Security Scan `40438959499` → **failure**（日志逐条列 5 项 twisted CVE-2026-115774/115775/115776/115778/115877，fix 均 `26.10.0rc1`，**DRF 未再现**，`Security 汇总` exit 1「依赖安全审计未通过」）；④ CD Pipeline `40439066981` → failure（`安全门禁校验`：`WR_CONCLUSION: failure` → 拒绝部署，fail-closed 按设计生效）——**预判全中，非回归实证**。
 - 本地 `fastembed 0.8.0 requires pillow<13.0` 与 L① 已升级 pillow 13.0.0 冲突警告（L① 遗留，resolver 提示非阻断）。
 - 快照基线文件留 `%TEMP%` 作证据（仓库外不入库）；临时脚本 `apps/assetmanagement/tests/test_l2_snapshot_tmp.py` 已删除，`git status` 零残留。
 - 本地环境曾漂移（Django 5.2.17 / mypy 1.15.0），本轮随 `dev.txt` 对齐后全部门禁在声明版本下取得（CT-7）。
