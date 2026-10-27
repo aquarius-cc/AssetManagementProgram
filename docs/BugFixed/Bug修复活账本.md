@@ -10340,3 +10340,41 @@ CT-6：makemigrations --dry-run → No changes detected（无迁移，③ N/A）
 - 落地提交：backend `82ca88c`（5 文件 +177/-3，3 测试文件 ruff format 单文件规范化，M-41 先例）· root `664bffb`（台账 BF-160 + Merge-audit 3 行 + backend-testing-rules v1.8 + 子模块指针）。
 
 *登记人：atomcode ｜ 状态：【已关闭】（M-46 补测 98.41% + M-47 双文件日志 + caplog 4 杀变异面 + 全量 2210/0 cov 89.35% + ruff/C90/mypy/CT-6 全绿 + CI 四 workflow 全绿直证 mutation 83.5922% 超基线 +0.3355pt），2026-10-27*
+
+### BF-161：M-60~M-63 留痕批（融合台账四行收口 + 源报告归档入库）
+
+#### 一、问题描述
+
+Merge-audit-2026-10-26 §2.3 留痕跟踪 4 行（M-60~M-63）为审计融合期登记、当时无动作的收尾项：M-60 FSM 例外互指注释建议、M-61 token 双轨、M-62 CT-7 本机版本漂移、M-63 源报告状态行矛盾 + 会话期并发漂移（根仓 ` D docs/Review/codegraph-audit-2026-10-25.md` / `?? docs/Review/ExpiredAuditReport/`×2）。
+
+#### 二、根因
+
+- M-60：审计建议「加互指注释防误判旁路」在融合时仅登记未执行；
+- M-61：httpOnly 单轨属长期收敛项，审计已定性「已知取舍」，无当期动作面；
+- M-62：会话期本机依赖未对齐声明即出报告数字（漂移实证），需对齐后取直证值；
+- M-63：①源报告第 45 行「全部 15 条均为已确认、不产生已修复状态」与其表内 8 处「已修复 BF」自相矛盾（归档件与 HEAD blob 同一 `3b813e0707059f7cf4591221dbf7e166c8afad93`，矛盾在已提交版即存在）＋ 文件 ` D`、根仓 ahead 2 的并发漂移。
+
+#### 三、影响范围
+
+纯文档/注释级：backend 2 文件 +6 行注释（`transitions.py` docstring + `unregistered.py` 三处就近）；根仓 Merge-audit 5 处行级订正（M-60/M-62/M-63/§一:16/留痕跟踪 :85）+ 归档三件入库 + 子模块指针；无逻辑/契约/枚举变更，跨端契约未破坏。
+
+#### 四、修复方案
+
+- **M-60（已落地）**：`transitions.py` docstring 注明 3 处直写为已声明例外（均有前置状态守卫）+ `unregistered.py` :56/:88/:126 三处就近注释互指 Merge-audit M-60 行（backend `817a745`）；「改走注册表」不采纳维持（DR-3 例外清单既有定性，守卫即终态）。
+- **M-61（不采纳即终态，零改动）**：`stores/auth.ts:92-104` bearer→encodeToken 落 localStorage、cookie→仅内存 + 清历史，现状即「已知取舍」终态；单轨 httpOnly 收敛留长期项，本批不改、行不动，于本条目定性留痕。
+- **M-62（已落地）**：对齐执行 + `python -c` 直证四真值 = 声明——Django 6.0.8 / PyJWT 2.15.1 / requests 2.33.0 / Pillow 13.0.0（源行括号「12.3.0」系转抄笔误，base.txt 实为 13.0.0）；CT-7 满足（mypy/ruff/pytest/dev 与声明一致，全量 mypy --strict 230 文件 0 实证）。覆盖率数字：CI 权威 L② run `40438959535` → 89.78%（2202/0）；O 批本地 `.coverage` 直读 11220/1195 = 89.35%（2210/0）仅作本地参照（两 run 采集集合差异），CI TOTAL 待 artifact 可达回填对账后并列，本地数字不作结论。
+- **M-63（支 (ii) 闭案）**：依 §一:16 既有裁决「以表内 BF 留痕 + ②的全量实测为准」，①源报告只读归档入库（` D` + `ExpiredAuditReport/` `??`×2 随本批提交），源行 45 不改写、历史旧路径引用不回溯；并发漂移子项随归档动作一并入库闭环；§一:16 同步注明订正建议改走支 (ii)。
+
+#### 五、测试验证
+
+- backend 门禁（Step 0.1/Step 1 实跑）：ruff format --check 420 文件 0 · ruff check 0 · C90 0 · mypy --strict 全量 230 文件 0 · CT-6① No changes · 状态机域 135 passed · 三目标文件烟验 67 passed；
+- 注释零逻辑面、零新增变异面；最近权威 mutation 参照 = O 批 CI 83.5922%（run `40457770657` 双门禁 PASS）；
+- 根仓四护栏（BR-4/BR-6/重复不变量/前端不变量）commit 时 PASS；CI 直证随 push 后回填（[PENDING]）。
+
+#### 六、关联
+
+- 审计行：Merge-audit-2026-10-26 M-60 `:59` / M-61 `:60`（行不动）/ M-62 `:61` / M-63 `:62` / §一 `:16` / 留痕跟踪 `:85`；
+- 前序批次：BF-159（L②）、BF-160（O 批，同日）；CI 口径与回填先例 = BF-159/BF-160 §四；
+- 关键证据：blob `3b813e0707059f7cf4591221dbf7e166c8afad93`（归档=HEAD 同一）· 版本四真值 `python -c` 直证 · CI run `40438959535`（89.78% 权威）· `40457770657`（mutation 83.5922%）。
+
+*登记人：atomcode ｜ 状态：【已关闭】（M-60 注释 `817a745` + M-61 不采纳终态零改动 + M-62 四真值对齐 CT-7 满足 + M-63 支 (ii) 归档闭案；CI 直证 PENDING），2026-10-27*
