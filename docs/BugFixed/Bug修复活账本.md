@@ -10330,12 +10330,13 @@ CT-6：makemigrations --dry-run → No changes detected（无迁移，③ N/A）
 
 - **caplog 必选定性**：`ci.yml:241` backend-mutation 为阻断式双门禁（≥80 且 ≥基线 83.2567，B 批已去 continue-on-error）；本批给 2 个源文件新增 logger 行 = 变异面新增，4 条 caplog 断言杀字面量/变量替换变异体，防分数下探基线。
 - **CI 预期**：O 批零 requirements 变更 → 依赖变更探测判无变更 → Security Scan 跳过路径 → **四 workflow 全绿 + CD 正常部署**（与 L② BF-159 的 twisted 红 5 项不同路径，勿混淆排查）。
-- **[PENDING] CI 回填**：backend-mutation 分数与四 workflow 全绿待 push 后以 CI run 直证回填；若 mutation 红 → 转 mutmut-kill-loop skill。
+- **CI 直证回填（2026-10-27）**：backend-mutation **83.5922%**（红线 80.0 / 基线 83.2568，相对基线 **+0.3355pt**；killed=1722 survived=338 timeout=0 no_tests=0 tested=2060）双门禁 PASS——4 条 caplog 杀变异面设计命中，分数不降反升。四 workflow 全绿：CI Pipeline `40457770657` success 55m9s（后端覆盖率 80/90 双红线 + CI 汇总均 success）· Duplicate `40457770652` success · Security Scan `40457770699` success 15s（跳过路径：gitlink 变更但 backend deps glob diff 空，预判命中，与 L② twisted 红 5 项为不同路径）· CD `40457797830` success 部署放行。红转 mutmut-kill-loop 未触发。
 
 ### 五、关联
 
 - 审计报告：M-46 / M-47 行 → `O 批已落地（2026-10-27，BF-160）`；O 批次行同步。
 - 台账留痕引用：:9881/:9897（BF-149 段「异步版零调用方」）+ :8013（迁移期「只搬不删」）——零生产调用方定性出处，本批为补测闭环，删除评估仍留独立条目。
 - 同域先例：BF-145（push_notification_ws 单点）· BF-149（枚举注解化）· logger 先例 `notification_service.py:21`。
+- 落地提交：backend `82ca88c`（5 文件 +177/-3，3 测试文件 ruff format 单文件规范化，M-41 先例）· root `664bffb`（台账 BF-160 + Merge-audit 3 行 + backend-testing-rules v1.8 + 子模块指针）。
 
-*登记人：atomcode ｜ 状态：【已关闭】（M-46 补测 98.41% + M-47 双文件日志 + caplog 4 杀变异面 + 全量 2210/0 cov 89.35% + ruff/C90/mypy/CT-6 全绿；CI 回填 PENDING），2026-10-27*
+*登记人：atomcode ｜ 状态：【已关闭】（M-46 补测 98.41% + M-47 双文件日志 + caplog 4 杀变异面 + 全量 2210/0 cov 89.35% + ruff/C90/mypy/CT-6 全绿 + CI 四 workflow 全绿直证 mutation 83.5922% 超基线 +0.3355pt），2026-10-27*
