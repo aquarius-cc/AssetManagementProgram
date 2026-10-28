@@ -41,10 +41,10 @@
 | **M-RC-03** | RC-03 | 行级隔离绕过（窄面） | `views/recycle_asset_view.py:133-146` → `services/recycle_asset_service.py:297-327` | update/partial_update 直查 `RecycleAsset.objects.filter(recordcode=…)` 无 user 过滤（同文件 destroy :214 已正确） | 与 destroy 对齐改 `self.get_object()` | 跨部门 PATCH recycle recordcode → 404 |
 | **M-RC-04** | RC-04 | 行级隔离缺失（create） | `views/hard_disk_sn_view.py:83-95` → `services/hard_disk_sn_service.py:29-61` | 单条 create 未对 `asset_recordcode` 做可见性校验（batch 路径有 `_resolve_asset(user=user)`） | 复用 `_resolve_asset(..., user=user)`（DR-1，与 batch 同一实现） | 跨部门 asset_recordcode 创建 → `ASSET_NOT_FOUND` |
 | **M-RC-08** | RC-08 | 缓存一致性 | `api/request.ts:367-376` + 全仓 `clearCacheByPattern` 调用点仅 `api/asset.ts` | 以下写端点未失效 `/assets/assets/{recordcode}/` 缓存：repairAsset.ts、lostAsset.ts、damagedAsset.ts、recycleAsset.ts、outAsset.ts、wasteAsset.ts、foundAsset.ts、brokenAsset.ts（共 9 处） | 抽共享 helper（DR-1）：状态类写端点成功后统一 `clearCacheByPattern('/assets/assets/${recordcode}/')` | 用例：repair 成功后 `getAssetByCode` 二次调用实际打网（cache miss） |
-| **M-RC-09** | RC-09 | 提示双发（错误） | `api/request.ts:393` + 7 处调用方二次弹窗 | 拦截器非 401 必弹，调用方 catch 再弹；`useAssetOperationForm.ts:123` 还用 `options.errorMessage` **覆盖后端业务消息** | 错误提示收敛为拦截器单一出口（调用方只补上下文） | 抽查用例：mock 400 断言 `ElMessage.error` 只调用 1 次 |
-| **M-RC-10** | RC-10 | 提示双发（成功） | `stores/createEntityStore.ts:370,388-390,408-410` | 3 个 store 设了 `disableAutoMessage:true` 但仅 create 分支生效 → update/remove 必双弹（已核实 ≥8 处） | 判断上提为 create/update/remove 三处统一守卫；`brokenAssetStore.ts:28 displayName:'Broken Asset'` 改中文 | 用例：disableAutoMessage 时 update/remove 不弹；表单组件自身提示仍 1 条 |
+| **M-RC-09** | RC-09 | 提示双发（错误） | `api/request.ts:393` + 7 处调用方二次弹窗 | 拦截器非 401 必弹，调用方 catch 再弹；`useAssetOperationForm.ts:123` 还用 `options.errorMessage` **覆盖后端业务消息** | 错误提示收敛为拦截器单一出口（调用方只补上下文） | 抽查用例：mock 400 断言 `ElMessage.error` 只调用 1 次 ✅ **已收口（2026-10-28，见 §3.1.5）**：notifyCallerError 单一实现（DR-4）铺开 composables/utils/components/views ~50 处 C1 站点 + notifySubmitError 三份收敛 + suppressDefaultError 删除 |
+| **M-RC-10** | RC-10 | 提示双发（成功） | `stores/createEntityStore.ts:370,388-390,408-410` | 3 个 store 设了 `disableAutoMessage:true` 但仅 create 分支生效 → update/remove 必双弹（已核实 ≥8 处） | 判断上提为 create/update/remove 三处统一守卫；`brokenAssetStore.ts:28 displayName:'Broken Asset'` 改中文 | 用例：disableAutoMessage 时 update/remove 不弹；表单组件自身提示仍 1 条 ✅ **已收口（2026-10-28，见 §3.1.5）**：update/remove 补 disableAutoMessage 守卫；removeBatch 留痕不改行为（双弹实数修正为 3 处）；displayName ×2 改中文（broken→损坏资产、found→找回资产） |
 | **M-RC-11** | RC-11 | 可观测性（OC-1 断链） | `utils/logger.ts:21-28` + `api/request.ts:343` | 前端日志 trace_id（会话单值）与发往后端的 `X-Request-ID`（每请求随机）**不同源**，拿后端日志 id 到前端 grep 无结果 | 请求拦截器复用 logger 的 sessionTraceId（或响应回填同步）；登录/登出调 `resetTraceId()` | 双端各发 1 请求，断言前端日志 trace_id == 后端日志 trace_id == 响应头 |
-| **M-RC-12** | RC-12 | 错误吞没（降级无标识） | `api/request.ts:400-407,494-501` | `_degraded` 全仓零生产消费者：GET 失败时用户收到错误 toast 但页面渲染 5 分钟前旧数据、无任何降级标识 | 视图/store 消费 `_degraded` 统一提示「当前为缓存数据」（或降级时单次 toast） | 用例：mock GET 失败 + 有缓存 → 断言 UI 出现降级提示 |
+| **M-RC-12** | RC-12 | 错误吞没（降级无标识） | `api/request.ts:400-407,494-501` | `_degraded` 全仓零生产消费者：GET 失败时用户收到错误 toast 但页面渲染 5 分钟前旧数据、无任何降级标识 | 视图/store 消费 `_degraded` 统一提示「当前为缓存数据」（或降级时单次 toast） | 用例：mock GET 失败 + 有缓存 → 断言 UI 出现降级提示 ✅ **已收口（2026-10-28，见 §3.1.5）**：envelope 标记不可达视图，改为 degradedCacheKeys 响应式 Set + 布局级 DegradedCacheBanner（MainView 挂载），E-4 ×3 用例 |
 | **M-RC-13** | RC-13 | 并发竞态（清空表格） | `stores/createEntityStore.ts:225-227` + 5 处消费端 `res ?? []` | 并发两次 getList 中慢的旧请求被 seq 作废 → 返回 `undefined` → `?? []` 翻译成「权威空集」写入 ref → 表格被清空 | 消费端对 `undefined` 显式跳过写入（`if (res === undefined) return`） | 用例：并发双请求旧响应晚到 → 断言列表数据保持不变 |
 
 ### 2.3 P3（9 条，低优先级，可择机处理）
@@ -89,7 +89,7 @@
 | **R-2 维修状态机外围** | 最高优 | M-RC-02 | `repair_status` → `read_only_fields`（或 update 走 Service）+ 唯一约束 IntegrityError 映射 ✅ **已收口（2026-10-28，见 §3.1.2）** | 消除状态机旁路与 500 | PATCH repair_status 断言被忽略 + 并发双 in_progress 断言 4xx 映射 |
 | **R-3 前端权限面** | 高优 | M-RC-07 + M-RC-14 | ① 4 条路由补 `requiredMinRole`；② 菜单/编辑按钮补 `v-if`；③ 表单 guardOnMounted | 受限角色不再看到不可用操作界面 | ✅ **已收口（2026-10-28，见 §3.1.3）**：7 条路由补 `requiredMinRole`；菜单/列表/详情按钮补 `v-if`；表单 `guardOnMounted` 兜底；新增 `guards-rbac-r3.spec.ts` 25 用例全绿 |
 | **R-4 缓存与竞态** | 中优 | M-RC-08 + M-RC-13 + M-RC-18 | ① 共享失效 helper 铺开至状态写端点；② `?? []` 消费端改跳过写入；③ 写后 bump seq ✅ **已收口（2026-10-28，见 §3.1.4）** | 消除「操作后详情 5 分钟旧状态」「表格偶发清空」 | 缓存失效用例 + 并发清空用例；全量 vitest |
-| **R-5 提示与降级 UX** | 中优 | M-RC-09 + M-RC-10 + M-RC-12 | ① 错误提示单出口；② `disableAutoMessage` 三处统一守卫；③ `_degraded` 消费提示 | 消除双弹与静默旧数据 | ElMessage 调用次数断言；降级提示用例 |
+| **R-5 提示与降级 UX** | 中优 | M-RC-09 + M-RC-10 + M-RC-12 | ① 错误提示单出口；② `disableAutoMessage` 三处统一守卫；③ `_degraded` 消费提示 ✅ **已收口（2026-10-28，见 §3.1.5）**：notifyCallerError 单一实现铺开 ~50 处 C1 站点 + 三份 notifySubmitError 收敛 + A-4 分类弹窗；update/remove 守卫 + removeBatch 留痕；degradedCacheKeys Set + 布局级 Banner | 消除双弹与静默旧数据 | ✅ ElMessage 调用次数断言（E-1~E-4 共 12 用例）+ 降级提示用例；2333 全绿 |
 | **R-6 可观测与整洁** | 中优 | M-RC-11 + M-RC-15 + M-RC-16 + M-RC-05 + M-RC-06 | ① trace_id 同源；② 删死代码；③ 缓存默认值翻转；④ lifecycle update 补审计；⑤ create_asset 接 matcher | 可观测性闭环 + 死代码清零 | 双端 trace_id 一致性断言；删除后全量绿；审计行断言；并发映射用例 |
 | **R-7 文档/注释订正** | 低优 | M-AUD-1 + M-AUD-2 + M-AUD-4 | ① transitions.py docstring 行号；② outasset.ts 注释补 reissue；③ `_mixins.py` 补 logger.debug | 消除文档漂移 + 异常吞没留痕 | rg 比对行号；`npx vue-tsc --noEmit`；`pytest -k mixin` + cov 不回退 |
 | **留痕** | — | M-RC-17（待确认）+ 5 条不采纳/留痕 | M-RC-17 需先核对后端权限码种子数据再定（R-3 后双轨面已收窄至 4 个菜单项，见 §2.4 现状注）；其余无需修复 | — | — |
@@ -193,6 +193,35 @@
 ⑥ **createEntityStore.ts 行数**——逻辑行 394/500（`check_frontend_invariants.py --print` 实证），bump 后 ~399，无触线；该护栏仅覆盖 stores（FR-8），api/composables 层不在其扫描范围。
 ⑦ **新发现登记（超出「资产状态」射程，已立项 M-CACHE-1，见批次表，排期 R-5~R-7 后）**——子资源删除/批删的写 URL（`/assets/{sub}/{rc}/`）匹配不到带 qs 的子资源列表 key（`/assets/{sub}/?page=…`），子资源列表最长 5 分钟残留已删行；属既有拦截器全局行为、非 R-4 引入。
 
+#### 3.1.5 R-5 收口记录（2026-10-28）
+
+四批代码 + 本节文档共五批提交（`4f518ae` 批1 / `e3faa20` 批2 / `29b7c0f` 批3 / `3141b3e` 批4 / 本节文档批5）。
+
+| 项 | 位置 | 改法 |
+|:---|:---|:---|
+| M-RC-10（B 步） | `createEntityStore.ts` update/remove 弹窗 + removeBatch 留痕 + displayName ×2 | update/remove 加 `if (!config.disableAutoMessage)` 守卫（非 disable 弹、disable 留给视图三段文案）；removeBatch **不改行为**只留痕（生产调用方 DamagedAssetDetails:459/RecycleAssetDetails:290 视图不弹、由 notifyBatchDeleteResult 三段文案唯一反馈）；displayName broken→「损坏资产」、found→「找回资产」（MarkBrokenView UI 实证，「故障」全仓仅一行代码注释） |
+| M-RC-09 单一实现 | `utils/errorHandler.ts::notifyCallerError`（DR-4） | AxiosError → 只 logError（拦截器已弹）；非 AxiosError（含 unwrapResponse 在 code!==0 时抛出的 `new Error(res.message)`、本地 Error）→ 弹一次且业务消息优先；注释写死判据推导 |
+| M-RC-09 A-a 簇 ×20 | composables + utils 层全部 C1 站点 | usePaginationSearch/usePaginationSearchState(×2)/useAssetLifecycleActions(×2)/useDashboardPage(×2)/useExcelExport/useExportableAssets/useGroupedAssetList/useGroupChildrenCache/usePagedList/useNotification(×2)/useRecycleFormAssociations(×2)/useRecycleFormSubmit/useUnregisteredApproval(×2)/useOutAssetAssetSelection/useDepartmentEmployeeActions/useBatchImport/useAssetFormHelpers/utils/excelExporter/utils/batchImport/templateExport |
+| M-RC-09 三份收敛 | DamagedAssetForm / ContractForm / UnregisteredAssetForm 的 `notifySubmitError` | 三份 isAxiosError 分类拷贝收敛为 notifyCallerError 单出口，isAxiosError import 随之清理 |
+| M-RC-09 A-4 | `useAssetOperationForm.ts` handleSubmit | 分类弹窗改单出口（后端业务消息优先，`options.errorMessage` 仅作非 AxiosError 兜底，不再覆盖后端消息）；删除全仓零消费的 `suppressDefaultError` 字段 |
+| M-RC-09 A-b 簇 ×~30 | Details/Form/Dialog/components + views 层 C1 站点 | AssetContentDetails(×3)/AssetTypeDetails(×4)/ContractDetails/DamagedAssetDetails/DepartmentDetails（批量删除类）；AssetForm(×2，resolveSubmitError 定义删除)/AssetBatchImport/ContractBatchImport/BasicAssetDetails/AssetTypeForm(×2)/DepartmentBatchAddDialog/DepartmentFormDialog/DepartmentEmployeeList(×2)/DepartmentManagement(×3)；views：AssetLogsView/ContactsView(×2)/AuthUserManage(×3，getErrorMessage→单出口)/RoleManage(×2，extractSubmitErrorMessage 定义删除) |
+| M-RC-12（C 步） | `api/request.ts::degradedCacheKeys` + 新建 `DegradedCacheBanner.vue` + `MainView.vue` 挂载 | **响应式 Set\<cacheKey\>**：tryFallbackCache 置位、get 真实网络响应成功清位（含业务失败体）；Banner 按 size>0 渲染黄条「当前为缓存数据」，单一横幅消费 Set |
+| 测试 | E-1~E-4 + 存量断言同步 | E-1 errorHandler.spec 契约 ×3 + E-2 useAssetOperationForm.spec 双轨 ×2 + E-3 variants.spec ×4（批1）+ E-4 request.spec ×3；20+ 处存量断言按单出口口径同步（固定文案 → err.message，mock 均为 new Error 非 Axios） |
+
+**验证结果**：全量 vitest **179 文件 / 2333 用例 passed**（2026-10-28 实测，基线 2322 + 新增 11，E-3 批1 时 2328）；`vue-tsc --build` 零输出；`eslint` / `prettier --check` 全过；`check_frontend_invariants.py` PASS（FR-6/FR-8）。
+
+**留痕清单**：
+
+① **C1/C2/C3 分类口径**——C1 = catch 收到 AxiosError 仍弹（拦截器已弹 → 双弹，单出口必修）；C2 = 需 status 特判的定制文案（超出 helper 契约，保留手工分支）；C3 = 本地校验/本地构造错误（非 API 错误，不双弹，保留）。C2 实例：AssetTypeDetails 三处删除 catch 的 400 定制文案「该资产分类已被使用」（isAxiosError + status===400 特判）；C3 实例：'记录编码不存在'/'请完善必填'/'缺少资产编码'/router 跳转失败/ElMessageBox cancel 分支。
+② **removeBatch 排除口径**——store.removeBatch 不加守卫不改行为：生产调用方仅 DamagedAssetDetails:459 / RecycleAssetDetails:290 两处，其视图自身不弹、由 `notifyBatchDeleteResult` 的成功/部分失败/全失败三段文案唯一反馈，store 层再弹即双弹；useAssetLifecycleActions.handleBatchDelete 的调用方弹窗已改单出口（AxiosError 静默、业务 Error 弹一次）。
+③ **envelope 不可达 → M-RC-12 走全局信号**——tryFallbackCache 置 `_degraded:true`（request.ts:400-407），但 ApiResponse 经 unwrapResponse 解包后该标记**不可达视图**（M-RC-12 原方案「视图/store 消费 `_degraded`」不可实现）；改为模块级响应式 Set + 布局级 Banner（ DegradedCacheBanner 单一消费方），`_degraded` 标记保留供响应层断言（E-4）。
+④ **双弹实数 3 处（修正原 ≥8 估计）**——全仓实证仅 DamagedAssetForm:451 update / DamagedAssetDetails:318 remove / RecycleAssetDetails:245 remove 三处为「视图自有弹窗 + store 自动弹」真双弹，均在批 1 B 步以 disableAutoMessage 守卫收口；其余调用方为单层弹窗（批 2/3 改单出口消灭 AxiosError 双弹）。
+⑤ **broken/found 命名依据**——broken 取「损坏资产」（MarkBrokenView 页面 UI 实证用语），found 取「找回资产」；「故障」全仓仅一行代码注释，无 UI 消费。
+⑥ **suppressDefaultError 删除依据**——useAssetOperationForm options.suppressDefaultError 全仓零生产消费（仅类型声明），且其语义（抑制默认错误）与单出口互斥；A-4 改单出口后字段失去存在意义，连同 @deprecated 注释一并删除。
+⑦ **App.vue 排除依据**——App.vue 仅含 router-view 无布局壳（登录页/404 亦经其渲染），降级提示挂其上会在登录页误显；挂载点取业务布局 MainView.vue 的 el-main 顶部（全部 /main 子页面共享，登录/404 不含）。
+⑧ **Set\<cacheKey\> 定案依据**——全局布尔有「跳 B 页清位后回 A 页静默旧数据」缺陷：A 页降级置位 → 用户跳 B 页成功清掉全局位 → 回 A 页（keep-alive）仍渲染旧数据但 Banner 已灭；按 cacheKey 维护使清位精确对应「该 URL 网络已通」，A 页残留降级态在自身刷新成功前持续可见。
+⑨ **存量断言同步口径**——单出口后非 AxiosError 场景弹 err.message（业务消息优先）而非固定 fallback，20+ 处存量断言按「mock 均为 new Error(...) → 期望 err.message」同步；AxiosError 静默行为由 E-1/E-2 契约用例覆盖。
+
 ### 3.2 推荐执行顺序
 
 ```
@@ -216,7 +245,7 @@ R-6（可观测与整洁） → R-7（文档/注释订正）
 | 影响面 \ 紧迫性 | 高（安全/数据正确性） | 中（体验/一致性） | 低（整洁/文档） |
 |:---|:---|:---|:---|
 | **广（多角色/多部门）** | M-RC-01, M-RC-07 | M-RC-08, M-RC-13 | M-RC-16 |
-| **中（特定功能路径）** | M-RC-02, M-RC-03 | M-RC-09, M-RC-10, M-RC-12 | M-RC-05, M-RC-06, M-RC-15, M-RC-18 |
+| **中（特定功能路径）** | M-RC-02, M-RC-03 | ~~M-RC-09, M-RC-10, M-RC-12~~ ✅ 已收口（R-5，2026-10-28，见 §3.1.5） | M-RC-05, M-RC-06, M-RC-15, M-RC-18 |
 | **窄（单点/边缘）** | M-RC-04 | M-RC-11, M-RC-14 | M-AUD-1, M-AUD-2, M-AUD-4 |
 
 ---
@@ -235,7 +264,7 @@ R-6（可观测与整洁） → R-7（文档/注释订正）
 | 状态机完整性 | ✅ | 资产 FSM 旁路 0 处（声明例外 3 处有留痕）；合同 FSM 单闸 |
 | 文档/注释一致性 | ⚠️ 2×P3 | M-AUD-1/M-AUD-2 文档漂移（不影响运行时行为） |
 
-**综合结论：有条件可上线（无 P0 阻断项；R-1、R-2、R-3 已于 2026-10-28 全部收口，P1 清零——后端越权写入口清零 + 前端权限面三条可达路径均已拦截；剩余为 2×P3 文档漂移（M-AUD-1/M-AUD-2）与 1 项依赖遗留（twisted pip-audit，等 26.10.0），均不影响运行时行为；建议可放量至多部门隔离环境）。**
+**综合结论：有条件可上线（无 P0/P1 阻断项；R-1~R-5 已于 2026-10-28 全部收口——后端越权写入口清零、前端权限面三条可达路径均已拦截、双弹/错误吞没提示域收口至单一出口 + 降级标识 Banner；剩余为 2×P3 文档漂移（M-AUD-1/M-AUD-2，排期 R-7）、M-CACHE-1 子资源缓存残留（已立项，排期 R-5~R-7 后）与 1 项依赖遗留（twisted pip-audit，等 26.10.0），均不影响运行时行为；建议可放量至多部门隔离环境）。**
 
 ---
 
