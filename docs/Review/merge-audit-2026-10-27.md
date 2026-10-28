@@ -65,7 +65,7 @@
 
 | 融合 ID | 原始 ID | 类型 | 位置 | 问题描述 | 下一步 |
 |:---|:---|:---|:---|:---|:---|
-| **M-RC-17** | RC-17 | 权限判据双轨 | `AsideMenu.vue:163-166` vs `guards.ts:59-83` | 菜单用权限码 `hasPermission`、路由守卫用角色层级 `checkRoleAccess`，两套判据来源不同：有码无级→菜单可见进页被拦；有级无码→菜单隐藏但直达可进 | 需先核对后端权限码种子分配，再定统一方案（建议权限码为唯一事实来源）或 CI 加一致性断言 |
+| **M-RC-17** | RC-17 | 权限判据双轨 | `AsideMenu.vue:163-166` vs `guards.ts:59-83` | 菜单用权限码 `hasPermission`、路由守卫用角色层级 `checkRoleAccess`，两套判据来源不同：有码无级→菜单可见进页被拦；有级无码→菜单隐藏但直达可进。**R-3 收口后现状（2026-10-28）**：双轨面已收窄——「资产录入」菜单项已改用 `canOperateAsset`（层级口径，与路由守卫同口径）；剩余双轨为 `canManageSystem`/`canApproveDamaged`/`canHandleUnregistered`/`canViewAuditLog` 四个系统配置/审批菜单项（均伴随 roleWhitelist 路由门槛，可达性风险低） | 需先核对后端权限码种子分配，再定统一方案（建议权限码为唯一事实来源）或 CI 加一致性断言；可并入 R-5/R-6 顺势收口 |
 
 ### 2.5 留痕/不采纳（5 条，无需修复）
 
@@ -92,7 +92,8 @@
 | **R-5 提示与降级 UX** | 中优 | M-RC-09 + M-RC-10 + M-RC-12 | ① 错误提示单出口；② `disableAutoMessage` 三处统一守卫；③ `_degraded` 消费提示 | 消除双弹与静默旧数据 | ElMessage 调用次数断言；降级提示用例 |
 | **R-6 可观测与整洁** | 中优 | M-RC-11 + M-RC-15 + M-RC-16 + M-RC-05 + M-RC-06 | ① trace_id 同源；② 删死代码；③ 缓存默认值翻转；④ lifecycle update 补审计；⑤ create_asset 接 matcher | 可观测性闭环 + 死代码清零 | 双端 trace_id 一致性断言；删除后全量绿；审计行断言；并发映射用例 |
 | **R-7 文档/注释订正** | 低优 | M-AUD-1 + M-AUD-2 + M-AUD-4 | ① transitions.py docstring 行号；② outasset.ts 注释补 reissue；③ `_mixins.py` 补 logger.debug | 消除文档漂移 + 异常吞没留痕 | rg 比对行号；`npx vue-tsc --noEmit`；`pytest -k mixin` + cov 不回退 |
-| **留痕** | — | M-RC-17（待确认）+ 5 条不采纳/留痕 | M-RC-17 需先核对后端权限码种子数据再定；其余无需修复 | — | — |
+| **留痕** | — | M-RC-17（待确认）+ 5 条不采纳/留痕 | M-RC-17 需先核对后端权限码种子数据再定（R-3 后双轨面已收窄至 4 个菜单项，见 §2.4 现状注）；其余无需修复 | — | — |
+| **M-CACHE-1** | R-4 留痕⑦ | 缓存一致性 | `request.ts` 响应拦截器（既有全局行为，非 R-4 引入） | 子资源删除/批删写 URL（`/assets/{sub}/{rc}/`）匹配不到带 qs 的子资源列表 key（`/assets/{sub}/?page=…`），子资源列表最长 5 分钟残留已删行 | 拦截器失效模式扩展或子资源写端点接列表 pattern（方案随实现定）；排期 R-5~R-7 之后 |
 
 #### 3.1.1 R-1 收口记录（2026-10-28）
 
@@ -190,7 +191,7 @@
 ④ **搜索路径分析**——searchSeq（usePaginationSearchState.ts:97）只防搜索间竞态，不防写诱发 stale；M-RC-18 bump 会放大 wrapper `?? []` 为「写后必清搜索表」，故 wrapper 直传 undefined 为**必修**而非可选（修正原「死数据」判断的搜索路径部分；列表路径死数据判断成立）。
 ⑤ **useAssetListConfig.ts:122 与 AssetLogsView.vue:100 留痕裁剪**——前者仅服务列表路径（loadList:94 天然守卫，其搜索走 searchAssets/combineSearch 不经 listRequestSeq）；后者消费 getAssetTimeline，不经 seq，不在射程。
 ⑥ **createEntityStore.ts 行数**——逻辑行 394/500（`check_frontend_invariants.py --print` 实证），bump 后 ~399，无触线；该护栏仅覆盖 stores（FR-8），api/composables 层不在其扫描范围。
-⑦ **新发现登记（超出「资产状态」射程，另行立项 [待确认]）**——子资源删除/批删的写 URL（`/assets/{sub}/{rc}/`）匹配不到带 qs 的子资源列表 key（`/assets/{sub}/?page=…`），子资源列表最长 5 分钟残留已删行；属既有拦截器全局行为、非 R-4 引入。
+⑦ **新发现登记（超出「资产状态」射程，已立项 M-CACHE-1，见批次表，排期 R-5~R-7 后）**——子资源删除/批删的写 URL（`/assets/{sub}/{rc}/`）匹配不到带 qs 的子资源列表 key（`/assets/{sub}/?page=…`），子资源列表最长 5 分钟残留已删行；属既有拦截器全局行为、非 R-4 引入。
 
 ### 3.2 推荐执行顺序
 
