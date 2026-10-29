@@ -10440,3 +10440,39 @@ AsideMenu 净减行（DR-5 不触发，.vue 无自动护栏 LT 口径人工标�
 - 前序：BF-161（M-60 脚注同文件）、BF-162（同批 R-7，标题【进行中】笔误随本条订正）。
 
 *登记人：atomcode ｜ 状态：【已关闭】（AsideMenu 四判据收敛 + spec 三层 2337 全绿 + merge-audit §3.1.8 与 §2.4/§2.5/§五/§四 补正落地；canViewAuditLog 行为变更与 RolePermDialog 手工授权边界均已在 §3.1.8 留痕②④固化），2026-10-29*
+
+---
+
+## BF-164【已关闭】M-CACHE-1 子资源缓存残留收口：assetCache 内核 invalidateByRoot + 双薄壳 + 7 api 模块 14 处接入（同源精确 / damaged 非同源宽失效）｜来源：`docs/Review/merge-audit-2026-10-27.md` :96 M-CACHE-1 行 + R-4 留痕⑦（§3.1.9）
+
+### 一、问题与定性（缓存一致性，R-4 留痕立项）
+
+拦截器失效命中条件 = 写 URL（去 qs）为缓存 key 子串（request.ts:375 `clearByPattern(url.split('?')[0])`，includes 匹配；key = `${url}?${qs}` 无参也带 `?`）。子资源**单删** `/assets/{sub}/{rc}/` 命中自身详情、命中不了列表 key（`/assets/{sub}/?page=…` 不含该子串）；**批删** `/assets/{sub}/batch-delete/` 两者皆不命中——子资源详情最长 5 分钟残留已删行。
+
+**Fact-1 订正**：原描述「子资源列表残留已删行」当前不显形——store 层 enableCache 已由 M-RC-16 全翻 false，17 处缓存 GET 全为详情、无列表；唯一真实显形路径为子资源**详情** 5 分钟残留；列表侧按「将来可能启用」（API 层 `request.get(..., true)` 能力仍在）零成本一并覆盖。
+
+### 二、修复方案（v2 定稿：不动拦截器、不动 cache.ts）
+
+- **内核 `invalidateByRoot`（不导出，DR-1）**：root 归一化补首尾斜杠；codes=null → 宽 `${root}`；数组 → 逐条 `${root}${code}/` + `${root}?`；**P0-3**：空数组只清列表（批删全失败不得退化宽清集合详情）；空串过滤防 `${root}/` 自伤。
+- **双薄壳**：`invalidateAssetCache` 薄壳化（签名不变，**既有 cache.spec 13 条断言一字不改全绿**——P0 等价性实证）；`invalidateSubResourceCache` 子资源入口。
+- **14 处接入**：单删 ×7 精确 `[rc]`；批删 ×6 精确（success_ids 优先、运行时缺失回退 ids）；damaged 批删**非同源宽失效**（ids/success_ids 均为资产 recordcode，够不到损坏单详情 key，禁止逐条）。damaged/recycle/out 既有 `invalidateAssetCache()` 6 处并存不互替。
+- **方案否决留痕**：拦截器失效模式扩展（无法区分同源/非同源，damaged 需宽其余需精确）；写端点接列表 pattern（散落 14 处，公共核更 DR-1）。
+- **注释改写（§8）**：assetCache 头注释旧结论「子资源写 URL 是缓存 key 前缀，拦截器已覆盖——不要补失效」改为「单删命中自身详情、命中不了列表；批删两者都命中不了」（对详情 key 部分正确、对列表 key 与批删 URL 不成立）；既有 24 处清单原样保留，另起子资源侧 14 处段。
+
+### 三、影响面
+
+纯前端：assetCache.ts 73→132 行（DR-5 内）、7 api 模块各 +1~3 行、新建 subResourceCache.spec.ts；不改 request.ts 拦截器/cache.ts/store 层/其余 18 处资产侧接入点；无后端改动、无跨端契约变更、无界面改动。
+
+### 四、测试验证
+
+- 新建 `subResourceCache.spec.ts` **24 条先红后绿**（接入前 18 failed 实测 → 接入后 0）：内核归一化/P0-3/空串过滤/宽失效 ×6；单删 ×7 契约表驱动；批删 ×7（6 精确 success_ids + damaged 负断言「不产生任何逐条 pattern」）；success_ids 混合失败/全失败；deferred await 时序（resolve 前零失效/reject 零）；打网语义 MemoryCache 实证（四 key 清谁不清谁）；update 豁免留痕。
+- **有意收紧**：damaged/recycle/out 6 处 invalidateAssetCache 由 fire-and-forget 收紧为 await 后失效（写失败不再清资产侧缓存，行为更正确）；范围声明仅本次 14 处，其余 18 处资产侧 fire-and-forget 未收口不外宣称。
+- 全量 vitest **179 files / 2361 passed**（2026-10-29，基线 2337 + 24）；vue-tsc --build 零输出；eslint / prettier / FR 护栏全过；coverage assetCache.ts **100%**（分层阈值不回退）。
+
+### 五、关联与残余
+
+- 审计行：merge-audit-2026-10-27 :96（已收口）/ R-4 留痕⑦（:194 指针）/ §3.1.9（收口记录）/ §四 综合结论；
+- 前序：BF-152（AUD-55 资产侧 5 处失效）/ BF-163（同日）；依赖：M-RC-16（enableCache 翻转为 Fact-1 前提）；
+- **残余风险（已知、不在本条）**：①其余 18 处资产侧 fire-and-forget 仍有「失效早于写完成 + 并发 GET 回填」窗口；②GET 回填窗口需缓存代际/seq（M-RC-18 范畴）根治；③列表缓存启用时 update 系列 7×1 须同步接入（豁免已写进契约表与 assetCache 注释）。
+
+*登记人：atomcode ｜ 状态：【已关闭】（内核+双薄壳+14 处接入落地，24 条 spec 先红后绿全绿，全量 2361 passed，merge-audit §3.1.9 同步），2026-10-29*

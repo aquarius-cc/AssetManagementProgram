@@ -93,7 +93,7 @@
 | **R-6 可观测与整洁** | 中优 | M-RC-11 + M-RC-15 + M-RC-16 + M-RC-05 + M-RC-06 | ① trace_id 同源；② 删死代码；③ 缓存默认值翻转；④ lifecycle update 补审计；⑤ create_asset 接 matcher ✅ **已收口（2026-10-29，见 §3.1.6）**：syncTraceId 单一写入口 + 四触点；assetLifecycleService 删除 + 7 处残留清理；enableCache 默认翻转 + 锁定用例；update_lifecycle_record + 契约保形 + 正反用例 ×5；savepoint + matcher + RuntimeError 消除 + 用例 ×3 | 可观测性闭环 + 死代码清零 | ✅ FE logger.spec ×3 + 2328 全绿；后端 lifecycle 34（含契约 8 条保形）+ asset_service 43 + 回归 46 passed；ruff PASS |
 | **R-7 文档/注释订正** | 低优 | M-AUD-1 + M-AUD-2 + M-AUD-4 | ① transitions.py docstring 行号；② outasset.ts 注释补 reissue；③ `_mixins.py` 补 logger.debug ✅ **已收口（2026-10-29，见 §3.1.7）**：docstring 锚点化（方法名三连免疫行号漂移）+ 注释补 reissue（三方同文案）+ debug 留痕（语义订正「回落」）+ caplog 用例 ×4；合并台账 BF-162 | 消除文档漂移 + 异常吞没留痕 | ✅ rg 锚点比对三连一致；vue-tsc 零输出；cov 68%→90% 不回退（:33 miss 清零）；42 passed |
 | **留痕** | — | ~~M-RC-17（待确认）~~ ✅ **已收口（2026-10-29，见 §3.1.8）** + 5 条不采纳/留痕 | M-RC-17 权限判据双轨归零（四判据复用层级口径，方向订正见 §3.1.8）；其余 5 条无需修复（证据链已补 §2.5） | — | — |
-| **M-CACHE-1** | R-4 留痕⑦ | 缓存一致性 | `request.ts` 响应拦截器（既有全局行为，非 R-4 引入） | 子资源删除/批删写 URL（`/assets/{sub}/{rc}/`）匹配不到带 qs 的子资源列表 key（`/assets/{sub}/?page=…`），子资源列表最长 5 分钟残留已删行 | 拦截器失效模式扩展或子资源写端点接列表 pattern（方案随实现定）；排期 R-5~R-7 之后 |
+| **M-CACHE-1** | R-4 留痕⑦ | 缓存一致性 | `request.ts` 响应拦截器（既有全局行为，非 R-4 引入） | 子资源删除/批删写 URL（`/assets/{sub}/{rc}/`）匹配不到带 qs 的子资源列表 key（`/assets/{sub}/?page=…`），子资源列表最长 5 分钟残留已删行。**Fact-1 订正（BF-164 实证）**：列表当前未缓存（store 层 enableCache 已翻 false），残留唯一真实显形路径为子资源**详情** key 5 分钟旧数据 | 拦截器失效模式扩展或子资源写端点接列表 pattern（方案随实现定）；排期 R-5~R-7 之后 ✅ **已收口（2026-10-29，BF-164，见 §3.1.9）**：assetCache 内核 invalidateByRoot + invalidateSubResourceCache 双薄壳，7 api 模块 14 处接入（6 模块 success_ids 精确 + damaged 非同源宽失效）；24/37/13 条 spec 全绿 |
 
 #### 3.1.1 R-1 收口记录（2026-10-28）
 
@@ -191,7 +191,7 @@
 ④ **搜索路径分析**——searchSeq（usePaginationSearchState.ts:97）只防搜索间竞态，不防写诱发 stale；M-RC-18 bump 会放大 wrapper `?? []` 为「写后必清搜索表」，故 wrapper 直传 undefined 为**必修**而非可选（修正原「死数据」判断的搜索路径部分；列表路径死数据判断成立）。
 ⑤ **useAssetListConfig.ts:122 与 AssetLogsView.vue:100 留痕裁剪**——前者仅服务列表路径（loadList:94 天然守卫，其搜索走 searchAssets/combineSearch 不经 listRequestSeq）；后者消费 getAssetTimeline，不经 seq，不在射程。
 ⑥ **createEntityStore.ts 行数**——逻辑行 394/500（`check_frontend_invariants.py --print` 实证），bump 后 ~399，无触线；该护栏仅覆盖 stores（FR-8），api/composables 层不在其扫描范围。
-⑦ **新发现登记（超出「资产状态」射程，已立项 M-CACHE-1，见批次表，排期 R-5~R-7 后）**——子资源删除/批删的写 URL（`/assets/{sub}/{rc}/`）匹配不到带 qs 的子资源列表 key（`/assets/{sub}/?page=…`），子资源列表最长 5 分钟残留已删行；属既有拦截器全局行为、非 R-4 引入。
+⑦ **新发现登记（超出「资产状态」射程，已立项 M-CACHE-1，见批次表，排期 R-5~R-7 后）**——子资源删除/批删的写 URL（`/assets/{sub}/{rc}/`）匹配不到带 qs 的子资源列表 key（`/assets/{sub}/?page=…`），子资源列表最长 5 分钟残留已删行；属既有拦截器全局行为、非 R-4 引入。✅ **已收口（2026-10-29，BF-164，见 §3.1.9）**；Fact-1 订正：列表当前未缓存，唯一真实显形路径为子资源详情 5 分钟残留，列表侧零成本一并覆盖。
 
 #### 3.1.5 R-5 收口记录（2026-10-28）
 
@@ -285,6 +285,28 @@
 ⑤ **?raw 守卫注释适配**——AsideMenu R-3 注释含 `hasPermission(` 字面（「不用 hasPermission(asset:create)」说明文字）会误触守卫，注释改写为「不用细粒度权限码（如 asset:create 的 hasPermission 判定）」去括号字面，守卫保持严格（禁 PERMISSION_CODES 与 hasPermission( 两形态）。
 ⑥ **mount 冒烟不做**——AsideMenu mount 需 stub EP 菜单全族 + router + 三个子组件（DarkModeToggle/NotificationBell/AssetQuickScan），成本高于收益；层级逻辑已由 usePermission.spec 矩阵全覆盖 + ?raw 守卫锁定源码形态，理由留痕。
 
+#### 3.1.9 M-CACHE-1 收口记录（2026-10-29）
+
+单批提交（assetCache 内核重构 + subResourceCache.spec 24 条 + 7 api 模块 14 处接入 + 本节与 :96/R-4 留痕⑦/§四 补正 + 活账本 BF-164）。方案选型：**不动拦截器、不动 cache.ts**，assetCache 内核 `invalidateByRoot`（不导出，DR-1）+ 双薄壳（`invalidateAssetCache` 签名不变薄壳化 / `invalidateSubResourceCache` 新入口）——否决「拦截器失效模式扩展」（拦截器无法区分同源/非同源，damaged 批删需宽、其余需精确，内核按 codes 语义分发为唯一可达方案）；否决「子资源写端点接列表 pattern」（同效果但散落 14 处，公共核更 DR-1）。
+
+| 项 | 位置 | 改法 |
+|:---|:---|:---|
+| 内核 + 双薄壳 | `api/assetCache.ts`（73→132 行） | `invalidateByRoot(root, codes?)`：root 归一化补首尾斜杠；codes=null → 宽 `${root}`；数组 → 逐条 `${root}${code}/` + `${root}?`；**P0-3**：空数组只清列表 `${root}?` 不得退化宽清（批删全失败不降级为清集合详情）；空串过滤防 `${root}/` 自伤。`invalidateAssetCache` 薄壳化（精确=核([rc])、宽=核(null)，**既有 cache.spec 13 条断言一字不改全绿**——P0 等价性实证）；`invalidateSubResourceCache` 为子资源入口 |
+| 14 处接入 | 7 api 模块 | 单删 ×7 精确 `[rc]`；批删 ×6 精确（**success_ids 优先，运行时缺失回退 ids** 保守过清）；damaged 批删**非同源宽失效**（ids/success_ids 均为资产 recordcode，够不到损坏单详情 key，禁止逐条）。damaged/recycle/out 的 6 处既有 `invalidateAssetCache()` 保持并存（职责不重叠） |
+| 注释改写（§8） | assetCache.ts 头注释 | 旧结论「子资源写 URL 就是缓存 key 前缀，拦截器已覆盖——不要补失效」改为：**单删命中自身详情、命中不了列表；批删两者都命中不了**（对详情 key 部分正确、对列表 key 与批删 URL 不成立）；既有 24 处清单原样保留，另起「子资源侧 14 处」段 |
+| 测试 | 新建 `subResourceCache.spec.ts` 24 条（先红后绿实测 18 failed→0） | 核归一化/P0-3/空串过滤/宽失效 ×6；单删 ×7 契约表驱动；批删 ×7（6 精确 success_ids + damaged 负断言「不产生任何逐条 pattern」）；success_ids 混合失败/全失败；deferred await 时序（resolve 前零失效/resolve 后/reject 零）；打网语义 MemoryCache 实证（四 key 清谁不清谁）；update 豁免留痕 |
+
+**验证结果**：全量 vitest **179 文件 / 2361 用例 passed**（2026-10-29 实测，基线 2337 + 24）；`vue-tsc --build` 零输出；eslint / prettier / FR 护栏全过；coverage：assetCache.ts **100%**（整体分层阈值不回退）；规模 assetCache.ts 132 行（DR-5 内，.ts 阈值 src/**≥80 不回退）。
+
+**留痕清单**：
+
+① **有意收紧（登记防「顺手改」误判）**——damaged/recycle/out 6 处既有 `invalidateAssetCache()` 由 fire-and-forget 收紧为 await 后失效：写失败（reject）时不再失效资产侧缓存（行为更正确——失败不应清缓存），返回类型不变对 store 透明；范围声明：仅本次 14 处成立，其余 18 处资产侧 fire-and-forget 接入点未收口，不对外宣称全仓。
+② **效果边界**——显著降低但不消除「写在途 → 并发 GET 回填旧数据」窗口（GET 响应晚于失效仍回填）；根治需缓存代际/seq（M-RC-18 范畴），本条不做。
+③ **Fact-1 订正**——原描述「子资源列表残留已删行」当前不显形：store 层 enableCache 已由 M-RC-16 全翻 false（createEntityStore.ts:69-72），17 处缓存 GET 全为详情、无列表；唯一真实显形路径为 damaged 等子资源**详情** 5 分钟残留；列表侧按「将来可能启用」零成本一并覆盖（API 层 `request.get(..., true)` 能力仍在）。
+④ **update 豁免**——各模块 update 系列不接入（列表未缓存故无害），spec 用例 13 锁定 + assetCache.ts 豁免注释写明「启用列表缓存时须同步接入」。
+⑤ **成功路径零冗余**——薄壳每次调用产 1 次（宽）或 2 次（精确）`clearCacheByPattern`，核内无重复调用；cache.spec:136-144 次数断言零改动通过。
+⑥ **残余风险（已知、不在本条）**——①其余 18 处 fire-and-forget 窗口；②GET 回填窗口需代际/seq；③列表缓存启用时 update 系列 7×1 须同步接入。
+
 ### 3.2 推荐执行顺序
 
 ```
@@ -327,7 +349,7 @@ R-6（可观测与整洁） → R-7（文档/注释订正）
 | 状态机完整性 | ✅ | 资产 FSM 旁路 0 处（声明例外 3 处有留痕）；合同 FSM 单闸 |
 | 文档/注释一致性 | ✅（原 2×P3） | ~~M-AUD-1/M-AUD-2 文档漂移~~ ✅ **已收口（R-7，2026-10-29，见 §3.1.7）**：docstring 锚点化 + outasset.ts 补 reissue；M-AUD-4 吞没点 debug 留痕同批落地 |
 
-**综合结论：有条件可上线（无 P0/P1 阻断项；R-1~R-7 已于 2026-10-28/29 全部收口——后端越权写入口清零、前端权限面三条可达路径均已拦截、提示域收口至单一出口 + 降级标识 Banner、可观测性 trace_id 双端同源闭环 + 审计缺口补齐 + 死代码清零、文档漂移与异常吞没留痕订正完毕；剩余仅 M-CACHE-1 子资源缓存残留（已立项，排期 R-7 后）与 1 项依赖遗留（twisted pip-audit，等 26.10.0），均不影响运行时行为；建议可放量至多部门隔离环境）。**
+**综合结论：有条件可上线（无 P0/P1 阻断项；R-1~R-7 与 M-RC-17 留痕批、M-CACHE-1 已于 2026-10-28/29 全部收口——后端越权写入口清零、前端权限面三条可达路径均已拦截且菜单/守卫/后端三方同口径、提示域收口至单一出口 + 降级标识 Banner、可观测性 trace_id 双端同源闭环 + 审计缺口补齐 + 死代码清零、文档漂移与异常吞没留痕订正完毕、子资源缓存残留已按同源精确/非同源宽失效两型收口；剩余仅 1 项依赖遗留（twisted pip-audit，等 26.10.0），不影响运行时行为；建议可放量至多部门隔离环境）。**
 
 ---
 
