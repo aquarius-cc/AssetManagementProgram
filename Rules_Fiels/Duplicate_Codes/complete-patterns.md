@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.57 | **最后更新**：2026-10-08 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.59 | **最后更新**：2026-10-29 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -907,6 +907,14 @@
 - **登记日期**：2026-10-04 | 来源：v2.3 阶段 2 · B3 收尾（§1.8 新发现义务）
 - **验证命令**：`rg -n 'lower\(\) == .true.' apps/ core/`（预期收敛后仅剩 `apps/notification/views.py:31` 一处）
 
+### D-8. 【已收口（2026-10-29）】同名权限判据双实现（菜单权限码口径 vs 层级口径，判据来源分叉）
+- **判定**：**DR-4 违例 + 判据来源分叉**（非纯重复——两实现语义不同源，收敛时伴随行为订正）。
+- **发现来源**：merge-audit-2026-10-27 §2.4 **M-RC-17**（R-3 后双轨面收窄至四菜单项，待确认项转正收口）。
+- **原形态**：`AsideMenu.vue` 四个权限码 computed（`hasPermission(PERMISSION_CODES.*)`，读 authStore.permissions 种子态）与 `usePermission.ts:105-117` 四个同名层级判据（`isDeptManagerOrAbove`/`isAdmin‖isAuditor` 等，读 ROLE_HIERARCHY）双实现并存——菜单（码口径）与路由守卫（`guards.ts` roleWhitelist 层级口径）判据分叉：有码无级→可见被拦；有级无级→隐藏可直达。
+- **收敛落地**：`AsideMenu.vue` 删四个本地 computed 与 `PERMISSION_CODES` import，解构复用 usePermission 同名判据（DR-4 单一来源）；菜单/守卫/后端 permission_classes（层级）三方同口径。**方向订正**：原建议「权限码为唯一事实来源」反转——后端无权限码校验，层级为唯一可达同口径（merge-audit §3.1.8 留痕①）。**行为变更锁定**：canViewAuditLog 在 regular_user 持 `auditlog:read` 码时由可见转隐藏（与守卫一致），spec 显式锁定防改回。
+- **防回归**：`usePermission.spec.ts` 三层——四判据 × 5 角色矩阵 / 3 条「有码低角色 → false」锁定 / `?raw` 源码守卫（AsideMenu 禁 `PERMISSION_CODES` 与 `hasPermission(` 两形态，先例 GroupedAssetTable.spec.ts:25）。
+- **验证**：全量 vitest **179 files / 2337 passed** exit 0（基线 2328 + 9）、vue-tsc --build 零输出、eslint / prettier / FR 护栏全过。**连带登记**：活账本 BF-163；merge-audit §3.1.8。
+
 ---
 
 ## B-19. 【执行顺序清单】Bug 修复优先级排序（按复杂度分级）
@@ -989,6 +997,7 @@
 > 故同表登记；但实现与 CI 归属不同（`ci.yml` 而非 `duplicate-guard.yml`），不可混为一谈。
 
 ## 变更记录
+- **v2.9.59 (2026-10-29)**：关闭 **D-8**（DR-4 判据来源分叉，发现来源 merge-audit M-RC-17 待确认项转正）——`AsideMenu.vue` 四菜单判据权限码双实现（`hasPermission(PERMISSION_CODES.*)` 读种子态）与 `usePermission.ts:105-117` 同名层级判据并存，菜单（码口径）与路由守卫（roleWhitelist 层级口径）分叉：有码无级→可见被拦、有级无级→隐藏可直达（auditlog:read 全角色有码为最宽分叉）。**收敛**：AsideMenu 解构复用层级判据删本地实现（DR-4），菜单/守卫/后端 permission_classes 三方同口径；**方向订正**——原「权限码为唯一事实来源」反转（后端无码校验，层级为唯一可达同口径，merge-audit §3.1.8 留痕①）；**行为变更锁定**：canViewAuditLog 对持码 regular_user 由可见转隐藏。防回归三层（角色矩阵 / 有码低角色 false 锁定 ×3 / ?raw 源码守卫）。验证：全量 vitest **179 files / 2337 passed**（+9）、vue-tsc / eslint / prettier / FR 护栏全 0；活账本 BF-163、merge-audit §3.1.8 同步。
 - **v2.9.58 (2026-10-08)**：关闭 **A-49**（DR-1 测试侧，§1.8 新发现义务）——分组两 spec 同名 `expandGroup` helper 双份实现且共载与真实 element-plus@2.13.7 不符的载荷 `true`（真实载荷为 `[row]`），随 **BF-078** 需求2（`onExpandChange` 归一化，用户裁定「不应连带展开」为 Bug）同批统一为 `[row]` 并注释实证留痕。BF-078 整批登记（四需求：汇总列序勾选前置 / 不连带展开 / 返回状态恢复 AC-67j / 单条组取消自动展开 AC-67e 反向修订），活账本 BF-078 条目、方案书 §3.12.12 落地证据、验收标准 AC-67e/AC-67j 同步。验证：全量 vitest **152 files / 2075 passed** exit 0（较 BF-077 同日基线 2052 净增 23）、覆盖率 statements 93.01% / stores 97.84%（双阈值过）、type-check / lint / format:check 全 0、双护栏 PASS。
 - **v2.9.57 (2026-10-08)**：关闭 **A-48**（DR-2 样式值级重复，§1.8 新发现义务）——详情页本地样式块冗余覆写 `detail-container` mixin `min-height` 同值 ×7 + 无 mixin 复刻块 ×1 收敛为 mixin 单源（`common-forms.scss:127 → min-height:100%`，8 处 include 统一生效），修复后 detils/ 下 `100vh` 残留 0；同步登记 **BF-075**（四模块同批：16 列表页 el-table 横向滚动条埋底 / 分组汇总与子表同型 / 详情页双滚动条 / RoleManage+AuthUserManage 视口 100vh）与 `style-optimization-proposal.md` §4.7 新增 + §6.3 重写 + 优先级表标注。计划偏差两处已留痕（M4 `height:100%` → flex 等价形、孤儿 spec 方案 A 修复）。验证：全量 vitest 150 files / **2049 passed** exit 0、覆盖率四指标 ≥80、build（SCSS 真编译）成功、type-check / lint / format 全 0；变异测试经用户拍板豁免（改动仅 template/styles/specs，与 stryker 范围零交集）。
 - **v2.9.56 (2026-10-06)**：关闭 **A-47**（DR-1；前端 B 批 9 键筛选）——搜索栏下拉选项加载抽离 + 资产类型双值空间单源派生。**收敛落地**：新建 `vue-assetmanagement/src/composables/useAssetSearchOptions.ts`（71 逻辑行），平铺/分组两套字段集共用的选项加载**唯一数据源**；`useAssetListConfig` 删除内联资产类型加载、改注入 `enableGrouping` 并消费两套类型值空间 + 门控仓库加载（onMounted 仅分组模式拉仓库，平铺零额外请求）。**双值空间单源**：同一 `getAssetTypes` 响应派生 `type_code`（平铺 `asset_type_category`）与 `recordcode`（分组 `asset_type_recordcode`）两套下拉 value；仓库选项 value 取 `Storage.recordcode`（非 `storage_code`，后端 FK `to_field="recordcode"`）。**键集单一事实源**：`constants/assetGroupedFilters.ts` 的 `GROUPED_PASS_THROUGH_KEYS`（9 键）为筛选白名单唯一事实源，`useGroupChildrenCache` 白名单 3→9 键并改为引常量（消解键集第二份字面量）；`GROUPED_FIELD_DROP_KEYS=['asset_type_category']`＋`isGroupedFieldDropped` 为 UI 展示剔除点（键仍保留透传白名单，恒等式 I-1 不断）。**规模事实订正**：对照组 `git show HEAD:src/composables/useAssetListConfig.ts` 经护栏口径实测 **160** 逻辑行（未超限），此前方案稿「内联超 FR-6 红线」描述不精确——真实情况是**草案内联**阶段触发 ≥200（草案未提交不可复现），抽离后 71/174/120 全 < FR-6 200；方案书 §3.12.10 对应表述已同步改为可复现口径。验证：vitest 144 files / **1978 passed**、覆盖率 Stmts 92.99% / stores 97.73%、type-check / lint / format:check 均 0、本批文件 complexity 命中 0（个仓 52 条存量）、`check_frontend_invariants.py --print` 71/174/120、`check_duplicate_invariants.py` PASS（G-1~G-5 未受扰）。**遗留登记 L-1/L-2/L-3**（§3.12.10）随 B 批回填，其中 L-1（分组入口无调用方）、L-3（使用性质未实现）属产品决策项，L-2（`no_contract` 无 UI）维持常量测试锚定。

@@ -65,16 +65,16 @@
 
 | 融合 ID | 原始 ID | 类型 | 位置 | 问题描述 | 下一步 |
 |:---|:---|:---|:---|:---|:---|
-| **M-RC-17** | RC-17 | 权限判据双轨 | `AsideMenu.vue:163-166` vs `guards.ts:59-83` | 菜单用权限码 `hasPermission`、路由守卫用角色层级 `checkRoleAccess`，两套判据来源不同：有码无级→菜单可见进页被拦；有级无码→菜单隐藏但直达可进。**R-3 收口后现状（2026-10-28）**：双轨面已收窄——「资产录入」菜单项已改用 `canOperateAsset`（层级口径，与路由守卫同口径）；剩余双轨为 `canManageSystem`/`canApproveDamaged`/`canHandleUnregistered`/`canViewAuditLog` 四个系统配置/审批菜单项（均伴随 roleWhitelist 路由门槛，可达性风险低） | 需先核对后端权限码种子分配，再定统一方案（建议权限码为唯一事实来源）或 CI 加一致性断言；可并入 R-5/R-6 顺势收口 |
+| **M-RC-17** | RC-17 | 权限判据双轨 | `AsideMenu.vue:166-169` vs `guards.ts:33-51` | 菜单用权限码 `hasPermission`、路由守卫用角色层级 `roleWhitelist`，两套判据来源不同：有码无级→菜单可见进页被拦；有级无码→菜单隐藏但直达可进。**R-3 收口后现状（2026-10-28）**：双轨面已收窄——「资产录入」菜单项已改用 `canOperateAsset`（层级口径）；剩余双轨为 `canManageSystem`/`canApproveDamaged`/`canHandleUnregistered`/`canViewAuditLog` 四项 ✅ **已收口（2026-10-29，见 §3.1.8）**：四判据复用 usePermission 层级实现，权限码双轨归零；方向订正——后端业务端点用层级（IsAuthenticated/IsAssetAdminOrAbove）无权限码校验，**统一到层级口径**而非原建议「权限码为唯一事实来源」（方向反转，见 §3.1.8 留痕②） |
 
 ### 2.5 留痕/不采纳（5 条，无需修复）
 
 | 融合 ID | 原始 ID | 类型 | 说明 | 处置理由 |
 |:---|:---|:---|:---|:---|
-| **M-RC-19** | RC-19 | 置信度不足 | `fail_repair` 的 DamagedAsset insert 无 IntegrityError 映射 | 无法构造可达路径，置信度 <80% 不报告为缺陷，留痕备查 |
-| **M-RC-20** | RC-20 | 误报排除 | `urls.py:142 return Response({'status':...})` 疑似响应契约旁路 | 人工核读：位于模块尾部教程 docstring 内，非可执行路径；响应根结构**无旁路** |
-| **M-AUD-3** | AUD-3 | 设计差异留痕 | `services/operation_log_service.py:107` vs `core/audit_service.py:63` 双审计链写入口径不同 | 资产域同步（事务内，与业务一致优先）vs 通用域 on_commit 异步（robust=True）——属已声明的分层取舍，非缺陷 |
-| **M-AUD-5** | AUD-5 | 零残留确认 | 全后端 TODO/FIXME **0 处** | 初扫 8 处命中经复核均为编码格式串 `XXXXXX` 字面量，非待办标记；自审阶段已订正 |
+| **M-RC-19** | RC-19 | 置信度不足 | `fail_repair` 的 DamagedAsset insert 无 IntegrityError 映射 | 无法构造可达路径，置信度 <80% 不报告为缺陷，留痕备查。**证据链（2026-10-29 补）**：`uq_damaged_asset_active_asset` 部分唯一约束存在（活跃记录唯一），`violation_error_message` 已挂约束；兜底已由全局 handler 400 通用文案覆盖，本条仅为「无精准映射」。可选对称补法：仿 asset_service create_asset 的 savepoint+matcher（R-6 批5 范式），可达路径证伪前不动 |
+| **M-RC-20** | RC-20 | 误报排除 | `urls.py:142 return Response({'status':...})` 疑似响应契约旁路 | 人工核读：位于模块尾部教程 docstring 内，非可执行路径；响应根结构**无旁路**。**取证**：`sed -n '138,145p' apps/assetmanagement/urls.py`（docstring 内） |
+| **M-AUD-3** | AUD-3 | 设计差异留痕 | `services/operation_log_service.py:107` vs `core/audit_service.py:63` 双审计链写入口径不同 | 资产域同步（事务内，与业务一致优先）vs 通用域 on_commit 异步（robust=True）——属已声明的分层取舍，非缺陷；R-6 批4 update 审计选同步口径（§3.1.6 留痕⑤）与资产域一致 |
+| **M-AUD-5** | AUD-5 | 零残留确认 | 全后端 TODO/FIXME **0 处** | 初扫 8 处命中经复核均为编码格式串 `XXXXXX` 字面量，非待办标记；自审阶段已订正。**取证**：`rg -n "TODO\|FIXME" apps/ core/ --type py` 命中 0 |
 | **M-AUD-6** | AUD-6 | 语义合理 | 迁移脚本 `except (JSONDecodeError, TypeError): pass` / consumer `except asyncio.CancelledError: pass` | 一次性数据迁移的类型化吞错 / asyncio 惯例——语义合理，不采纳 |
 
 ---
@@ -92,7 +92,7 @@
 | **R-5 提示与降级 UX** | 中优 | M-RC-09 + M-RC-10 + M-RC-12 | ① 错误提示单出口；② `disableAutoMessage` 三处统一守卫；③ `_degraded` 消费提示 ✅ **已收口（2026-10-28，见 §3.1.5）**：notifyCallerError 单一实现铺开 ~50 处 C1 站点 + 三份 notifySubmitError 收敛 + A-4 分类弹窗；update/remove 守卫 + removeBatch 留痕；degradedCacheKeys Set + 布局级 Banner | 消除双弹与静默旧数据 | ✅ ElMessage 调用次数断言（E-1~E-4 共 12 用例）+ 降级提示用例；2333 全绿 |
 | **R-6 可观测与整洁** | 中优 | M-RC-11 + M-RC-15 + M-RC-16 + M-RC-05 + M-RC-06 | ① trace_id 同源；② 删死代码；③ 缓存默认值翻转；④ lifecycle update 补审计；⑤ create_asset 接 matcher ✅ **已收口（2026-10-29，见 §3.1.6）**：syncTraceId 单一写入口 + 四触点；assetLifecycleService 删除 + 7 处残留清理；enableCache 默认翻转 + 锁定用例；update_lifecycle_record + 契约保形 + 正反用例 ×5；savepoint + matcher + RuntimeError 消除 + 用例 ×3 | 可观测性闭环 + 死代码清零 | ✅ FE logger.spec ×3 + 2328 全绿；后端 lifecycle 34（含契约 8 条保形）+ asset_service 43 + 回归 46 passed；ruff PASS |
 | **R-7 文档/注释订正** | 低优 | M-AUD-1 + M-AUD-2 + M-AUD-4 | ① transitions.py docstring 行号；② outasset.ts 注释补 reissue；③ `_mixins.py` 补 logger.debug ✅ **已收口（2026-10-29，见 §3.1.7）**：docstring 锚点化（方法名三连免疫行号漂移）+ 注释补 reissue（三方同文案）+ debug 留痕（语义订正「回落」）+ caplog 用例 ×4；合并台账 BF-162 | 消除文档漂移 + 异常吞没留痕 | ✅ rg 锚点比对三连一致；vue-tsc 零输出；cov 68%→90% 不回退（:33 miss 清零）；42 passed |
-| **留痕** | — | M-RC-17（待确认）+ 5 条不采纳/留痕 | M-RC-17 需先核对后端权限码种子数据再定（R-3 后双轨面已收窄至 4 个菜单项，见 §2.4 现状注）；其余无需修复 | — | — |
+| **留痕** | — | ~~M-RC-17（待确认）~~ ✅ **已收口（2026-10-29，见 §3.1.8）** + 5 条不采纳/留痕 | M-RC-17 权限判据双轨归零（四判据复用层级口径，方向订正见 §3.1.8）；其余 5 条无需修复（证据链已补 §2.5） | — | — |
 | **M-CACHE-1** | R-4 留痕⑦ | 缓存一致性 | `request.ts` 响应拦截器（既有全局行为，非 R-4 引入） | 子资源删除/批删写 URL（`/assets/{sub}/{rc}/`）匹配不到带 qs 的子资源列表 key（`/assets/{sub}/?page=…`），子资源列表最长 5 分钟残留已删行 | 拦截器失效模式扩展或子资源写端点接列表 pattern（方案随实现定）；排期 R-5~R-7 之后 |
 
 #### 3.1.1 R-1 收口记录（2026-10-28）
@@ -265,6 +265,26 @@
 ② **测试替身用 Stub + 真实模型**——get_object 依赖 self.queryset（供 .model.DoesNotExist）与 self.get_queryset()，Mock 无法提供；check_object_permissions 在 pk 命中（:30）与回落成功（:40）均调用，Stub 提供双 no-op；模型选 AssetType 避开 RecycleAsset 三重 FK 建行负担。
 ③ **正例构造修正**——AssetType recordcode 为生成串非纯数字，digit 值回落查不到；正例将 recordcode 显式置为 digit 串（"9000000001"）以真实命中回落路径，非 mock 绕过。
 
+#### 3.1.8 M-RC-17 收口记录（2026-10-29，留痕批补正）
+
+单批提交（AsideMenu 判据收敛 + usePermission.spec 矩阵/守卫 + 本节与 §2.4/§2.5/留痕行/§五/§四 补正 + 活账本 BF-163 + D-8）。合并台账：活账本 BF-163、重复代码账本 D-8（v2.9.59）。
+
+| 项 | 位置 | 改法 |
+|:---|:---|:---|
+| M-RC-17 四判据收敛 | `AsideMenu.vue` | 删 :166-169 四个权限码 computed 与 PERMISSION_CODES import，改为解构复用 usePermission 同名层级判据（canManageSystem=isAdmin‖码短路 / canApproveDamaged=canHandleUnregistered=isDeptManagerOrAbove / canViewAuditLog=isAdmin‖isAuditor，:105-117 既有实现，DR-4 单一来源）；R-3 既有 R-3/M-RC-07 注释保留并补「三方同口径」依据 |
+| 测试三层 | `usePermission.spec.ts` | ①四判据 × 5 角色矩阵（regular_user/auditor/dept_manager/asset_admin/system_admin，期望值注释在用例头，层级口径不依赖权限码表）；②3 条「有码低角色 → false」锁定（damaged:approve / unregistered:approve / auditlog:read 授予 regular_user 仍 false——第三条原权限码实现为 true，属**行为变更**显式锁定）+ auditor 对 auditlog 的 true 正例；③?raw 源码守卫：AsideMenu 不得再出现 PERMISSION_CODES / hasPermission(（先例 GroupedAssetTable.spec.ts:25） |
+
+**验证结果**：全量 vitest **179 文件 / 2337 用例 passed**（2026-10-29 实测，基线 2328 + 9）；`vue-tsc --build` 零输出；eslint / prettier 全过；FR 护栏 PASS。AsideMenu 净减行（DR-5 不触发；.vue 无自动化行数护栏，LT-1~LT-3 口径人工标注）。
+
+**留痕清单**：
+
+① **方向订正（§2.4 原建议反转）**——原建议「权限码为唯一事实来源」方向反了：业务端点 permission_classes 用 `IsAuthenticated / IsAssetAdminOrAbove`（层级），无权限码校验；权限码仅在种子态覆盖（0016/0017），RolePermDialog 手工授权后菜单（权限码口径）与守卫（层级口径）必分叉。统一到**层级口径**为三方（菜单/守卫/后端）唯一可达的同口径。
+② **RolePermDialog 手工授权路径行为边界**——授权他角色权限码后，菜单可见性**不再随之变化**（层级口径为准），与路由守卫行为一致：即「菜单不承诺展示权限码授予的页面可达性」，有码无级场景（种子下不存在，手工授权后存在）表现为码静默无效——该口径由本节与 AsideMenu 注释固化，后续若要「码驱动可达性」须三方（种子/守卫/permission_classes）整体翻案，非菜单单侧可改。
+③ **种子核对（0016/0017）**——0016：auditlog:read 全角色有码（canViewAuditLog 行为变更的依据：原权限码实现下菜单对全员可见，白名单仅 [SYSTEM_ADMIN, AUDITOR]，改后菜单对 regular_user 隐藏，与守卫一致）；damaged:approve / unregistered:approve 仅 dept_manager + system_admin（与 isDeptManagerOrAbove = {dept_manager, system_admin} 一致，ROLE_HIERARCHY 实证 dept_manager:4 > asset_admin:3，复用不引入 asset_admin「见菜单被拦」反向双轨）；0017：system_config:manage 仅 system_admin（canManageSystem 的 ‖hasPermission 短路项现状恒 false，保留为实现原样、消重不消语义；「收紧为纯 isAdmin」列为留痕决策项未采纳——usePermission 内部保留码依赖不影响 AsideMenu 双轨归零）。
+④ **canViewAuditLog 行为变更显式锁定**——regular_user 持 auditlog:read 码时菜单由可见转隐藏（与守卫白名单一致），spec 第三条锁定用例防日后被当作回归改回权限码口径。
+⑤ **?raw 守卫注释适配**——AsideMenu R-3 注释含 `hasPermission(` 字面（「不用 hasPermission(asset:create)」说明文字）会误触守卫，注释改写为「不用细粒度权限码（如 asset:create 的 hasPermission 判定）」去括号字面，守卫保持严格（禁 PERMISSION_CODES 与 hasPermission( 两形态）。
+⑥ **mount 冒烟不做**——AsideMenu mount 需 stub EP 菜单全族 + router + 三个子组件（DarkModeToggle/NotificationBell/AssetQuickScan），成本高于收益；层级逻辑已由 usePermission.spec 矩阵全覆盖 + ?raw 守卫锁定源码形态，理由留痕。
+
 ### 3.2 推荐执行顺序
 
 ```
@@ -302,7 +322,7 @@ R-6（可观测与整洁） → R-7（文档/注释订正）
 | 覆盖率 | ✅（CI 权威） | CI Pipeline `40466576631` → 90.09% ≥ 80%；本地本轮未取得完整结论（CT-7：以 CI 为准） |
 | 依赖安全 | ⚠️ 条件绿 | head 上 security-scan/CD 全绿；但最近一次**完整** pip-audit 红于 twisted 5 项（BF-159，等 26.10.0），下次依赖变更或每周定时全量扫描会再次红——属已知遗留非新发现 |
 | 安全越权 | ✅ 0（原 2×P1） | ~~M-RC-01（跨部门硬盘改删）~~ ✅ **已收口（R-1，2026-10-28，见 §3.1.1，连带 reissue/batch_delete 同型入口）**；~~M-RC-02（维修状态可写）~~ ✅ **已收口（R-2，2026-10-28，见 §3.1.2，read_only_fields + IntegrityError 兜底）**；后端越权写入口清零 |
-| 前端权限面 | ✅ 0（原 1×P1） | ~~M-RC-07（受限角色可从菜单/详情页/直接输 URL 进入录入/编辑/批量导入页）~~ ✅ **已收口（R-3，2026-10-28，见 §3.1.3）**：7 条路由补 `meta.requiredMinRole` + 菜单/列表/详情按钮补 `v-if` + 表单 `guardOnMounted` 兜底；M-RC-14 ScrapAsset 同批加固 |
+| 前端权限面 | ✅ 0（原 1×P1） | ~~M-RC-07（受限角色可从菜单/详情页/直接输 URL 进入录入/编辑/批量导入页）~~ ✅ **已收口（R-3，2026-10-28，见 §3.1.3）**：7 条路由补 `meta.requiredMinRole` + 菜单/列表/详情按钮补 `v-if` + 表单 `guardOnMounted` 兜底；M-RC-14 ScrapAsset 同批加固；~~M-RC-17 权限判据双轨~~ ✅ **已收口（留痕批，2026-10-29，见 §3.1.8）**：菜单四判据复用层级口径，菜单/守卫/后端三方同口径 |
 | 跨端契约 | ✅ | 4 项全通过（响应根结构/状态枚举/分页参数/日期格式） |
 | 状态机完整性 | ✅ | 资产 FSM 旁路 0 处（声明例外 3 处有留痕）；合同 FSM 单闸 |
 | 文档/注释一致性 | ✅（原 2×P3） | ~~M-AUD-1/M-AUD-2 文档漂移~~ ✅ **已收口（R-7，2026-10-29，见 §3.1.7）**：docstring 锚点化 + outasset.ts 补 reissue；M-AUD-4 吞没点 debug 留痕同批落地 |
@@ -338,6 +358,14 @@ rg -n "clearCacheByPattern" vue-assetmanagement/src
 # M-AUD-1/2 取证（文档/注释漂移）
 rg -n "unregistered.py:" asset_management_backend/apps/assetmanagement/state_machine/transitions.py
 rg -n "reissue" vue-assetmanagement/src/types/outasset.ts
+
+# 留痕 6 条取证（M-RC-17 已收口 + M-RC-19/20/AUD-3/5/6）
+rg -n "canManageSystem|canApproveDamaged|canHandleUnregistered|canViewAuditLog" vue-assetmanagement/src/components/AsideMenu.vue   # 四判据复用层实现（无 PERMISSION_CODES/hasPermission 消费）
+rg -n "isDeptManagerOrAbove|isAdmin|isAuditor" vue-assetmanagement/src/composables/usePermission.ts                                # 层级判据单一来源（:105-117）
+sed -n '33,51p' vue-assetmanagement/src/router/guards.ts                                                                           # roleWhitelist 与层级判据一致性对照
+rg -n "uq_damaged_asset_active_asset|violation_error_message" asset_management_backend/apps/assetmanagement                        # M-RC-19 证据链（约束存在）
+sed -n '138,145p' asset_management_backend/apps/assetmanagement/urls.py                                                            # M-RC-20（docstring 内，非可执行路径）
+rg -n "TODO|FIXME" asset_management_backend/apps asset_management_backend/core --type py                                           # M-AUD-5（期望命中 0）
 
 # 门禁
 cd asset_management_backend && python -m pytest -q --no-cov        # 期望 2210 passed

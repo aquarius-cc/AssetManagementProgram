@@ -10382,7 +10382,7 @@ Merge-audit-2026-10-26 §2.3 留痕跟踪 4 行（M-60~M-63）为审计融合期
 
 ---
 
-## BF-162【进行中】R-7 文档/注释订正批：M-AUD-1 锚点化 + M-AUD-2 补 reissue + M-AUD-4 吞没点补 debug 日志｜来源：`docs/Review/merge-audit-2026-10-27.md` M-AUD-1/M-AUD-2/M-AUD-4 行（R-7 批次行）
+## BF-162【已关闭】R-7 文档/注释订正批：M-AUD-1 锚点化 + M-AUD-2 补 reissue + M-AUD-4 吞没点补 debug 日志｜来源：`docs/Review/merge-audit-2026-10-27.md` M-AUD-1/M-AUD-2/M-AUD-4 行（R-7 批次行）
 
 ### 一、问题与定性（三处均低优 P3）
 
@@ -10406,3 +10406,37 @@ Merge-audit-2026-10-26 §2.3 留痕跟踪 4 行（M-60~M-63）为审计融合期
 - 提交 2：ruff format 单文件 + `pytest -k mixin` + cov 基线不回退（基线改动前先取）+ 行数护栏 --print。
 
 *登记人：atomcode ｜ 状态：【已关闭】（提交 1：transitions.py 锚点化 backend `87b17cb` + outasset.ts 补 reissue vue `11ab0c8` + 根仓 `e4dbc76` 含 BF-161 M-60 脚注；提交 2：_mixins.py logger.debug + test_recordcode_lookup_mixin caplog ×4 + merge-audit §3.1.7 登记，cov 68%→90% 不回退 :33 分支 miss 清零），2026-10-29*
+
+---
+
+## BF-163【已关闭】M-RC-17 权限判据双轨收口 + 留痕批证据链补正（菜单四判据复用层级口径·方向订正「权限码为唯一事实来源」）｜来源：`docs/Review/merge-audit-2026-10-27.md` §2.4 M-RC-17 行 + §2.5 留痕 5 条（留痕批补正，§3.1.8）
+
+### 一、问题与定性（1 条待确认收口 + 5 条留痕补正）
+
+- **M-RC-17 权限判据双轨**：`AsideMenu.vue` 四个菜单项（canManageSystem/canApproveDamaged/canHandleUnregistered/canViewAuditLog）用权限码 `hasPermission`，路由守卫用层级 `roleWhitelist`——有码无级→菜单可见进页被拦；有级无级→菜单隐藏但直达可进。种子下 auditlog:read 全角色有码（auditlog 菜单对全员可见、白名单仅 [SYSTEM_ADMIN, AUDITOR]）为最宽分叉。
+- **M-RC-19/20/AUD-3/5/6**：五条留痕缺证据链/取证命令，备查不可复核。
+
+### 二、修复方案（拍板：统一到层级口径）
+
+- **方向订正**：原建议「权限码为唯一事实来源」反转——业务端点 permission_classes 用层级（IsAuthenticated/IsAssetAdminOrAbove）无权限码校验，三方（菜单/守卫/后端）唯一可达同口径是层级；权限码仅在种子态覆盖，RolePermDialog 手工授权后两口径必分叉。
+- **AsideMenu**：删四个权限码 computed + PERMISSION_CODES import（净减行），解构复用 usePermission 同名层级判据（:105-117 既有实现，DR-4）。层级矩阵实证 ROLE_HIERARCHY dept_manager:4 > asset_admin:3，isDeptManagerOrAbove={dept_manager,system_admin} 与白名单一致，无反向双轨。canManageSystem 保留 ‖hasPermission 短路为实现原样（0017 下恒 false），「收紧纯 isAdmin」列留痕决策项未采纳。
+- **canViewAuditLog 行为变更**：regular_user 持码时菜单由可见转隐藏（与守卫一致），spec 显式锁定防改回。
+- **留痕补正**：§2.5 五条补证据链与取证命令（M-RC-19 约束实证 + 可选对称补法留痕；M-RC-20 sed 取证；M-AUD-5 rg 命中 0）。
+
+### 三、影响面
+
+AsideMenu 净减行（DR-5 不触发，.vue 无自动护栏 LT 口径人工标注）；不改后端、不改路由、不新建抽象；12 ViewSet 行为零变化。
+
+### 四、测试验证
+
+- `usePermission.spec.ts` 三层：四判据 × 5 角色矩阵（期望值注释在用例头）；3 条「有码低角色 → false」锁定（含 auditlog 行为变更锁定）+ auditor/auditlog true 正例；?raw 源码守卫（AsideMenu 禁 PERMISSION_CODES / hasPermission( 两形态——R-3 注释含 `hasPermission(` 字面已改写去括号适配）。
+- 全量 vitest **179 文件 / 2337 用例 passed**（2026-10-29，基线 2328 + 9）；vue-tsc --build 零输出；eslint / prettier / FR 护栏全过。
+- mount 冒烟不做：EP 菜单全族 + router + 三子组件 stub 成本高于收益，层级逻辑由矩阵全覆盖 + ?raw 守卫锁定源码形态（留痕）。
+
+### 五、关联
+
+- 审计行：merge-audit-2026-10-27 §2.4 M-RC-17（改判定案）/ §2.5（五条补正）/ §3.1.8（收口记录）/ 留痕行 / §五（+6 取证命令）/ §四（前端权限面行补 M-RC-17）；
+- 重复代码账本：D-8 新增（usePermission 层级判据 vs AsideMenu 权限码 computed 同名双实现收敛，v2.9.59）；
+- 前序：BF-161（M-60 脚注同文件）、BF-162（同批 R-7，标题【进行中】笔误随本条订正）。
+
+*登记人：atomcode ｜ 状态：【已关闭】（AsideMenu 四判据收敛 + spec 三层 2337 全绿 + merge-audit §3.1.8 与 §2.4/§2.5/§五/§四 补正落地；canViewAuditLog 行为变更与 RolePermDialog 手工授权边界均已在 §3.1.8 留痕②④固化），2026-10-29*
