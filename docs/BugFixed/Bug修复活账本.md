@@ -10405,4 +10405,4 @@ Merge-audit-2026-10-26 §2.3 留痕跟踪 4 行（M-60~M-63）为审计融合期
 - 提交 1：`npx vue-tsc --noEmit` 零输出 + `rg` 锚点句与方法名三连比对一致（见下补）。
 - 提交 2：ruff format 单文件 + `pytest -k mixin` + cov 基线不回退（基线改动前先取）+ 行数护栏 --print。
 
-*登记人：atomcode ｜ 状态：【进行中】（提交 1 已落地：transitions.py 锚点化 + outasset.ts 补 reissue + 本条目与 BF-161 脚注；提交 2 待落：M-AUD-4 代码+测试+merge-audit §3.1.7），2026-10-29*
+*登记人：atomcode ｜ 状态：【已关闭】（提交 1：transitions.py 锚点化 backend `87b17cb` + outasset.ts 补 reissue vue `11ab0c8` + 根仓 `e4dbc76` 含 BF-161 M-60 脚注；提交 2：_mixins.py logger.debug + test_recordcode_lookup_mixin caplog ×4 + merge-audit §3.1.7 登记，cov 68%→90% 不回退 :33 分支 miss 清零），2026-10-29*

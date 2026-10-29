@@ -57,9 +57,9 @@
 | **M-RC-15** | RC-15 | 死代码 | `services/assetLifecycleService.ts:31,44,62,75` | `handleAssetOut/Recycle/Damaged/Waste` 零生产调用方；内部 `assetStore.getList()` 无参调用会重置分页 | 删除模块及其 spec（或迁移到真实调用点） | 删除后全量 vitest 仍绿 ✅ **已收口（2026-10-29，见 §3.1.6）**：删模块+spec ×10 + 清 7 处残留引用；迁移案不采纳（真实调用点已各有实现）；rg 归零 + 2328 全绿 |
 | **M-RC-16** | RC-16 | 死代码/默认值陷阱 | `stores/createEntityStore.ts:69` + `entityStoreRequestControl.ts:51,103` | `enableCache=true` 默认开，但 23 个 store 全部显式 `enableCache:false` → 缓存读写恒不生效、`clearCache` 零调用；风险在默认值：未来新 store 忘设即静默启用 | 默认值翻转为 `false`（或整体移除缓存层与其测试） | 默认值改后全量 store 测试仍绿 ✅ **已收口（2026-10-29，见 §3.1.6）**：默认翻转 false + variants.spec 改写 ×2 + 「默认 false」锁定用例；store 实数 19/19（Fact-1 订正）；缓存层死拆除列后续候选 |
 | **M-RC-18** | RC-18 | 并发竞态（窄窗） | `stores/createEntityStore.ts:358-368,398-407,181-194` | 写操作改 `pagination.total` 与 ids 但不 bump `listRequestSeq`：在途旧 getList 返回后整体重写 → 已删行复活/新建行抹除/total 回退 | 写操作成功后 `listRequestSeq++`（作状态版本号） | 用例：写操作期间注入在途旧响应 → 断言列表不回滚 |
-| **M-AUD-1** | AUD-1 | 文档漂移 | `apps/assetmanagement/state_machine/transitions.py:9-10` | docstring 标注 unregistered 三处直写为 `:56/:88/:126`，实际 `:56/:89/:128`（M-60 互指注释后行号偏移） | docstring 行号订正为 `:56/:89/:128` | rg 比对实际赋值行 |
-| **M-AUD-2** | AUD-2 | 注释漂移 | `vue-assetmanagement/src/types/outasset.ts:30-34` | `OutAssetType` 注释仅列 receive/borrow，代码含 `REISSUE='reissue'`（后端 out_asset.py:59 有该枚举，值契约一致） | 注释补 `reissue`；`npx vue-tsc --noEmit` 无影响，纯注释 |
-| **M-AUD-4** | AUD-4 | 异常吞没 | `apps/assetmanagement/views/_mixins.py:33` | `except DoesNotExist: pass`——get 语义下吞错即 404 可辩护，但无日志留痕（同 M-47 家族） | 补 `logger.debug`（对齐 M-47 三行范式：import+getLogger+调用，caplog 用例同款） | `pytest apps/assetmanagement/ -k mixin` + cov 不回退 |
+| **M-AUD-1** | AUD-1 | 文档漂移 | `apps/assetmanagement/state_machine/transitions.py:9-10` | docstring 标注 unregistered 三处直写为 `:56/:88/:126`，实际 `:56/:89/:128`（M-60 互指注释后行号偏移） | docstring 行号订正为 `:56/:89/:128` | rg 比对实际赋值行 ✅ **已收口（2026-10-29，见 §3.1.7）**：行号标注删除改方法名锚点三连（unregistered.py 实证），永久免疫行号漂移；BF-161 M-60 行脚注订正 |
+| **M-AUD-2** | AUD-2 | 注释漂移 | `vue-assetmanagement/src/types/outasset.ts:30-34` | `OutAssetType` 注释仅列 receive/borrow，代码含 `REISSUE='reissue'`（后端 out_asset.py:59 有该枚举，值契约一致） | 注释补 `reissue`；`npx vue-tsc --noEmit` 无影响，纯注释 | ✅ **已收口（2026-10-29，见 §3.1.7）**：注释补 `reissue: 重新发放`（三方同文案）；vue-tsc 零输出 |
+| **M-AUD-4** | AUD-4 | 异常吞没 | `apps/assetmanagement/views/_mixins.py:33` | `except DoesNotExist: pass`——get 语义下吞错即 404 可辩护，但无日志留痕（同 M-47 家族） | 补 `logger.debug`（对齐 M-47 三行范式：import+getLogger+调用，caplog 用例同款） | `pytest apps/assetmanagement/ -k mixin` + cov 不回退 ✅ **已收口（2026-10-29，见 §3.1.7）**：debug 留痕（语义「回落」非「未找到」）+ caplog 用例 ×4；cov 68%→90%（:33 分支 miss 清零），42 passed |
 
 ### 2.4 待确认（1 条）
 
@@ -91,7 +91,7 @@
 | **R-4 缓存与竞态** | 中优 | M-RC-08 + M-RC-13 + M-RC-18 | ① 共享失效 helper 铺开至状态写端点；② `?? []` 消费端改跳过写入；③ 写后 bump seq ✅ **已收口（2026-10-28，见 §3.1.4）** | 消除「操作后详情 5 分钟旧状态」「表格偶发清空」 | 缓存失效用例 + 并发清空用例；全量 vitest |
 | **R-5 提示与降级 UX** | 中优 | M-RC-09 + M-RC-10 + M-RC-12 | ① 错误提示单出口；② `disableAutoMessage` 三处统一守卫；③ `_degraded` 消费提示 ✅ **已收口（2026-10-28，见 §3.1.5）**：notifyCallerError 单一实现铺开 ~50 处 C1 站点 + 三份 notifySubmitError 收敛 + A-4 分类弹窗；update/remove 守卫 + removeBatch 留痕；degradedCacheKeys Set + 布局级 Banner | 消除双弹与静默旧数据 | ✅ ElMessage 调用次数断言（E-1~E-4 共 12 用例）+ 降级提示用例；2333 全绿 |
 | **R-6 可观测与整洁** | 中优 | M-RC-11 + M-RC-15 + M-RC-16 + M-RC-05 + M-RC-06 | ① trace_id 同源；② 删死代码；③ 缓存默认值翻转；④ lifecycle update 补审计；⑤ create_asset 接 matcher ✅ **已收口（2026-10-29，见 §3.1.6）**：syncTraceId 单一写入口 + 四触点；assetLifecycleService 删除 + 7 处残留清理；enableCache 默认翻转 + 锁定用例；update_lifecycle_record + 契约保形 + 正反用例 ×5；savepoint + matcher + RuntimeError 消除 + 用例 ×3 | 可观测性闭环 + 死代码清零 | ✅ FE logger.spec ×3 + 2328 全绿；后端 lifecycle 34（含契约 8 条保形）+ asset_service 43 + 回归 46 passed；ruff PASS |
-| **R-7 文档/注释订正** | 低优 | M-AUD-1 + M-AUD-2 + M-AUD-4 | ① transitions.py docstring 行号；② outasset.ts 注释补 reissue；③ `_mixins.py` 补 logger.debug | 消除文档漂移 + 异常吞没留痕 | rg 比对行号；`npx vue-tsc --noEmit`；`pytest -k mixin` + cov 不回退 |
+| **R-7 文档/注释订正** | 低优 | M-AUD-1 + M-AUD-2 + M-AUD-4 | ① transitions.py docstring 行号；② outasset.ts 注释补 reissue；③ `_mixins.py` 补 logger.debug ✅ **已收口（2026-10-29，见 §3.1.7）**：docstring 锚点化（方法名三连免疫行号漂移）+ 注释补 reissue（三方同文案）+ debug 留痕（语义订正「回落」）+ caplog 用例 ×4；合并台账 BF-162 | 消除文档漂移 + 异常吞没留痕 | ✅ rg 锚点比对三连一致；vue-tsc 零输出；cov 68%→90% 不回退（:33 miss 清零）；42 passed |
 | **留痕** | — | M-RC-17（待确认）+ 5 条不采纳/留痕 | M-RC-17 需先核对后端权限码种子数据再定（R-3 后双轨面已收窄至 4 个菜单项，见 §2.4 现状注）；其余无需修复 | — | — |
 | **M-CACHE-1** | R-4 留痕⑦ | 缓存一致性 | `request.ts` 响应拦截器（既有全局行为，非 R-4 引入） | 子资源删除/批删写 URL（`/assets/{sub}/{rc}/`）匹配不到带 qs 的子资源列表 key（`/assets/{sub}/?page=…`），子资源列表最长 5 分钟残留已删行 | 拦截器失效模式扩展或子资源写端点接列表 pattern（方案随实现定）；排期 R-5~R-7 之后 |
 
@@ -246,6 +246,25 @@
 ⑤ **M-RC-05 审计入口选择**——update 在 @transaction.atomic 内，直调 OperationLogService（异常上抛、审计与业务同生共死）；**不用 AuditLogger._safe_log**（audit.py:93-104 吞异常返回 False，与 delete 路径同款）——吞异常会造成「更新已提交审计静默丢失」，正是 RC-05 要补的洞；delete 保持 AuditLogger 不动（软删已提交后审计缺失可接受，口径差异留痕）。
 ⑥ **M-RC-05 同构核验与范围边界**——Lost/Found UpdateSerializer 与 Broken 同构（:151-155/:259-264，asset_recordcode read_only）；AssetLifecycleViewSetBase 仅 3 子类（Broken/Lost/Found），RepairAssetViewSet 不继承该基类，同文件维修 PUT/PATCH 不受覆写影响；403/404 反向用例防覆写绕过权限分支/异常分支误写审计。
 
+#### 3.1.7 R-7 收口记录（2026-10-29）
+
+两段提交（提交 1 纯注释：backend `87b17cb` + vue `11ab0c8` + 根仓 `e4dbc76`；提交 2 代码+测试+登记：本批）。合并台账登记：活账本 BF-162（含 BF-161 四、M-60 行脚注订正——`:56/:88/:126` 系登记时快照，实际 `:56/:89/:128`，历史行号保留不改写，归档件红线遵 M-63 支 (ii) 惯例）。
+
+| 项 | 位置 | 改法 |
+|:---|:---|:---|
+| M-AUD-1 锚点化 | `state_machine/transitions.py` docstring | 行号标注删除，改方法名锚点三连（unregistered.py 实证 :56/:89/:128）：`unregistered_create_and_recycle`→RECYCLED_PENDING / `unregistered_create_and_damaged`→DAMAGED / `force_recycle_from_any`→RECYCLED_PENDING；符号定位永久免疫行号漂移，rg 比对三连一致 |
+| M-AUD-2 注释补齐 | `types/outasset.ts` | 注释补 `reissue: 重新发放`（后端 out_asset.py:59 REISSUE 与 Format.ts:366 映射同文案）；纯注释，`npx vue-tsc --noEmit` 零输出 |
+| M-AUD-4 留痕补日志 | `views/_mixins.py:33` | `pass` → `logger.debug("pk 未命中, 回落 recordcode 查找: %s", lookup_value)`（lazy %s 对齐 M-47 三行范式；语义为「回落」非「未找到」——真正抛 404 的是 recordcode 也未命中分支，留痕不得成为新误导源） |
+| M-AUD-4 测试 | 新建 `test_recordcode_lookup_mixin.py` | Stub View（满足 get_object 成员契约：queryset/get_queryset/kwargs/check_object_permissions）+ AssetType 两字段建行；caplog 用例 ×4：正例（pk 未中回落命中恰一条日志）/反例（pk 直中不日志）/回落 404（留痕后抛）/回归屏障（非 digit 不进 pk 分支不误报） |
+
+**验证结果**：cov 基线不回退实证——_mixins.py 改前 28 语句/9 miss/68%（miss 含 28-33 pk 分支），改后 30 语句/3 miss/**90%**（正例命中清零 :33 分支 miss）；lifecycle/batch_mixin/lookup 回归 42 passed；ruff format/check PASS；_mixins.py 81→86 行（LT-3 口径，远低于 DR-5 上限）。
+
+**留痕清单**：
+
+① **M-AUD-4 日志语义先订正再落地**——:33 的 pass 是「digit 值按 pk 查未中 → 回落 recordcode 查找」，若按原建议写 "not found" 排障时会被误导；文案「pk 未命中, 回落 recordcode 查找」+ debug 级（正常回落路径非异常）。
+② **测试替身用 Stub + 真实模型**——get_object 依赖 self.queryset（供 .model.DoesNotExist）与 self.get_queryset()，Mock 无法提供；check_object_permissions 在 pk 命中（:30）与回落成功（:40）均调用，Stub 提供双 no-op；模型选 AssetType 避开 RecycleAsset 三重 FK 建行负担。
+③ **正例构造修正**——AssetType recordcode 为生成串非纯数字，digit 值回落查不到；正例将 recordcode 显式置为 digit 串（"9000000001"）以真实命中回落路径，非 mock 绕过。
+
 ### 3.2 推荐执行顺序
 
 ```
@@ -270,7 +289,7 @@ R-6（可观测与整洁） → R-7（文档/注释订正）
 |:---|:---|:---|:---|
 | **广（多角色/多部门）** | M-RC-01, M-RC-07 | M-RC-08, M-RC-13 | M-RC-16 |
 | **中（特定功能路径）** | M-RC-02, M-RC-03 | ~~M-RC-09, M-RC-10, M-RC-12~~ ✅ 已收口（R-5，2026-10-28，见 §3.1.5）；~~M-RC-05, M-RC-06~~ ✅ 已收口（R-6，2026-10-29，见 §3.1.6）；~~M-RC-11, M-RC-15, M-RC-16~~ ✅ 已收口（R-6，2026-10-29，见 §3.1.6） | M-RC-18 |
-| **窄（单点/边缘）** | M-RC-04 | M-RC-11, M-RC-14 | M-AUD-1, M-AUD-2, M-AUD-4 |
+| **窄（单点/边缘）** | M-RC-04 | M-RC-14 | ~~M-AUD-1, M-AUD-2, M-AUD-4~~ ✅ 已收口（R-7，2026-10-29，见 §3.1.7） |
 
 ---
 
@@ -286,9 +305,9 @@ R-6（可观测与整洁） → R-7（文档/注释订正）
 | 前端权限面 | ✅ 0（原 1×P1） | ~~M-RC-07（受限角色可从菜单/详情页/直接输 URL 进入录入/编辑/批量导入页）~~ ✅ **已收口（R-3，2026-10-28，见 §3.1.3）**：7 条路由补 `meta.requiredMinRole` + 菜单/列表/详情按钮补 `v-if` + 表单 `guardOnMounted` 兜底；M-RC-14 ScrapAsset 同批加固 |
 | 跨端契约 | ✅ | 4 项全通过（响应根结构/状态枚举/分页参数/日期格式） |
 | 状态机完整性 | ✅ | 资产 FSM 旁路 0 处（声明例外 3 处有留痕）；合同 FSM 单闸 |
-| 文档/注释一致性 | ⚠️ 2×P3 | M-AUD-1/M-AUD-2 文档漂移（不影响运行时行为） |
+| 文档/注释一致性 | ✅（原 2×P3） | ~~M-AUD-1/M-AUD-2 文档漂移~~ ✅ **已收口（R-7，2026-10-29，见 §3.1.7）**：docstring 锚点化 + outasset.ts 补 reissue；M-AUD-4 吞没点 debug 留痕同批落地 |
 
-**综合结论：有条件可上线（无 P0/P1 阻断项；R-1~R-6 已于 2026-10-28/29 全部收口——后端越权写入口清零、前端权限面三条可达路径均已拦截、提示域收口至单一出口 + 降级标识 Banner、可观测性 trace_id 双端同源闭环 + 审计缺口补齐 + 死代码清零；剩余为 2×P3 文档漂移（M-AUD-1/M-AUD-2，排期 R-7）、M-CACHE-1 子资源缓存残留（已立项，排期 R-7 后）与 1 项依赖遗留（twisted pip-audit，等 26.10.0），均不影响运行时行为；建议可放量至多部门隔离环境）。**
+**综合结论：有条件可上线（无 P0/P1 阻断项；R-1~R-7 已于 2026-10-28/29 全部收口——后端越权写入口清零、前端权限面三条可达路径均已拦截、提示域收口至单一出口 + 降级标识 Banner、可观测性 trace_id 双端同源闭环 + 审计缺口补齐 + 死代码清零、文档漂移与异常吞没留痕订正完毕；剩余仅 M-CACHE-1 子资源缓存残留（已立项，排期 R-7 后）与 1 项依赖遗留（twisted pip-audit，等 26.10.0），均不影响运行时行为；建议可放量至多部门隔离环境）。**
 
 ---
 
