@@ -10476,3 +10476,43 @@ AsideMenu 净减行（DR-5 不触发，.vue 无自动护栏 LT 口径人工标�
 - **残余风险（已知、不在本条）**：①其余 18 处资产侧 fire-and-forget 仍有「失效早于写完成 + 并发 GET 回填」窗口；②GET 回填窗口需缓存代际/seq（M-RC-18 范畴）根治；③列表缓存启用时 update 系列 7×1 须同步接入（豁免已写进契约表与 assetCache 注释）。
 
 *登记人：atomcode ｜ 状态：【已关闭】（内核+双薄壳+14 处接入落地，24 条 spec 先红后绿全绿，全量 2361 passed，merge-audit §3.1.9 同步），2026-10-29*
+
+---
+
+## BF-165【WAI 关闭】M-03 员工手机号按角色脱敏 → 业务确认口径维持明文（WAI 留痕）｜来源：`docs/Review/merge-audit-20261029.md` :§批次2 M-03 行
+
+### 一、问题与定性（隐私项，业务确认降级）
+
+merge-audit 指出：员工手机号明文返回所有已登录用户——列表含 `employee_phone`（`EmployeeSerializer` 白名单），详情 `fields="__all__"`（`EmployeeDetailSerializer`），列表权限仅 `IsAuthenticated`（`employee_view.py`，`apps/usermanagement/`）。技术上可按角色脱敏（复用 `utils/string_utils.py:102` `mask_phone_number`，现存未用）。
+
+**业务确认（2026-10-29，项目负责人拍板）**：「通讯录对任何能够登录的账号都是明文可见的」——通讯录按手机号检索为既定业务诉求，脱敏与该诉求直接冲突。
+
+### 二、为什么不接受「仅按角色脱敏」的单点方案
+
+三条读路径共用同一数据源与同一权限（`IsAuthenticated`）：
+
+| 路径 | 序列化器 | 口径 |
+|:---|:---|:---|
+| list | `EmployeeSerializer`（白名单含 phone） | 明文 |
+| detail | `EmployeeDetailSerializer`（`fields="__all__"`） | 明文 |
+| search | `global_search`（`get_serializer_class` 默认 `EmployeeSerializer`） | 明文 |
+
+对任一单点（如列表）脱敏，同源端点（详情/搜索，乃至 `?search=<手机号>` 反查）直接绕过——形同虚设且制造虚假安全感。
+
+### 三、处置（零代码改动，三锚点落地）
+
+1. **WAI 留痕**：本条目即留痕；审计行标注 WAI 关闭。
+2. **意图注释锚点**：`employee_serializers.py` 两处（`EmployeeSerializer` 白名单 phone 字段旁、`EmployeeDetailSerializer` Meta `fields="__all__"` 旁）——写明业务结论与「三处同步改造」约束。纯注释，不触碰 OpenAPI 契约，无需重导出 `api-schema-baseline.json`。
+3. **绊线测试**：`apps/usermanagement/tests/test_employee_phone_tripwire.py`——断言 list/detail/search 三读路径 `employee_phone` 口径一致（当前均明文）。docstring 显式标注【临时业务口径锚点】：未来引入隐私口径时须三处同步改造并按票废除本断言，防止被当回归误修、也防任一侧被单独改动而无报警。
+
+### 四、影响面
+
+后端零运行时改动（2 处纯注释 + 1 个新测试文件）；跨端契约零变更；不重导出 Schema 基线。行级可见范围与手机号搜索能力原样保留。
+
+### 五、关联与残余
+
+- 审计行：merge-audit-20261029 批次2 M-03（WAI 关闭留痕）；
+- 若未来立项隐私口径：必须同步改造 list / detail / search 三处 + 通讯录检索产品侧替代方案，缺一即被绕过；
+- 导出侧现状即不含 phone（`employee_view.py:85` 最小化 PII 外泄面），无需处理。
+
+*登记人：atomcode ｜ 状态：【WAI 关闭】（业务确认口径明文 + 三锚点：注释×2 + 绊线测试×1），2026-10-29*
