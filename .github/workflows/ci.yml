@@ -52,6 +52,11 @@ jobs:
       # 脚本仅依赖标准库(ast/pathlib)。台账：Rules_Fiels/BR6_file_length_ledger.md
       - name: BR-6 文件长度护栏
         run: python ../scripts/check_file_length_guard.py
+      # BR-D1 部署入口护栏(M-36)：锁定 docker-entrypoint.sh 的 set -e 语义与
+      # migrate/collectstatic 关键步显式 || exit 1，防止回退为「迁移失败仍启动」。
+      # 仅规则①②，不做 shell 白名单通用静态分析(误报不可控，评审决议)。
+      - name: BR-D1 部署入口护栏
+        run: python ../scripts/check_deploy_invariants.py
 
   backend-type-check:
     name: "后端 - 类型检查 (mypy)"
