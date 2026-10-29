@@ -10361,6 +10361,7 @@ Merge-audit-2026-10-26 §2.3 留痕跟踪 4 行（M-60~M-63）为审计融合期
 #### 四、修复方案
 
 - **M-60（已落地）**：`transitions.py` docstring 注明 3 处直写为已声明例外（均有前置状态守卫）+ `unregistered.py` :56/:88/:126 三处就近注释互指 Merge-audit M-60 行（backend `817a745`）；「改走注册表」不采纳维持（DR-3 例外清单既有定性，守卫即终态）。
+  > **脚注订正（M-AUD-1，2026-10-29）**：上句行号 `:56/:88/:126` 系登记时快照；M-60 注释增删后 unregistered.py 实际为 `:56/:89/:128`（漂移即本条依据），transitions.py docstring 已锚点化为方法名（`unregistered_create_and_recycle`/`unregistered_create_and_damaged`/`force_recycle_from_any`），行号不再维护；本句行号保留历史原样不改。
 - **M-61（不采纳即终态，零改动）**：`stores/auth.ts:92-104` bearer→encodeToken 落 localStorage、cookie→仅内存 + 清历史，现状即「已知取舍」终态；单轨 httpOnly 收敛留长期项，本批不改、行不动，于本条目定性留痕。
 - **M-62（已落地，口径对账闭环）**：对齐执行 + `python -c` 直证四真值 = 声明——Django 6.0.8 / PyJWT 2.15.1 / requests 2.33.0 / Pillow 13.0.0（源行括号「12.3.0」系转抄笔误，base.txt 实为 13.0.0）；CT-7 满足（mypy/ruff/pytest/dev 与声明一致，全量 mypy --strict 230 文件 0 实证）。覆盖率已对账（终轮 artifact `backend-coverage-report` 直读，run `40466576631`）：statements **11220** / missing **1112** → **90.09%**（HTML coverage 列整数显示 90%，2210/0，较 L② CI 89.78% +0.31pt）；本地 `.coverage` 89.35%（missing 1195——同 11220 statements、多缺 83 行系本地环境差异）——CI artifact 值为权威，本地仅作参照；原「待 artifact 回填」项就此闭案。
 - **M-63（支 (ii) 闭案）**：依 §一:16 既有裁决「以表内 BF 留痕 + ②的全量实测为准」，①源报告只读归档入库（` D` + `ExpiredAuditReport/` `??`×2 随本批提交），源行 45 不改写、历史旧路径引用不回溯；并发漂移子项随归档动作一并入库闭环；§一:16 同步注明订正建议改走支 (ii)。
@@ -10378,3 +10379,30 @@ Merge-audit-2026-10-26 §2.3 留痕跟踪 4 行（M-60~M-63）为审计融合期
 - 关键证据：blob `3b813e0707059f7cf4591221dbf7e166c8afad93`（归档=HEAD 同一）· 版本四真值 `python -c` 直证 · CI run `40438959535`（89.78% 权威）· `40457770657`（mutation 83.5922%）。
 
 *登记人：atomcode ｜ 状态：【已关闭】（M-60 注释 `817a745` + M-61 不采纳终态零改动 + M-62 四真值对齐 CT-7 满足 + M-63 支 (ii) 归档闭案；CI 四 workflow 全绿直证 `40466576631`、覆盖率 artifact 直读 90.09% 对账闭环），2026-10-27*
+
+---
+
+## BF-162【进行中】R-7 文档/注释订正批：M-AUD-1 锚点化 + M-AUD-2 补 reissue + M-AUD-4 吞没点补 debug 日志｜来源：`docs/Review/merge-audit-2026-10-27.md` M-AUD-1/M-AUD-2/M-AUD-4 行（R-7 批次行）
+
+### 一、问题与定性（三处均低优 P3）
+
+- **M-AUD-1 文档漂移**：`transitions.py:9-10` docstring 标注 unregistered 三处直写 `:56/:88/:126`，M-60 注释增删后实际 `:56/:89/:128`——行号锚点依赖人工同步纪律，漂移即反例。
+- **M-AUD-2 注释漂移**：`types/outasset.ts:30-34` `OutAssetType` 注释仅列 receive/borrow，代码含 `REISSUE='reissue'`（后端 out_asset.py:59 同枚举「重新发放」，值契约一致）。
+- **M-AUD-4 异常吞没**：`views/_mixins.py:33` `except DoesNotExist: pass`——get 语义下吞错即 404 可辩护，但无日志留痕（M-47 家族）。
+
+### 二、修复方案（拍板：锚点化方案①）
+
+- **M-AUD-1 锚点化**：docstring 行号标注删除，改方法名锚点三连（`unregistered_create_and_recycle`→RECYCLED_PENDING / `unregistered_create_and_damaged`→DAMAGED / `force_recycle_from_any`→RECYCLED_PENDING，unregistered.py 实证 :56/:89/:128），符号定位永久免疫行号漂移；BF-161 四、M-60 行加脚注订正（历史行号保留不改写）。
+- **M-AUD-2**：注释补 `reissue: 重新发放`（与后端枚举、Format.ts:366 映射同文案）。
+- **M-AUD-4**：:33 补 `logger.debug("pk 未命中, 回落 recordcode 查找: %s", lookup_value)`（lazy %s 对齐 M-47 三行范式；语义为「回落」非「未找到」，真正抛 404 的是 :37-38——留痕不得成为新误导源）+ caplog 用例 ×4（正例命中 / pk 直中不日志 / 回落后 404 / 回归屏障）。
+
+### 三、影响面
+
+纯注释 + 3 行日志 + 1 新测试文件；12 个继承 RecordcodeLookupMixin 的 ViewSet 行为零变化；_mixins.py 81→84 行（LT-3 口径 --print 实证，远低于 DR-5 上限）；分 2 提交：①纯注释（transitions.py + outasset.ts + 本条目）②代码+测试+登记。
+
+### 四、测试验证
+
+- 提交 1：`npx vue-tsc --noEmit` 零输出 + `rg` 锚点句与方法名三连比对一致（见下补）。
+- 提交 2：ruff format 单文件 + `pytest -k mixin` + cov 基线不回退（基线改动前先取）+ 行数护栏 --print。
+
+*登记人：atomcode ｜ 状态：【进行中】（提交 1 已落地：transitions.py 锚点化 + outasset.ts 补 reissue + 本条目与 BF-161 脚注；提交 2 待落：M-AUD-4 代码+测试+merge-audit §3.1.7），2026-10-29*
