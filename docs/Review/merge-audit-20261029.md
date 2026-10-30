@@ -314,6 +314,8 @@ M-24 ──同源──> M-31（均涉 nginx/构建配置）
 
 **批次 4 验收**：前端 type-check/lint/format:check 全 0 + 全量 185 files / 2411 tests passed + `test:coverage`（新棘轮）exit 0 + build exit 0；后端 ruff 双绿 + mypy strict 0 错误 + 相关 pytest 面全绿 + 双护栏 PASS。账本新增 A-50（M-23）、B-28（M-06）均已关闭。
 
+**批次 4 哈希勘误（2026-10-30 补记）**：父仓批次 4 gitlink bump（`c238a24`）的 commit message 记载「backend 259fac6」有误——`259fac6` 是 M-06 落地时 11:42:55 的重写前旧 SHA，非 backend HEAD 祖先，与终版相差 `out_asset_selector.py` 1+/3-；`c238a24` 实际记录的 gitlink 与 backend 历史真值均为 **`5d1a9b4`**（11:43:40 的 M-06 终版，`0c40101` 之父）。指针本身正确，仅 message 笔误。frontend `f8151da` 的 message/记录/HEAD 三者一致；backend 指针已随后续 `d601881` bump 至 `0c40101`。核验口径：`git ls-tree c238a24` + `merge-base --is-ancestor` + `git diff 259fac6 5d1a9b4 --stat`。
+
 **批次 5 — 仓库/镜像卫生与死码清理（P2-C，2026-10-30 落地）**：
 
 | 项 | 状态 | 收口证据 |

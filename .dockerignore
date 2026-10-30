@@ -1,0 +1,36 @@
+# =============================================================================
+# 根 .dockerignore —— 仅作用于「仓根 build context」的构建（nginx 前端镜像、compose 等）
+# 注意：backend 镜像的 context = ./asset_management_backend，走子仓自己的
+#       .dockerignore（批次 5 已增强），与本文件互不影响。
+# 依据（两注记 2026-10-30）：
+#   ① **/node_modules 排除不伤 `COPY vue-assetmanagement/package*.json`
+#      （package*.json 不在 node_modules 内）；反而必需——防止宿主机 node_modules
+#      在 COPY vue-assetmanagement/ 阶段覆盖镜像内 npm ci 的产物。
+#   ② 正向验证兜底 = nginx 构建成功 + dist 在场（首次实证后回填）。
+# =============================================================================
+
+.git
+.githooks
+.github
+.codegraph
+.codebuddy
+.opencode
+.impeccable
+.mimocode
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.history-cleanup-work
+.screenshots
+.trae-html-share-packages
+.trae
+.graphify_*
+node_modules
+**/node_modules
+docs
+Project_Requirements
+project-audit-report
+Rules_Fiels
+scripts
+snippicture
+ripgrep

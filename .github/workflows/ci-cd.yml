@@ -125,6 +125,25 @@ jobs:
             ghcr.io/aquarius-cc/asset-management-backend:latest
             ghcr.io/aquarius-cc/asset-management-backend:${{ github.sha }}
 
+      # 【批次 5 CI 补证 2026-10-30】M-38/M-40 曾因本机无 docker 降级为静态核对，
+      # 镜像内 ls 实证留作 CI 补证 —— 本 step 即该补证：拉回刚推送的镜像，
+      # 正向对照 /app/manage.py 在场，再断言退版文件（.graphify_* / .trae /
+      # package*.json）不得进镜像。断言失败 = docker job 红 = CD 拒绝后续 prune。
+      - name: 镜像卫生断言（M-38/M-40 CI 补证）
+        env:
+          IMG: ghcr.io/aquarius-cc/asset-management-backend:${{ github.sha }}
+        run: |
+          set -euo pipefail
+          docker pull "$IMG"
+          # 正向对照：/app 在场且为后端工作目录（防空壳误通过）
+          docker run --rm "$IMG" sh -c 'test -f /app/manage.py'
+          # 卫生断言：grep 有命中 → then 分支 → 失败；无命中 → exit 1 → 走通过路径
+          if docker run --rm "$IMG" sh -c 'ls -a /app | grep -E "^\.graphify_|^\.trae$|^package(-lock)?\.json$"'; then
+            echo "❌ 镜像内检出退版文件（.graphify_* / .trae / package*.json）"
+            exit 1
+          fi
+          echo "✅ 镜像卫生断言通过：/app/manage.py 在场，无 .graphify_* / .trae / package*.json"
+
   prune-images:
     name: Prune Old Images (keep last 5 + latest + prod current)
     runs-on: ubuntu-latest
