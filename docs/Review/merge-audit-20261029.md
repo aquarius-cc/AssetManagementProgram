@@ -265,6 +265,41 @@ M-24 ──同源──> M-31（均涉 nginx/构建配置）
 
 **灰度放行判断**：满足上述 6 项后，项目在架构分层、状态机、事务并发、安全基线、CI 门禁、可观测性、部署编排七个维度均达到生产级要求，可进入灰度。
 
+### 收口记录回填（2026-10-30，批次 1~3 落地后补记）
+
+三批整改已全部落地并推送（backend 至 `74bda81`、frontend 至 `1d74bb0`、父仓至批次 3 gitlink bump），逐项收口如下。各commit 均含先红后绿取证与全量护栏验收，细目见各仓 commit message 与 `docs/BugFixed/Bug修复活账本.md` BF-165。
+
+**批次 1 — 流水线必红清零（P0）**：
+
+| 项 | 状态 | 收口证据 |
+|:---|:---|:---|
+| M-18 CI vitest 参数失效 | `[已收口]` | ci.yml:422/424 改 `npm run test:coverage`（配置文件分层阈值驱动，vitest 4 兼容）；本地 coverage exit 0（store 层 96.8/92.4/91.2/97.2 ≥90） |
+| M-02 ruff 门禁 | `[已收口]` | 2×I001 --fix + 5 文件 format；`ruff check .` / `format --check .` 双 exit 0 |
+| M-01 mypy strict 13 处 | `[已收口]` | 13 处注释级收口（172/184→[misc]、176→[arg-type]、6 处删失效 ignore、:374 新增 [attr-defined] + AR-2 标注）；`mypy . --strict` 230 文件 0 错误 |
+
+**批次 2 — 上线阻断清零（P1）**：
+
+| 项 | 状态 | 收口证据 |
+|:---|:---|:---|
+| M-36 入口脚本失败快速退出 | `[已收口]` | `set -euo pipefail` + migrate/collectstatic 显式 `|| exit 1` + 超管变量 `${X:-}` 兜底；新增 BR-D1 部署入口护栏挂 CI（变异体 3 处违规先红） |
+| M-37 首次 TLS 签发链路 | `[已收口]`（staging 实测项除外，见下） | CERT_PATH 对齐 certbot 产出点 + 三态渲染状态机（HTTP-only 引导态=完整配置去 TLS 块，签发窗口业务不断）+ cert-watch 变更监视者 + renew.sh 首签/退避；setup-https.sh 下线；文档见 08-部署与环境配置.md §5（V1.1） |
+| M-03 手机号明文 | `[已收口·WAI]` | 业务确认「通讯录对任何已登录账号明文可见」；活账本 BF-165 留痕 + 序列化器口径锚点注释 + 三读路径一致性绊线测试 |
+| M-04 未登记 Selector N+1 | `[已收口]` | `get_queryset_for_user` 补 `select_related("discovery_person")`（分层裁决：approver/related_asset/result_asset 不加）；`assertNumQueries` 列表/导出/详情三链先红（3→8）后绿 |
+
+**批次 3 — 权限与前端资源域（P2-A）**：
+
+| 项 | 状态 | 收口证据 |
+|:---|:---|:---|
+| M-19 路由守卫 allow-by-default | `[已收口]` | 仅写 deny 口径（业务确认）：`checkRoleAccess` 新增 write 兜底拒绝；25 条写叶子路由 `meta.write:true` 脚本化推导标注；完整性不变量测试（漏标门槛→CI 红）+ 死循环防御锚点；guards.spec(76)/rbac-r3(25) 既有断言零改动 |
+| M-20 HardDiskSN 子树门槛 | `[已收口]` | 口径订正为 `harddisksnform` 补 `asset_admin`（对齐后端 IsAssetAdminOrAbove），弃用原「子树 system_admin」跨端不一致方案；只读父/详情页不加固；订正「父级 meta 不自动继承」错误注释 ×3 |
+| M-21 useNotification 泄漏 | `[已收口]` | 连接层单例（detached scope）+ refcount（0→1 建连/归零断连）+ `offMessage` 唯一注销入口；数据态维持实例级；三 spec 47 passed |
+| M-22 重连定时器竞态 | `[已收口]` | `connect()` 入口清 pending timer + scheduleReconnect 先清后置（定性：连接 churn + 计数污染）；2 用例先红后绿 |
+| M-07 写操作显式 permission_classes | `[已收口·去伪]` | 20 域只读核查零真实缺口（`docs/Review/M07-write-permission-audit-20261030.md`）；三处原目标为静态扫描误报（死配置），已注释去伪 |
+
+**批次 2 M-37 残留（灰度环境人工项，不阻断代码收口）**：真实域名 Let's Encrypt 生产首签 + `openssl s_client` 指纹一致性验证，须按 08-部署与环境配置.md §5.2~§5.3 在灰度环境执行一次（staging 全链验证口径已写入 §5.4）。
+
+**批次 3 遗留**：M-07 核查产出「类级 `permission_classes` 与 `get_permissions` 双源易误导」改进项（非缺口），建议后续批次统一审计注释；真实缺口为零。
+
 ### 与三件原结论的差异
 
 | 件 | 原结论 | 融合后 |
@@ -311,8 +346,8 @@ M-24 ──同源──> M-31（均涉 nginx/构建配置）
 
 | 项 | 状态 | 说明 |
 |:---|:---|:---|
-| M-01 mypy 13 处报错 | `[未复核]` | 本轮未本地运行 `mypy --strict`，结论沿用 W 件；本地 Python 3.13 与 CI 3.12 存在漂移，按 CT-7 应以 CI 复现为准 |
-| M-04 未登记 Selector N+1 | `[未复核]` | 未逐行读 `unregisteredasset/selectors.py`，沿用 W 件判定；建议落地前用 `assertNumQueries` 先证红 |
+| M-01 mypy 13 处报错 | `[已复核]`（批次1 收口时补证） | 批次1 落地时本地实跑 `mypy . --strict`（2.1.0 与 dev.txt 钉版一致），13 处分布与错误码逐条对上；收口后 230 文件 0 错误，见 §五 收口记录回填 |
+| M-04 未登记 Selector N+1 | `[已复核]`（批次2 收口时补证） | 批次2 逐行读 `unregisteredasset/selectors.py` 确认全文 0 处 select_related；`assertNumQueries` 三链先红（3→8）后绿，见 §五 收口记录回填 |
 | M-16 force_recycle 前态留痕 | `[待核实]` | 已确认该方法为 M-60 已声明例外、非旁路；但「调用方是否已补 OperationLog」未追踪，需核实后再决定是否改动 |
 | CI run `40466576631`（90.09%） | `[未复核]` | 未直连核验该 run，沿用 A 件留痕 |
 | W 件 SC-5/SC-6「上传校验已实现」 | `[存疑]` | 本轮检索 `apps/` 下 `FileField/MultiPartParser/UploadedFile/MEDIA_ROOT` 0 命中，无上传落点；按 A 件判定为无面可评（C-9） |
