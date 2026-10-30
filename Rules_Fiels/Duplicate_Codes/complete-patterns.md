@@ -820,6 +820,20 @@
 - **验证命令**：`npx vitest run`（152 files / 2075 passed，exit 0）；`npm run type-check` / `lint` / `format:check`（均 0）；`python scripts/check_duplicate_invariants.py`（PASS，G-1~G-5 未受扰）。
 - **登记日期**：2026-10-08 | 关联：**BF-078**（需求2 本体修复在 `GroupedAssetTable.vue` 的 `onExpandChange` 载荷归一化；本条登记测试侧双份 helper 的收敛留痕）
 
+### A-50. 【已关闭 2026-10-30】页容量选项双源：`[20,50,100,200,500]` 与后端 `MAX_PAGE_SIZE=100` 静默夹取矛盾（DR-1；批次4 M-23）
+- **编号**：顺延登记（A-49 为前序最大号）。**状态**：✅ 已关闭 | 关闭日期：2026-10-30 | 登记来源：merge-audit-20261029 批次4 M-23（F F-01 + A FE-6）
+- **判定（DR-1 双源）**：`usePaginationSearch.ts:67` 默认与 `CommonList.vue:143` 各自硬编码 `[20, 50, 100, 200, 500]`，后端 `core/constants.py:12 MAX_PAGE_SIZE = 100` 对超限 `page_size` 静默夹取（`core/pagination.py` 钳位，无报错无日志）——用户选 200/500 后实际只取 100 行，产生「选了没生效」错觉（A 件所述「渲染 500 行卡顿」前提不成立，见 C-8）。同源双源史见 **A-18**（`[10,20,50]` 五页收敛，当时 CommonList 分档被显式豁免「保持不变」，本条即关闭该豁免遗留）；上限口径来源见 **A-40**（`MAX_PAGE_SIZE=100` 双源判定与 9999 下拉治理）。
+- **修复内容**：
+  1. **单一常量改值**：`utils/pagination.ts::PAGE_SIZE_OPTIONS` 由 `[10, 20, 50]` 收敛为 `[20, 50, 100]`（删除 200/500 超限档、10 与主流档位不齐一并收敛），新增 `MAX_PAGE_SIZE = 100` 镜像常量（注释锚 `core/constants.py:12`）。
+  2. **四处散点改引用**：`usePaginationSearch.ts:67`（默认值）、`CommonList.vue:143`（props 默认）、`AuditLogDetails.vue:137`（内联 `[20,50,100]`）、`useGroupedAssetColumns.ts` `CHILD_PAGE_SIZE_OPTIONS` 改 alias——全仓 `page-sizes` 字面量归零，唯一来源回归。
+  3. **首帧归一化**：`usePaginationSearch.ts` `pageSize` getter 就近向下吸附（500→100、40→20，兜底 20）——URL/残留态经 `createEntityStore.ts:162` 进入的非法档位不再产生首帧显示异常与非法初值请求；`createEntityStore.ts:263` 服务端回拉保持第二道防线。
+  4. **一致性断言**：`pagination.spec.ts` 新增 `max(PAGE_SIZE_OPTIONS) <= MAX_PAGE_SIZE`，防止「选了没生效」再现。
+- **消费面影响（交付说明）**：`PAGE_SIZE_OPTIONS` 改值同时作用于 5 页——`ContactsView:113` / `NotificationList:22` / `RoleManage:129` / `AuthUserManage:159` / `DepartmentEmployeeList:219`，各页下拉移除 10、新增 100（与后端夹取对齐，方向正确；回归时点检 5 页分页器）。
+- **证据**：修复前散点 4 处（grep `[20, 50, 100, 200, 500]` 2 命中 + 内联 2 处）；修复后 `rg -n "200, 500" vue-assetmanagement/src` 0 命中。必红随批：3 份硬断言 spec（`usePaginationSearch.spec.ts:73` / `pagination.spec.ts:6` / `CommonList.spec.ts:94`）由 `[20,50,100,200,500]`/`[10,20,50]` 更新为 `[20,50,100]`，排序/正整数断言保持。
+- **验证命令**：`npx vitest run src/composables/__tests__/usePaginationSearch.spec.ts src/utils/__tests__/pagination.spec.ts src/components/commoncomponents/__tests__/CommonList.spec.ts`（70 passed，含归一化 500→100 / 40→20 两例与上限一致性断言）；`npm run type-check`（0）；`python scripts/check_duplicate_invariants.py`（PASS）。
+- **回滚风险**：低——仅改下拉档位与初值归一化，无响应结构变更；更大批量走独立导出接口（P2-04 服务端流式导出已承接）。
+- **登记日期**：2026-10-30 | 关联：**merge-audit M-23**（批次4）；**A-18**（五页收敛史，其 CommonList 豁免由本条关闭）；**A-40**（`MAX_PAGE_SIZE=100` 口径来源）
+
 ---
 
 ## D — 待核查（To Verify）
