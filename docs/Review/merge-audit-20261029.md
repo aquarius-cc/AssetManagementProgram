@@ -300,6 +300,20 @@ M-24 ──同源──> M-31（均涉 nginx/构建配置）
 
 **批次 3 遗留**：M-07 核查产出「类级 `permission_classes` 与 `get_permissions` 双源易误导」改进项（非缺口），建议后续批次统一审计注释；真实缺口为零。
 
+**批次 4 — 契约、性能与交互质量（P2-B，2026-10-30 落地）**：
+
+| 项 | 状态 | 收口证据 |
+|:---|:---|:---|
+| M-26 echarts 引入收敛 | `[已收口]` | 两组件（DashboardAssetTrend/DashboardDistribution）改从 `@/plugins/echarts` 导入 VChart；option 构造器前置审计全命中注册清单（useDashboardCharts 饼/趋势含 area 渐变 series 级样式、useDashboardPage tooltip/legend/pie+graphic）；`rg "from 'vue-echarts'"` 全仓仅剩 plugins/echarts.ts:26 一处；独立挂载冒烟 2 例绿（jsdom 无 canvas 以最小 2D 桩注入，断言 echarts init 成功） |
+| M-24 ExcelJS 按需加载 | `[已收口]` | 3 处静态导入（excelExporter/readExcelFile/templateExport）改函数体内 `await import('exceljs')`；4 份 spec（含 useBatchImport 漏点名补录）mock 形态天然兼容零改动 33 passed；构建产物 exceljs 独立 chunk（1,059.55 kB / gzip 245.50 kB），index 主包 0 处引用 |
+| M-23 分页选项收敛 | `[已收口]` | `PAGE_SIZE_OPTIONS=[20,50,100]` + `MAX_PAGE_SIZE=100` 镜像常量落 utils/pagination.ts；四处散点改引用 + CHILD alias；pageSize getter 就近向下吸附（500→100、40→20）；3 份硬断言随批 + 上限一致性断言 + 归一化 2 例，70 passed；消费面 5 页点检清单入 A-50 账本（关联 A-18 豁免关闭 / A-40 上限口径） |
+| M-06 关键词查询下沉 Selector | `[已收口]` | `AssetSelector.apply_keyword_filter`（TypeVar 透传保 select_related 链类型）+ `OutAssetSelector.apply_keyword_filter`（5 分支）唯一实现，两 View 一行调用、孤儿 Q import 清理、icontains 归零；新增单测 9 例（命中/不命中/空串短路/分支隔离）；mypy strict 230 文件 0 错误；账本 B-28 登记与关闭 |
+| M-28 401 登出幂等 | `[已收口]` | 两登出点三连收敛进 `performSessionLogout()` 幂等旗 + `redirectToLogin` 可注入模块；logError 留块外（reason 各异/等待者数排障信号，决策留档）；重试链零改动；3 新用例 + responseHandler spec 幂等旗 reset 钩子（全量实测暴露的跨用例泄漏回归修复）；变异体先红后绿取证 |
+| M-27 fixed 列错位 | `[已收口]` | 交付面 = `fixed="right"` 全仓仅两页（RoleManage/AuthUserManage；ContactsView 经核实仅门控分页、表格常驻 EP 默认空文案在场，移出交付面）；表格区包 `.table-container` 弹性自滚容器（复用 CommonList flex 模式）+ 分页 flex-shrink:0 常驻；两页挂载测试各 3 例（空态断言）6 passed |
+| M-25 .vue 挂载测试补强 | `[已收口]` | 只补缺口（既有 9 视图 spec + AssetDetails/AssetBatchImport 零重写）；.vue 层四指标实测 21.14/19.03/18.66/21.36（121 文件，两页零覆盖→~48%），远超基线 12.98/11.66/10.95/13.11；棘轮阈值上调 21.1/19.0/18.6/21.3 并重基注释（2026-10-12/10-30 两版留痕，只升不降） |
+
+**批次 4 验收**：前端 type-check/lint/format:check 全 0 + 全量 185 files / 2411 tests passed + `test:coverage`（新棘轮）exit 0 + build exit 0；后端 ruff 双绿 + mypy strict 0 错误 + 相关 pytest 面全绿 + 双护栏 PASS。账本新增 A-50（M-23）、B-28（M-06）均已关闭。
+
 ### 与三件原结论的差异
 
 | 件 | 原结论 | 融合后 |
