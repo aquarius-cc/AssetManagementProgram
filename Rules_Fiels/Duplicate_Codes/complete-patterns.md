@@ -675,6 +675,20 @@
 - **修复**（2026-10-15，BF-093/M-3）：① composable `handleSizeChange` 统一置 1（删钳制逻辑）；② 3 直连视图各加 `handleSizeChange` 包装（置 1 + fetch），模板接线改 `@size-change="handleSizeChange"`。
 - **验证命令**：`rg -n "@size-change=\"fetch" vue-assetmanagement/src`（预期 0 命中，全部已包装）；`npx vitest run src/composables/__tests__/usePaginationSearch.spec.ts`（handleSizeChange 置 1 用例通过）。
 
+### B-28. 【已关闭 2026-10-30】关键词过滤链双实现：asset 4 字段 icontains ×2 + out_asset 5 分支 ×1（DR-1；批次4 M-06）
+- **编号**：顺延登记（B-27 为前序最大号）。**状态**：✅ 已关闭 | 关闭日期：2026-10-30 | 登记来源：merge-audit-20261029 批次4 M-06（W P2-3，DR-3 View 层手写 ORM 下沉 Selector）
+- **判定（DR-1 双实现 + 同型三处）**：
+  ① **asset 4 字段 icontains 链逐字节双份**——`asset_view.py:122-129`（`get_queryset`）与 `asset_selector.py:262-268`（`search_assets`）各自手写 `Q(asset_code__icontains)|Q(asset_name__icontains)|Q(asset_brand__icontains)|Q(asset_specification__icontains)`，字段增删须双处同步（原票据 :279-342 为误指，实指 `search_available` 尾部与废弃 `change_status`）。
+  ② **out_asset 5 分支关键词链独立实现**——`out_asset_view.py:97-121`：`asset_cond`（asset_code/asset_name 两字段）+ `user_cond`（applicant/manager 的 jobcode/name 四字段）× `searchType` 三分支（asset/user/all），全在 View 层手写 ORM，Selector 无对应能力。
+- **证据**：`rg -n "icontains" apps/assetmanagement/views/asset_view.py apps/assetmanagement/selectors/asset_selector.py`（收敛前 view 4 命中 + selector 4 命中；`out_asset_view.py` 另 6 命中）。
+- **修复内容**：
+  1. `AssetSelector.apply_keyword_filter(queryset, keyword)` 静态方法为 asset 4 字段链唯一实现（空串短路），`search_assets` 与 `AssetViewSet.get_queryset` 均改调。
+  2. `OutAssetSelector.apply_keyword_filter(queryset, keyword, search_type)` 承载 5 分支链（空串短路），`OutAssetViewSet.get_queryset` 改一行调用。
+  3. 行为零变更：Q 树逐字节搬运，无谓词改写。
+- **验证命令**：`rg -n "icontains" apps/assetmanagement/views/asset_view.py apps/assetmanagement/views/out_asset_view.py`（预期 0 命中）；两 Selector 新方法最小单测（命中/不命中/空串短路）；`python ../scripts/check_file_length_guard.py --print`（逻辑行数守恒）。
+- **回滚风险**：低——纯方法搬运，端点契约与查询语义不变。
+- **登记日期**：2026-10-30 | 关联：**merge-audit M-06**（批次4）
+
 ---
 
 ## C — 降级/待决策（Downgraded / Decision Gate）
