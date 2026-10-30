@@ -135,10 +135,12 @@ jobs:
         run: |
           set -euo pipefail
           docker pull "$IMG"
+          # --entrypoint sh：覆盖镜像入口（M-36 入口脚本会忽略参数直接起 migrate 等待链，
+          # 首跑未覆盖即死于「数据库连接超时」exit 1，run 147 实证）
           # 正向对照：/app 在场且为后端工作目录（防空壳误通过）
-          docker run --rm "$IMG" sh -c 'test -f /app/manage.py'
+          docker run --rm --entrypoint sh "$IMG" -c 'test -f /app/manage.py'
           # 卫生断言：grep 有命中 → then 分支 → 失败；无命中 → exit 1 → 走通过路径
-          if docker run --rm "$IMG" sh -c 'ls -a /app | grep -E "^\.graphify_|^\.trae$|^package(-lock)?\.json$"'; then
+          if docker run --rm --entrypoint sh "$IMG" -c 'ls -a /app | grep -E "^\.graphify_|^\.trae$|^package(-lock)?\.json$"'; then
             echo "❌ 镜像内检出退版文件（.graphify_* / .trae / package*.json）"
             exit 1
           fi
