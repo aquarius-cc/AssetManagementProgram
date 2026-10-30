@@ -314,6 +314,21 @@ M-24 ──同源──> M-31（均涉 nginx/构建配置）
 
 **批次 4 验收**：前端 type-check/lint/format:check 全 0 + 全量 185 files / 2411 tests passed + `test:coverage`（新棘轮）exit 0 + build exit 0；后端 ruff 双绿 + mypy strict 0 错误 + 相关 pytest 面全绿 + 双护栏 PASS。账本新增 A-50（M-23）、B-28（M-06）均已关闭。
 
+**批次 5 — 仓库/镜像卫生与死码清理（P2-C，2026-10-30 落地）**：
+
+| 项 | 状态 | 收口证据 |
+|:---|:---|:---|
+| M-38 graphify/trae 生成物退版 | `[已收口]` | 6 个 `.graphify_*`（5 json + `.graphify_uncached.txt`）+ `.trae/` 115 文件 `git rm --cached` 退版（本地文件保留）；后端 `.gitignore` 增 `.graphify_*`/`.trae/`，`.dockerignore` 增 `.graphify_*`/`.trae`；`git ls-files ".graphify_*" ".trae" ".trae/*"` 归零（`run_graphify*.py` 两个脚本属保留项不计）；docker CLI 本机不可用 → 以 `.dockerignore` 三路径 + `COPY . /app/` 生效位置静态核对降级验证，镜像内 `ls` 实证留作 CI/有 docker 环境补证 |
+| M-39 process_image 死脚本 | `[已收口]` | 根仓 `process_image.py`（96 行）、`process_image2.py`（93 行）删除 + 根 `.gitignore` 增 `process_image*.py` 规则；`git ls-files "*process_image*"` 归零 |
+| M-40 后端 npm 依赖清单 | `[已收口]` | `package.json`/`package-lock.json` 删除 + 本地 `node_modules` 清理（85.9MB）；后端 `.gitignore` Node 段改写（去 docx 字面措辞，防门禁自伤）+ `.dockerignore` 增 `package.json`；`git grep docx` 全仓归零 |
+| M-08 signals 死模块 | `[已收口]` | `apps/assetmanagement/signals.py`（0 逻辑行纯历史注释）删除 + `unregisteredasset/apps.py` 清 2 行延迟导入注释（`ready()` 骨架保留）；窄口径 `git grep "import signals"` 与 `"assetmanagement\.signals"` 双 0；CHANGELOG 加 Removed 留痕 |
+| M-09 分页死码与 docstring 矛盾 | `[已收口]` | `core/pagination.py:120-144` 注释旧实现删除（护栏口径逻辑行 86），`:6` docstring 改「无参数强制第一页（单页上限 100）」与实现一致；冒烟 `test_asset_view_api.py` 46 passed（无参强制分页 + `page_size=1` 有参两路径在场） |
+| M-13 outasset_selector 再导出壳（并入 ponytail 清单） | `[已收口]` | 壳文件删除，5 处 import 收敛为逐模块导入（`selectors/__init__.py` 直连 8 名 + 3 个测试文件）；`git ls-files "selectors/outasset_selector.py"` 归零；三 selector 测试 57 passed；包级 `__all__` 14 名不变 |
+
+**批次 5 验收**：采集层五门禁（graphify/trae 生成物、process_image、docx、signals 窄口径、outasset_selector 残留）全 0 + `manage.py check` 0 issue；后端 ruff 双绿（含 C90）+ mypy --strict 0 错误（228 文件）+ 全量 2246 passed 覆盖 90.34%（Service 层 98%）+ mutmut 双门禁 83.4532%（红线 80 / 基线 83.2568，+0.1965pt，tested=2085，WSL 同口径）+ schema 基线重导零漂移 + 双护栏 PASS。**附带**：发现基线存量漂移（M-RC-02/M-RC-05 改后未重导，6+/24- 非破坏性，CI oasdiff 实证）随批重导归零。
+
+**批次 5 附带发现（存量红，不阻断本批）**：master CI 自 2026-10-29 起连续 5 次 push 红，唯一失败 job = 前端变异测试 **79.70 < 80**（上绿为 10-27 的 80.02，仅 +0.02 边界余量；两次红跑同为 79.70，确定性而非抖动；批次 1~4 push 均带此红）。本批零前端变更、后端 job 全绿，与本批无因果。**[待决策]** 另立专项：查 80.02→79.70 转折成因（前端批次改动 vs 环境漂移）并补杀回 ≥80。
+
 ### 与三件原结论的差异
 
 | 件 | 原结论 | 融合后 |

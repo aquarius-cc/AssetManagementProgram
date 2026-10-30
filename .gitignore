@@ -58,3 +58,6 @@ mcp.json
 
 # ripgrep 二进制发行包（13 文件，批次 D untrack，本地工具保留不删）
 ripgrep/
+
+# 一次性去水印脚本（M-39：个人桌面绝对路径，与项目无关，2026-10-30 删除防再提交）
+process_image*.py

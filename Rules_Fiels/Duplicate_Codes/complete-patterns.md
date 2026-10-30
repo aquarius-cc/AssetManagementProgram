@@ -19,7 +19,7 @@
 
 ### A-2. 原 B-1/B-4（AssetSelector vs AssetQueryManager / filter_assets）
 - **状态**：✅ 已关闭 | 关闭日期：2026-08-13
-- **证据**：`asset_query_managers.py`、`selectors.py`（聚合文件）已不存在；查询逻辑收敛至 `apps/assetmanagement/selectors/` 包（asset_selector / outasset_selector / operation_log_selector / base_selector）。
+- **证据**：`asset_query_managers.py`、`selectors.py`（聚合文件）已不存在；查询逻辑收敛至 `apps/assetmanagement/selectors/` 包（asset_selector / out_asset_selector / operation_log_selector / base_selector 等按模型拆分的独立模块；原聚合再导出壳 `outasset_selector.py` 已于 2026-10-30 删除，包外调用方统一经 `selectors/__init__.py` 入口）。
 - **验证命令**：`rg -n "def filter_assets|class AssetQueryManager" asset_management_backend --glob "*.py"`（预期无命中）。
 
 ### A-3. 原 B-2/B-3（asset_get_by_id / user_get_by_id）
