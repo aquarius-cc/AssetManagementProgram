@@ -320,16 +320,25 @@ M-24 ──同源──> M-31（均涉 nginx/构建配置）
 
 | 项 | 状态 | 收口证据 |
 |:---|:---|:---|
-| M-38 graphify/trae 生成物退版 | `[已收口]` | 6 个 `.graphify_*`（5 json + `.graphify_uncached.txt`）+ `.trae/` 115 文件 `git rm --cached` 退版（本地文件保留）；后端 `.gitignore` 增 `.graphify_*`/`.trae/`，`.dockerignore` 增 `.graphify_*`/`.trae`；`git ls-files ".graphify_*" ".trae" ".trae/*"` 归零（`run_graphify*.py` 两个脚本属保留项不计）；docker CLI 本机不可用 → 以 `.dockerignore` 三路径 + `COPY . /app/` 生效位置静态核对降级验证，镜像内 `ls` 实证留作 CI/有 docker 环境补证 |
+| M-38 graphify/trae 生成物退版 | `[已收口]` | 6 个 `.graphify_*`（5 json + `.graphify_uncached.txt`）+ `.trae/` 115 文件 `git rm --cached` 退版（本地文件保留）；后端 `.gitignore` 增 `.graphify_*`/`.trae/`，`.dockerignore` 增 `.graphify_*`/`.trae`；`git ls-files ".graphify_*" ".trae" ".trae/*"` 归零（`run_graphify*.py` 两个脚本属保留项不计）；docker CLI 本机不可用 → 以 `.dockerignore` 三路径 + `COPY . /app/` 生效位置静态核对降级验证，镜像内 `ls` 实证留作 CI/有 docker 环境补证 **→ 2026-10-30 CI 补证兑现：CD run 148 镜像卫生断言实跑通过（见下「批次 5 CI 实证回填」）** |
 | M-39 process_image 死脚本 | `[已收口]` | 根仓 `process_image.py`（96 行）、`process_image2.py`（93 行）删除 + 根 `.gitignore` 增 `process_image*.py` 规则；`git ls-files "*process_image*"` 归零 |
 | M-40 后端 npm 依赖清单 | `[已收口]` | `package.json`/`package-lock.json` 删除 + 本地 `node_modules` 清理（85.9MB）；后端 `.gitignore` Node 段改写（去 docx 字面措辞，防门禁自伤）+ `.dockerignore` 增 `package.json`；`git grep docx` 全仓归零 |
 | M-08 signals 死模块 | `[已收口]` | `apps/assetmanagement/signals.py`（0 逻辑行纯历史注释）删除 + `unregisteredasset/apps.py` 清 2 行延迟导入注释（`ready()` 骨架保留）；窄口径 `git grep "import signals"` 与 `"assetmanagement\.signals"` 双 0；CHANGELOG 加 Removed 留痕 |
-| M-09 分页死码与 docstring 矛盾 | `[已收口]` | `core/pagination.py:120-144` 注释旧实现删除（护栏口径逻辑行 86），`:6` docstring 改「无参数强制第一页（单页上限 100）」与实现一致；冒烟 `test_asset_view_api.py` 46 passed（无参强制分页 + `page_size=1` 有参两路径在场） |
+| M-09 分页死码与 docstring 矛盾 | `[已收口]` | `core/pagination.py:120-144` 注释旧实现删除（护栏口径逻辑行 86），`:6` docstring 改「无参数强制第一页（单页上限 100）」与实现一致；冒烟 `test_asset_view_api.py` 46 passed（无参强制分页 + `page_size=1` 有参两路径在场）；**CI 复证**：run 162 ruff format --check 抓获 `core/pagination.py:119` 尾部空行（批次 5 本地跑序疏漏），钉版 ruff 0.17.1 修 + run 163 ruff 绿（423 files formatted） |
 | M-13 outasset_selector 再导出壳（并入 ponytail 清单） | `[已收口]` | 壳文件删除，5 处 import 收敛为逐模块导入（`selectors/__init__.py` 直连 8 名 + 3 个测试文件）；`git ls-files "selectors/outasset_selector.py"` 归零；三 selector 测试 57 passed；包级 `__all__` 14 名不变 |
 
 **批次 5 验收**：采集层五门禁（graphify/trae 生成物、process_image、docx、signals 窄口径、outasset_selector 残留）全 0 + `manage.py check` 0 issue；后端 ruff 双绿（含 C90）+ mypy --strict 0 错误（228 文件）+ 全量 2246 passed 覆盖 90.34%（Service 层 98%）+ mutmut 双门禁 83.4532%（红线 80 / 基线 83.2568，+0.1965pt，tested=2085，WSL 同口径）+ schema 基线重导零漂移 + 双护栏 PASS。**附带**：发现基线存量漂移（M-RC-02/M-RC-05 改后未重导，6+/24- 非破坏性，CI oasdiff 实证）随批重导归零。
 
-**批次 5 附带发现（存量红，不阻断本批）**：master CI 自 2026-10-29 起连续 5 次 push 红，唯一失败 job = 前端变异测试 **79.70 < 80**（上绿为 10-27 的 80.02，仅 +0.02 边界余量；两次红跑同为 79.70，确定性而非抖动；批次 1~4 push 均带此红）。本批零前端变更、后端 job 全绿，与本批无因果。**[待决策]** 另立专项：查 80.02→79.70 转折成因（前端批次改动 vs 环境漂移）并补杀回 ≥80。
+**批次 5 附带发现（存量红，不阻断本批）**：master CI 自 2026-10-29 起连续 5 次 push 红，唯一失败 job = 前端变异测试 **79.70 < 80**（上绿为 10-27 的 80.02，仅 +0.02 边界余量；两次红跑同为 79.70，确定性而非抖动；批次 1~4 push 均带此红）。本批零前端变更、后端 job 全绿，与本批无因果。**[已回绿]** 专项 2026-10-30 落地：dashboard 链补杀——CT-4 四簇先红抽证（:187 置位 / :263 竞态 / :182 节流 / :195 文案，逐一精确红后回滚零残留）+ lifecycle 7 用例 + edge/logger 断言扩展，49/49 绿；本地 node22 全量 **82.79**（killed 1554 / survived 278 / tested 1878，基线 80.18，+2.61pt）；**CI run 162/163 前端变异 job 两轮 success = 82.31**（stryker threshold 80，job 124131400673，详见下表）。成因定性：80.02→79.70 的 -0.32pt 落在批次 1~4 区间（同 CI 平台，定性为该区间前端改动净效应）；本地/CI 双平台差恒 -0.48pt（历史 80.18/79.70 同差 = 平台漂移项）。逐 commit 拆分未做 **[待确认]**，如需颗粒度归因可另立。
+
+**批次 5 CI 实证回填（2026-10-30，两轮 push 取证）**：
+
+| 轮次 | head | 关键 run | 结论 |
+|:---|:---|:---|:---|
+| 第 1 轮 | `5443cec` | CD run 147（id 41072531719）；CI run 162（id 41072474542） | CD：安全门禁 success、Build & Push success（镜像已推 GHCR）、**step#6 镜像卫生断言 failure**、Prune skipped——日志原文「等待中 51~60/60 → 错误：数据库连接超时」，定性 = 本批断言 `docker run IMG sh -c` 未覆盖 ENTRYPOINT，M-36 入口脚本吞参直跑 migrate 等待链（调用写法错误，非镜像卫生问题）。CI：**前端变异 success = 82.31**；唯一红 = 后端 ruff format step#7（`core/pagination.py:119` 尾部空行，`1 file would be reformatted, 422 files already formatted`，批次 5 本地跑序疏漏） |
+| 第 2 轮 | `5e3a9f5`（backend gitlink `5743095`） | CD run 148（id 41075403449）；CI run 163（id 41075352414） | CD：**三 job 全绿**（安全门禁 / Build & Push 含断言实跑 —— `/app/manage.py` 在场 + `.graphify_*`/`.trae*`/`package*.json` 零命中 / Prune）= **M-38/M-40 镜像内 CI 实证兑现**。CI：**15 job 全绿**（ruff 绿 = 423 files formatted；后端测试 2246 passed + Service 覆盖 97.32% ≥ 90；前端变异 82.31；后端变异 83.4532 ≥ 基线 83.2568 +0.1965pt；汇总 success） |
+
+修法：ci-cd.yml 两处 `docker run` 补 `--entrypoint sh`；`core/pagination.py` 尾部空行删除（backend `5743095`，本地 `.venv` ruff 0.17.1 = dev.txt 钉版，CT-7 同源）。
 
 ### 与三件原结论的差异
 

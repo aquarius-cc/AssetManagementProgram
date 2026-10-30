@@ -6,7 +6,8 @@
 #   ① **/node_modules 排除不伤 `COPY vue-assetmanagement/package*.json`
 #      （package*.json 不在 node_modules 内）；反而必需——防止宿主机 node_modules
 #      在 COPY vue-assetmanagement/ 阶段覆盖镜像内 npm ci 的产物。
-#   ② 正向验证兜底 = nginx 构建成功 + dist 在场（首次实证后回填）。
+#   ② 正向验证兜底 = nginx 构建成功 + dist 在场（首跑受阻于 BF-166 COPY 前缀失配，
+#      三 Dockerfile 根 context 必败已登记，待修后回填本注记）。
 # =============================================================================
 
 .git

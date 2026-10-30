@@ -10516,3 +10516,34 @@ merge-audit 指出：员工手机号明文返回所有已登录用户——列�
 - 导出侧现状即不含 phone（`employee_view.py:85` 最小化 PII 外泄面），无需处理。
 
 *登记人：atomcode ｜ 状态：【WAI 关闭】（业务确认口径明文 + 三锚点：注释×2 + 绊线测试×1），2026-10-29*
+
+## BF-166【待决策】根 context 下 nginx/certbot/blackbox 三个 Dockerfile 的 COPY 路径失配（compose build 必败）｜来源：批次 5 CI 实证阶段巡检发现（2026-10-30，ID-2 主动上报）
+
+### 一、问题与定性
+
+`asset_management_backend/docker-compose.yml` 的 nginx（build 段 `:121-122`）、certbot（`:148-149`）、backup（`:167-168`）与 `docker-compose.monitoring.yml` 的 blackbox（`:116-117`）均声明 `context: ..`（仓根）+ 子路径 dockerfile。仓根 context 下逐 Dockerfile 的 COPY 路径核对：
+
+| Dockerfile | COPY 写法 | 根 context 判定 |
+|:---|:---|:---|
+| `docker/nginx/Dockerfile` | stage1 `COPY vue-assetmanagement/...` ×2；stage2 `COPY docker/nginx/{nginx.conf, conf.d/, entrypoint.sh}` | stage1 过；**stage2 三处必败**（仓根无 `docker/`） |
+| `docker/nginx/certbot/Dockerfile` | `COPY docker/nginx/scripts/renew.sh` | **必败**（同上） |
+| `docker/blackbox/Dockerfile` | `COPY docker/blackbox/...` ×3 | **必败**（同上） |
+| `docker/backup/Dockerfile` | `COPY asset_management_backend/...` ×7 | 过（已带前缀 = 正例对照） |
+
+七个失配 COPY 的源文件在 `asset_management_backend/` 下均实际存在（`Test-Path` 全 True）——纯路径前缀失配，非缺文件。
+
+### 二、为什么 CI 从未红
+
+ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，默认 Dockerfile，构建 + 镜像卫生断言均只覆盖该路径）；上表四镜像均为 compose 本地运维构建路径，CI/CD 无暴露面 → 存量失配从未被门禁抓获。
+
+### 三、处置（未修，超批次 scope，待决策）
+
+- 方案 A（推荐）：nginx stage2 三处 + certbot 1 处 + blackbox 3 处 COPY 补 `asset_management_backend/` 前缀（与 backup 正例对齐），共 7 行；
+- 方案 B：改 compose context —— 不成立：nginx stage1 必须要仓根 `vue-assetmanagement/`，root context 不可替代（certbot/blackbox 同批理顺需逐服务评估）；
+- 本批仅登记不动代码（批次 5 = 仓库/镜像卫生清理，compose 构建修复另立，待负责人拍板后执行）。
+
+### 四、影响面
+
+本地 `docker compose build nginx / certbot` 与 monitoring blackbox 构建失败（既存，非批次 1~5 引入；backend 主镜像、CD 断言链、CI 全量不受影响）。关联残余：根 `.dockerignore` 注记②「nginx 构建正向验证」兑现被本条阻塞，已在该注记内回链 BF-166。
+
+*登记人：opencode ｜ 状态：【待决策】（未修；方案 A 7 行前缀待批），2026-10-30*
