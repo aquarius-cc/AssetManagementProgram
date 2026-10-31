@@ -340,6 +340,27 @@ M-24 ──同源──> M-31（均涉 nginx/构建配置）
 
 修法：ci-cd.yml 两处 `docker run` 补 `--entrypoint sh`；`core/pagination.py` 尾部空行删除（backend `5743095`，本地 `.venv` ruff 0.17.1 = dev.txt 钉版，CT-7 同源）。
 
+**批次 6 — P3 优化（2026-10-31 落地，v2.2 定稿）**：
+
+| 项 | 状态 | 收口证据 |
+|:---|:---|:---|
+| M-11 部门祖先链批量化 | `[已收口]` | service `_collect_ancestor_recordcodes` 改单条 `filter(path__in=…)`（O(depth)→1，缺失祖先 warning 文本与 BF-160 断言兼容）；`_invalidate_ancestors_cache` 升级 `delete_many` 为唯一失效点（DR-1）；`models.save` 删内联（原缺前导 `/` + `pass` 吞异常 → 祖先缓存从未失效）改 save 后延迟导入调 service（v2.2 决策：cache-aside 竞态窗口反转为自愈型）；先红后绿 2 例 + 既有 31 例不回退 |
+| M-12 巡检 --strict | `[已收口]` | `--strict` + `CommandError`（manage.py 下退出码 1）；非 strict 逐字节不变；:54 惰性日志；**顺带修复存量 AttributeError**——检查 3 谓词 `OutAsset.OutStatus.PENDING` 引用从未存在的字段（type: ignore 掩盖），改按检查意图「in_store 资产不应有出库记录」；3 例测试 |
+| M-14 软删除显式契约 | `[已收口]` | `get_asset_detail_by_code` filter 增 `is_deleted=False` + docstring；变异取证：临时移除 SoftDeleteManager 过滤 → 行为测试红 → 显式过滤兜底绿 → 恢复；SQL 内省断言在场 |
+| M-15 sentry 钉版 | `[已收口]` | `sentry-sdk[django]==2.73.0`（PyPI JSON API 权威取版 2.x 最高补丁；OSV API 核验零 advisory——pip-audit 本机不可用降级同源核验）；`--dry-run` 解析通过；dev.txt 继承不变 |
+| M-16 force_recycle 前态留痕 | `[已收口]` | `_force_finalize_recycle`（handlers.py:121）签名加 operator_jobcode + helper 内经 `AuditLogger.log_state_change`（audit.py:190-191）写 `before_data["asset_current_status"]`；S2(:221)/S3(:256) 各一例断言 dict 取键；**循环导入坑**：audit 直连导入触发 audit:33↔services/__init__→asset_service:14 入口次序环，按 audit_adapter 先例经 operation_log_service 链加载；不改 FSM（M-60 例外声明） |
+| M-17 标识符纵深加固 | `[已收口]` | `clear_database.py` 两处 f-string 改 `sql.Identifier` 组合 + `.as_string(connection)` 实跑编译；`_build_identifier_sql` helper；白名单/保护表双闸保持（保护表分支以注入法实证可达）；6 例测试 |
+| M-29 LogIn 懒加载 | `[已收口]` | routes-auth 静态 import 删除改动态；`rg "from '@/views" src/router/` 归零；index.spec 懒加载函数断言 |
+| M-30 NotFound/main meta | `[已收口]` | NotFound 补 `requiresAuth:false`（匿名直达 404）+ `/main` 补 title；index.spec 3 断言；write-deny spec 措辞同步 |
+| M-32 死白名单删除 | `[已收口]` | `'/main/system'` 死条目删除（实测全仓无此前缀路由，Dept* 子树实挂 /main/departmentmanagement 且自有 meta 门槛）；**7 处注释订正**（:75/:116/:119/:130/:133/:144/:147）；guards.spec 受控例外（it.each 死路径移除 + superuser 用例改真实路径，批次 3「零改动」约束的必要例外已留痕）；负向断言（死前缀不得回归） |
+| M-33 时间单源化 | `[已收口]` | Format.ts 新增 `toLocalDateString` 唯一底层 + `formatRelativeTime`（与 NotificationBell 逐字节对齐）；formatDate/todayLocalISO/parseExcelDate/exactFormatDate 收敛（exact 委托 full）；readExcelFile/NotificationBell/DashboardAssetTrend 三消费方替换；验收口径：本地日期拼接仅 Format.ts 一处（Excel UTC 序列号语义显式排除）、「分钟前」单源 |
+| M-34 .vue 行数护栏 | `[已收口]` | `check_frontend_invariants.py` 增 FR-5（template 有效行 + script 逻辑行，script 匹配放宽 `<script>` 防逃逸；**scan 加 counter 参数修 TS 口径误计**——.vue 全文 504−2=502 假超限即由此暴露）；三例自测入 scripts/tests（501 红/500 边界绿/非 setup 拦截）；FR5_vue_ledger.md 建档（基线 121 文件最大 411，**存量零超限**）；CI step 注释同步 5 护栏 |
+| M-35 混淆定位标注 | `[已收口]` | auth.ts 文件头/restoreBearerSession 改「XOR 混淆非加密，不构成安全边界」；tokenObfuscator 10 处「加密」措辞订正（保留 H-2 安全声明与「非加密」定性）；tokenObfuscator.spec 错误文案断言同步（3 例回归修复）；需求文档零命中核对 |
+| M-31/M-37 复核 | `[已收口·复核]` | 两份 tpl `try_files` 在场（:239/:167）、entrypoint 三态切换、renew.sh 首签+退避——「已落地不重复实现」定性维持；深链刷新/空证书目录两条硬验收写入文档 §5.4 |
+| M-41 部署文档对齐 | `[已收口]` | §3.1 失真 compose 示例删除改服务清单表（web/postgres/redis/nginx/certbot/backup + 三卷）；§3.3 改实际双阶段构建（无 mkdir dist 前置）；§4.2 systemctl 旧残留改 docker compose 流程；§5.4 补两条硬验收；新增 §6 备份与恢复演练（六脚本 + compose backup 服务对齐，RPO/RTO 口径 + 演练记录表）；V1.2 修订记录 |
+
+**批次 6 验收**：后端 ruff 双绿（含 C90）+ format --check 0 + mypy --strict 0 错误（228 文件）+ 全量 **2261 passed** 覆盖 **89%**（TOTAL ≥80 ✓；Service 层全 ≥96%：asset_service 100% / department_service 100% / out_asset 99%…≥90 ✓）；前端 type-check/lint/format:check 全 0 + 全量 **2420 tests**（2417+3 回归修复）+ `test:coverage` exit 0（.vue 棘轮 21.1/19.0/18.6/21.3 维持）；三护栏 PASS（含 FR-5 新护栏）；**mutmut 本地未跑，以 CI backend-mutation job 为权威**（CT-7 同源口径，批次 4/5 先例一致）。
+
 ### 与三件原结论的差异
 
 | 件 | 原结论 | 融合后 |

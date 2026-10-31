@@ -35,7 +35,7 @@ jobs:
         run: ruff check .
       - name: Ruff 格式检查
         run: ruff format --check .
-      # 护栏自测：4 个护栏（BR-4/BR-6/G-1~G-5/FR-6~FR-8）逐条断言先证红再证绿（BF-061
+      # 护栏自测：5 个护栏（BR-4/BR-6/G-1~G-5/FR-5~FR-8）逐条断言先证红再证绿（BF-061
       # 假绿教训）。测试仅依赖父仓根下 scripts/ 与 pytest，走 tmp_path 夹具不触碰代码库。
       # scripts/tests/conftest.py 已把 scripts/ 加入 sys.path，故无 working-directory 依赖。
       - name: 护栏自测（先证红后证绿）
