@@ -10547,3 +10547,45 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 本地 `docker compose build nginx / certbot` 与 monitoring blackbox 构建失败（既存，非批次 1~5 引入；backend 主镜像、CD 断言链、CI 全量不受影响）。关联残余：根 `.dockerignore` 注记②「nginx 构建正向验证」兑现被本条阻塞，已在该注记内回链 BF-166。
 
 *登记人：opencode ｜ 状态：【待决策】（未修；方案 A 7 行前缀待批），2026-10-30*
+
+---
+
+## BF-167【待验证】批次 1 CI 门禁加固四件套——M-02 ci-summary 收全 15 job（门禁稀释假绿）+ M-09 CI lint 去 --fix（检查/修复语义分离）+ M-10 新增 frontend-format + M-24 新增 guard-summary；附 M-02 方案A：ci-cd 触发源改 CI Pipeline + 按 SHA 回查安全扫描｜来源：`docs/Review/merge-audit-20261031.md` M-02（P1）/ M-09 / M-10 / M-24（P2）行 + §三 批次 1
+
+### 一、问题与定性（CI 编排，零生产代码）
+
+四条门禁稀释/缺口（merge-audit-20261031 实证）：
+
+- **M-02**：`ci-summary` 的 `needs` 仅收 4 个 job（backend-test / backend-mutation / frontend-test / frontend-mutation），backend-lint、backend-type-check、backend-complexity、backend-permission-check、api-schema-check、api-doc-guard、api-doc-generate 等红灯不进汇总——仓库直推 `master` 且无 required checks，红 job 可被整体忽略（门禁稀释假绿）。
+- **M-09**：CI 的 `frontend-lint` / `frontend-complexity` 跑 `npm run lint`（= `eslint . --fix`），可自动修复的违规被 CI 静默修好后「通过」，检查与修复语义混用。
+- **M-10**：`npm run format:check` 无 CI job，前端三项检查仅本地强制，Prettier 缺 CI 强制。
+- **M-24**：`duplicate-guard.yml` 三个护栏 job 无统一汇总节点，各自独立红不传导。
+
+**M-02 部署门禁真闭合（方案 A，用户拍板 2026-10-31）**：`ci-cd.yml` 原 `workflow_run` 监听 `Dependency Security Scan`——该 workflow 按依赖变更分流、非必跑，监听它使 gate 真闭合依赖一个可能不跑的 workflow（长链 CI 全量测试+变异必跑、短链安全扫描回查，避免 gate 内 1 小时级轮询）。备选方案 A'（gate 内长轮询 CI 结论 ≈3600s）被否，理由为 runner 成本与失败面。
+
+### 二、修复方案
+
+- **ci.yml**：① `ci-summary` `needs` 收全 15 job，汇总步骤改 `toJSON(needs)` 经 `env:` 传入（防 shell 二次解析注入）+ python3 遍历，任一 `result != success` 即 `exit 1`（前提实测：无 continue-on-error、无 job 级 `if:`，口径安全）；② `frontend-lint` / `frontend-complexity` 改跑 `npm run lint:ci`（检查模式）；③ 新增 `frontend-format` job（checkout submodules + setup-node + `npm ci` + `npm run format:check`）；④ `backend-lint` 护栏自测注释「5 个护栏」→「6 个护栏」。
+- **duplicate-guard.yml**：新增 `guard-summary`（`needs` 三护栏 + `if: always()` + 同构 python3 汇总，「护栏未通过，阻止合并」）。
+- **ci-cd.yml**：触发源 `Dependency Security Scan` → `CI Pipeline`；`permissions` 增 `actions: read`；`security-gate` 改名「部署门禁校验」，双步结构——第一步校验 CI 结论四项（`event=push` / `head_branch=master` / `conclusion=success` / `head_sha == GITHUB_SHA`），第二步按同一 SHA 回查安全扫描（jq null 安全：`if length == 0 then "none||" else (last | ...) end`，防扫描 run 未产生时 `last` 对 null 取索引报错被 `|| fail-closed` 误判为 API 异常）+ 短轮询兜底；等待/间隔经 repo vars `CD_SCAN_WAIT_SECONDS` / `CD_SCAN_POLL_SECONDS`（AR-4 不硬编码），超时/未完成/非 success/API 异常一律 fail-closed 拒绝部署。
+- **子模块 `package.json`**：新增 `"lint:ci": "eslint ."`（不动带 `--fix` 的 `lint`，本地语义不变）。
+- **新增护栏 `scripts/check_ci_orchestration.py`**：断言一 = `ci-summary` / `guard-summary` 的 needs 必须覆盖 workflow 全部前置 job；断言二（用户确认追加）= `ci-cd.yml` 监听名必须等于 `ci.yml` 顶层 `name`（防改名致 gate 静默停摆）。配套 `scripts/tests/test_ci_orchestration.py` 7 用例。
+
+### 三、影响面
+
+仅 CI 编排 3 文件 + 护栏脚本 2 新文件 + 子模块 package.json 1 行；**零生产代码、零跨端契约变更、零数据库迁移**，`api-schema-baseline.json` 无需重导出。
+
+### 四、测试验证（本地全绿；CI 首跑与探针取证待完成）
+
+- **先证红**：护栏初跑 FAIL，精确列出 10 个未覆盖 job + `guard-summary` 缺失 + `_workflow_name` 真 bug（TOP_KEY 正则只匹配空值行，对 `name: CI Pipeline` 恒失败）；修复后 **PASS**（BF-061 假绿教训的先红后绿纪律）。
+- `pytest scripts/tests` **29 passed**（含新 7 用例：未挂 needs 红 / 内联绿 / 块状绿 / 汇总 job 缺失红 / 监听名不一致红 / 一致绿 / 真实仓库回归绿）。
+- 三个 workflow YAML 解析 OK；汇总 python 脚本混合输入判红、全绿判绿实测；jq 双分支与 bash `%%|#*` 双 case 实测。
+- 切换前置实测：子模块 `npx eslint .` exit 0、`npm run format:check` 全过 → M-09/M-10 切换零新增失败面。
+
+### 五、关联与残余
+
+- 审计行：merge-audit-20261031 M-02（P1 表）/ M-09 / M-10 / M-24（P2 表）+ §三 批次 1；前序同型 **BF-061**（ci-summary 漏判 mutation job）。
+- **转【已关闭】条件（残余取证）**：① 两个提交单元（子模块 package.json → 根仓三 workflow + 两脚本 + gitlink）推送后 CI 首跑全绿；② 探针分支 7 项注入测试——第 3 项（CD 真闭合：CI 红 → gate 拒绝）与第 4 项（poll 正样本：扫描完成 → gate 放行）为关键证据，是排除新增静默风险的唯一手段；③ 文档同步随批落地（根级 AGENTS v3.7.2 / 前端 AGENTS v9.9.1 / frontend-testing-rules v1.8，同 commit）。
+- §5.4 判定：不触发沙盒期——阻断阈值与 exit 条件未变，属门禁稀释面闭合 + 描述与实现对齐（去伪存真）。
+
+*登记人：mimo ｜ 状态：【待验证】（本地验证全绿；待推送后 CI 首跑 + 探针注入取证转【已关闭】），2026-10-31*

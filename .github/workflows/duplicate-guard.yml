@@ -36,3 +36,32 @@ jobs:
           submodules: true
       - name: 运行 FR-6 Composable 规模护栏
         run: python scripts/check_frontend_invariants.py
+
+  # 【M-24】与 ci.yml「CI 汇总」同构。三个 job 均无条件执行，故「!= success 即失败」安全。
+  # 【为何不能并入 ci.yml 的 ci-summary】GitHub Actions 的 job 级 needs 不跨 workflow，
+  # 跨 workflow 的「统一汇总」只能靠 required checks 或 API 回查，本批不引入。
+  guard-summary:
+    name: "护栏汇总"
+    runs-on: ubuntu-latest
+    needs: [duplicate-guard, function-length-guard, fr6-composable-guard]
+    if: always()
+    steps:
+      - name: 汇总护栏结果
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          echo "=== Guard Results ==="
+          echo "$NEEDS_JSON" | python3 -c '
+          import json, sys
+          needs = json.load(sys.stdin)
+          bad = []
+          for job, item in sorted(needs.items()):
+              print("%-26s %s" % (job, item.get("result")))
+              if item.get("result") != "success":
+                  bad.append(job + "=" + str(item.get("result")))
+          if bad:
+              print("❌ 护栏未通过，阻止合并：" + ", ".join(bad))
+              sys.exit(1)
+          print("✅ 全部护栏通过")
+          '

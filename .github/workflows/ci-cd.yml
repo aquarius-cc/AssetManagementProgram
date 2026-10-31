@@ -5,7 +5,8 @@
 # 只识别仓库根 .github/workflows/, 该流水线从未被执行过(审计 BF-005 疏漏1)。
 #
 # 职责划分(与根 ci.yml 去重):
-#   - 本文件       = CD(docker build/push + 镜像保留策略), 仅在安全扫描通过后
+#   - 本文件       = CD(docker build/push + 镜像保留策略), 仅在 CI 汇总与安全扫描
+#                    双双通过后（CI 触发 + 扫描回查，M-02 真闭合）
 #   - ci.yml       = CI(lint/test/coverage/变异/护栏)
 #   - security-scan.yml = 依赖漏洞审计 + 密钥扫描
 #
@@ -15,6 +16,16 @@
 #   ② 移除 workflow_dispatch —— 该触发下 github.event.workflow_run 上下文为空，
 #      security-gate 必然失败，留着会制造永久红的误导性入口。代价是无法手动
 #      重跑部署，只能推空提交触发。
+#
+# 【M-02 真闭合，2026-10-31】触发源由 "Dependency Security Scan" 改为 "CI Pipeline"：
+# CI 含全量测试与变异（分钟级到小时级），安全扫描仅依赖审计（分钟级）。
+# 让长的一方触发、短的一方回查，可零成本获得「CI 绿才部署」（conclusion 由事件直接给出），
+# 安全扫描结论则用 actions: read 按 SHA 回查 + 短 poll 兜底（fail-closed）。
+# 反之（原链）在 gate 内等 CI 完成需轮询 1 小时级，属不可接受的 runner 成本。
+# 附带收益：schedule 触发的安全扫描（每周一全量）原会触发本 workflow 并在
+# event 校验处必红一个 run；CI Pipeline 无 schedule 触发，该噪声消失。
+# 【静默停摆防护】监听名与 ci.yml name 的一致性由 scripts/check_ci_orchestration.py 断言
+# （backend-lint 护栏自测步骤执行），CI 改名漏改本文件会立即红而非 CD 无声中断。
 #
 # 【仓库迁移 2026-10-13】镜像仓库由 Docker Hub 改为 GHCR(github.com/packages)：
 #   触发事实: Docker Hub 网络不可达; 迁移后零库外 secrets(GITHUB_TOKEN 即可发布),
@@ -27,7 +38,8 @@ name: CD Pipeline
 
 on:
   workflow_run:
-    workflows: ["Dependency Security Scan"]
+    # 【M-02 真闭合，2026-10-31】改监听 CI Pipeline（长链触发、短链回查，理由见头部注释）。
+    workflows: ["CI Pipeline"]
     types: [completed]
 
 # 【权限调整 2026-10-13，GHCR 迁移】原收窄为 contents:read(不依赖 GITHUB_TOKEN
@@ -35,29 +47,33 @@ on:
 # 发布/清理 GHCR 镜像, 故增 packages: write。token 一次性、随 run 注入且仓库限定,
 # 取代原库外长期 Docker Hub PAT(Read & Delete) —— 净安全收益为正。仍不授予
 # contents: 写能力, security-gate 爆炸半径兜底不变。
+# 【M-02 真闭合，2026-10-31】增 actions: read —— 按 SHA 回查 Dependency Security
+# Scan 的 run 结论需要该权限。
 permissions:
   contents: read
+  actions: read
   packages: write
 
 jobs:
   # ==================== 部署前置门禁 ====================
-  # 【设计 2026-10-01】本仓库历史 0 PR、直推 master，GitHub required status checks
-  # 在此模式下空转，故把安全扫描结论前移到部署链路：审计不通过则镜像不推送。
+  # 【设计 2026-10-01，M-02 真闭合 2026-10-31 更新】本仓库历史 0 PR、直推 master，
+  # GitHub required status checks 在此模式下空转，故把 CI 汇总与安全扫描结论前移
+  # 到部署链路：任一不通过则镜像不推送（CI 触发 + 扫描回查）。
   # 三项校验缺一不可：
   # ① event / head_branch —— workflow_run 对 fork PR 的 pull_request 运行同样会
   #    触发，且它可访问 secrets 与写权限 token（pwn-request 风险）。只认 master 推送。
-  #    schedule 触发的扫描 event=schedule，同样被挡（不应触发部署）。
+  #    CI 的 workflow_dispatch 触发 event=workflow_dispatch，同样被挡。
   # ② conclusion —— 官方载明 workflow_run 无论前序结论如何都会触发，必须自己判
   #    失败，不能靠 job 级 if 让 docker 静默 skipped。
   # ③ head_sha == GITHUB_SHA —— 官方事件表载明 workflow_run 的 GITHUB_SHA 是
   #    「默认分支的最新提交」而非被触发 run 的 head sha。这条相等校验同时保证了
-  #    下方 docker 的 actions/checkout 检出的就是被审计的那个 commit，避免两次推送
-  #    之间间隔导致构建到未经审计的新提交（github.sha 在单次 run 内不可变）。
+  #    下方 docker 的 actions/checkout 检出的就是被 CI 验证过的那个 commit，避免
+  #    两次推送之间间隔导致构建到未经验证的新提交（github.sha 在单次 run 内不可变）。
   security-gate:
-    name: "安全门禁校验"
+    name: "部署门禁校验"
     runs-on: ubuntu-latest
     steps:
-      - name: 校验审计结论与提交一致性
+      - name: 校验 CI 结论与提交一致性
         # 【注入防护 2026-10-01】值必须经 env: 传入再以 $VAR 引用，禁止直接
         # ${{ }} 插进 run:。head_branch 可被 fork PR 的分支名影响，而 git ref
         # 仅禁止 空格 ~ ^ : ? * [ \ 与控制字符 —— 双引号/分号/管道/美元/反引号
@@ -77,16 +93,68 @@ jobs:
             exit 1
           fi
           if [ "$WR_CONCLUSION" != "success" ]; then
-            echo "❌ 安全扫描未通过（$WR_CONCLUSION），拒绝部署"
+            echo "❌ CI 汇总未通过（$WR_CONCLUSION），拒绝部署"
             exit 1
           fi
           if [ "$WR_HEAD_SHA" != "$MASTER_SHA" ]; then
-            echo "❌ 安全扫描提交与 master 最新提交不一致，拒绝部署"
-            echo "   审计提交: $WR_HEAD_SHA"
+            echo "❌ CI 提交与 master 最新提交不一致，拒绝部署"
+            echo "   CI 提交:  $WR_HEAD_SHA"
             echo "   master:   $MASTER_SHA"
             exit 1
           fi
-          echo "✅ 安全扫描通过，审计提交 = master: $MASTER_SHA"
+          echo "✅ CI 汇总通过，审计提交 = master: $MASTER_SHA"
+
+      # 【M-02 真闭合】CI 通过后回查同一 SHA 的安全扫描结论。
+      # 【为何要 poll 而非直接判】workflow_run 只看得到被监听 workflow 的结论，
+      # 安全扫描是另一条链，其 run 可能尚未完成；未完成按 fail-closed 处理，
+      # 但若「CI 先完成、安全扫描稍后」则短等待可避免误拒部署。
+      # 【fail-closed】查询异常（403/网络）、超时未完成、conclusion 非 success 一律 exit 1。
+      - name: 校验安全扫描结论（按 SHA 回查）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          SCAN_NAME: "Dependency Security Scan"
+          # AR-4：等待上限与轮询间隔由配置管理，不硬编码在逻辑里
+          WAIT_SECONDS: ${{ vars.CD_SCAN_WAIT_SECONDS || 600 }}
+          POLL_SECONDS: ${{ vars.CD_SCAN_POLL_SECONDS || 20 }}
+        run: |
+          set -euo pipefail
+          deadline=$(( $(date +%s) + WAIT_SECONDS ))
+          while :; do
+            # 同一 SHA 可能有多个 workflow 的 run，必须按 name 过滤（head_sha 已由 API 过滤）。
+            # 【null 安全】扫描 run 尚未产生时 last 返回 null，直接 .status 会让 jq 报错
+            # （Cannot index null）→ gh 非零退出 → 被下方 || 误判为 API 异常立即拒绝，
+            # poll 循环失去意义。故显式判空：无 run 输出 "none||" 走「未完成」轮询路径。
+            raw=$(timeout 30 gh api \
+              "repos/$REPO/actions/runs?head_sha=$SHA&event=push&per_page=100" \
+              --jq "[.workflow_runs[] | select(.name == \"$SCAN_NAME\")]
+                    | sort_by(.created_at)
+                    | if length == 0 then \"none||\"
+                      else (last | \"\(.status // \"\")|\(.conclusion // \"\")|\(.html_url // \"\")\")
+                      end") || {
+              echo "❌ 查询安全扫描 run 失败（API 异常），按 fail-closed 拒绝部署"
+              exit 1
+            }
+            status=${raw%%|*}
+            rest=${raw#*|}
+            conclusion=${rest%%|*}
+            url=${rest#*|}
+            echo "安全扫描 status=$status conclusion=${conclusion:-<空>} $url"
+            if [ "$conclusion" = "success" ]; then
+              echo "✅ 安全扫描通过，允许部署"
+              break
+            fi
+            if [ -n "$conclusion" ]; then
+              echo "❌ 安全扫描未通过（$conclusion），拒绝部署"
+              exit 1
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "❌ 等待 ${WAIT_SECONDS}s 后安全扫描仍未完成（status=$status），按 fail-closed 拒绝部署"
+              exit 1
+            fi
+            sleep "$POLL_SECONDS"
+          done
 
   docker:
     name: Docker Build & Push

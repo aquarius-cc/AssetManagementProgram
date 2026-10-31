@@ -35,8 +35,9 @@ jobs:
         run: ruff check .
       - name: Ruff 格式检查
         run: ruff format --check .
-      # 护栏自测：5 个护栏（BR-4/BR-6/G-1~G-5/FR-5~FR-8）逐条断言先证红再证绿（BF-061
-      # 假绿教训）。测试仅依赖父仓根下 scripts/ 与 pytest，走 tmp_path 夹具不触碰代码库。
+      # 护栏自测：6 个护栏（BR-4/BR-6/G-1~G-5/FR-5~FR-8/CI 编排 M-02+M-24）逐条断言
+      # 先证红再证绿（BF-061 假绿教训）。测试仅依赖父仓根下 scripts/ 与 pytest，
+      # 走 tmp_path 夹具不触碰代码库。
       # scripts/tests/conftest.py 已把 scripts/ 加入 sys.path，故无 working-directory 依赖。
       - name: 护栏自测（先证红后证绿）
         run: python -m pytest ../scripts/tests -q
@@ -358,8 +359,10 @@ jobs:
           cache: "npm"
           cache-dependency-path: vue-assetmanagement/package-lock.json
       - run: npm ci
-      - name: ESLint 检查
-        run: npm run lint
+      # 【M-09】检查模式（lint:ci = eslint . 不带 --fix）：原 `npm run lint`（--fix）
+      # 会静默修复违规后再「通过」，检查与修复语义混用——CI 只检查，本地才修复。
+      - name: ESLint 检查（检查模式：不带 --fix，避免静默改写后放行）
+        run: npm run lint:ci
 
   frontend-type-check:
     name: "前端 - 类型检查 (TypeScript)"
@@ -398,13 +401,37 @@ jobs:
       - run: npm ci
       - name: 复杂度检查（上限10，error 级阻断）
         # P1-4 批5（BF-086，2026-10-12）：存量清零后撤除本 step 的 CLI --rule 覆盖
-        # 与 step 级 continue-on-error，改为直接 `npm run lint` 读 eslint.config.ts。
+        # 与 step 级 continue-on-error，改为直接读 eslint.config.ts。
         # 【为何不再用 --rule】CLI `--rule 'complexity: [2,10]'` 不读 flat config 的
         # override 块，会绕过 app/complexity-exempt 豁免，使 scripts/*.mjs 与
         # **/__tests__/*.spec.ts 的非业务复杂度误报（批5 实测 5 处）。
         # 走 config 则豁免块生效 → 0 误报（同日双向实证：config 0 / --rule 5）。
         # 注意：本条与 backend-complexity（ruff C90）完全独立，不得顺带放宽后端。
-        run: npm run lint
+        # 【M-09，2026-10-31】切 lint:ci 检查模式（不带 --fix），理由同 frontend-lint。
+        run: npm run lint:ci
+
+  frontend-format:
+    name: "前端 - 格式检查 (Prettier)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vue-assetmanagement
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: vue-assetmanagement/package-lock.json
+      - run: npm ci
+      # 【M-10】format:check 此前仅本地强制（前端三项检查之一），无 CI 强制。
+      # 只跑既有 format:check（prettier --check src/）。
+      # 【刻意不扩大 scope】不加 *.md / 配置文件：本批目标是「零新增失败面」，
+      # 扩范围属新增红面，需独立批次并先本地全量验证。
+      - name: Prettier 格式检查（只比对，不改写）
+        run: npm run format:check
 
   frontend-test:
     name: "前端 - 测试 + 覆盖率"
@@ -470,33 +497,54 @@ jobs:
           path: vue-assetmanagement/reports/mutation/
 
   # ==================== 汇总 ====================
+  # 【M-02，2026-10-31】汇总必须覆盖全部 16 个门禁 job（15 存量 + frontend-format）。
+  # 事实纠偏：真漏者仅 backend-permission-check / api-doc-guard / api-doc-generate
+  # （三者无下游）；其余静态 job 经 backend-test / frontend-test 的 skipped 间接覆盖。
+  # 显式列全的价值是「失败原因直指肇事 job」，并防止日后上游 needs 调整导致覆盖静默失效。
+  # 【口径约束】本 workflow 无 continue-on-error、无 job 级 if:，故「result != success
+  # 即失败」既安全又必需（skipped 只可能源于上游失败）。日后若新增条件 job，
+  # 必须照 security-scan.yml「Security 汇总」的分流写法（先判条件再判 result），
+  # 否则会把有意跳过误判为失败。
+  # 【防复发】scripts/check_ci_orchestration.py 断言本 needs 覆盖全部 job 且
+  # ci-cd.yml 监听名与本文件 name 一致，在 backend-lint 的「护栏自测」步骤中执行。
   ci-summary:
     name: "CI 汇总"
     runs-on: ubuntu-latest
-    needs: [backend-test, backend-mutation, frontend-test, frontend-mutation]
+    needs:
+      - backend-lint
+      - backend-type-check
+      - backend-complexity
+      - backend-permission-check
+      - api-schema-check
+      - api-doc-guard
+      - api-doc-generate
+      - backend-test
+      - backend-mutation
+      - frontend-lint
+      - frontend-type-check
+      - frontend-complexity
+      - frontend-format
+      - frontend-test
+      - frontend-mutation
     if: always()
     steps:
-      - name: 检查所有 Job 结果
+      - name: 汇总全部 Job 结果
+        env:
+          # 经 env 传入，禁止 ${{ }} 直插 run:（防 shell 二次解析）
+          NEEDS_JSON: ${{ toJSON(needs) }}
         run: |
+          set -euo pipefail
           echo "=== CI Pipeline Results ==="
-          echo "Backend Test: ${{ needs.backend-test.result }}"
-          echo "Backend Mutation: ${{ needs.backend-mutation.result }}"
-          echo "Frontend Test: ${{ needs.frontend-test.result }}"
-          echo "Frontend Mutation: ${{ needs.frontend-mutation.result }}"
-          if [ "${{ needs.backend-test.result }}" != "success" ] || \
-             [ "${{ needs.frontend-test.result }}" != "success" ]; then
-            echo "CI 检查未通过，阻止合并"
-            exit 1
-          fi
-          # B批（2026-09-30）：backend-mutation 已解除 continue-on-error 并切相对基线门禁，
-          # 结果纳入阻断——得分低于基线（mutmut-baseline.json）即阻止合并。
-          # frontend-mutation：2026-10-10 移除 continue-on-error，score=82.29 ≥ 80 实测达成，
-          # 结果纳入阻断——stryker thresholds.break=80 使分数不足时 step 失败。
-          if [ "${{ needs.backend-mutation.result }}" != "success" ]; then
-            echo "后端变异门禁未通过，阻止合并"
-            exit 1
-          fi
-          if [ "${{ needs.frontend-mutation.result }}" != "success" ]; then
-            echo "前端变异门禁未通过，阻止合并"
-            exit 1
-          fi
+          echo "$NEEDS_JSON" | python3 -c '
+          import json, sys
+          needs = json.load(sys.stdin)
+          bad = []
+          for job, item in sorted(needs.items()):
+              print("%-26s %s" % (job, item.get("result")))
+              if item.get("result") != "success":
+                  bad.append(job + "=" + str(item.get("result")))
+          if bad:
+              print("❌ CI 未通过，阻止合并：" + ", ".join(bad))
+              sys.exit(1)
+          print("✅ 全部门禁通过")
+          '

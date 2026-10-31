@@ -1,10 +1,10 @@
 
 ---
 
-### 📄 文档 7：前端测试细则 `/Rules_Fiels/frontend-testing-rules.md` (v1.6)
+### 📄 文档 7：前端测试细则 `/Rules_Fiels/frontend-testing-rules.md` (v1.8)
 
 # 前端测试细则 (Frontend Testing Rules)
-> 版本：v1.7 | 最后更新：2026-10-05
+> 版本：v1.8 | 最后更新：2026-10-31
 > 适用范围：Vitest + Vue Test Utils + Vue 3.5 + @stryker-mutator/vitest-runner（变异测试）
 
 ## 一、测试文件位置 [T9]
@@ -81,8 +81,10 @@ npm run test:mutate
 
 > **执行顺序**：type-check → lint → format:check，前一项通过后才执行下一项。
 > **自动修复**：lint 可通过 `npm run lint`（含 `--fix`）自动修复部分问题；format 可通过 `npm run format`（含 `--write`）自动格式化。
+> **CI 强制（2026-10-31，批次1/M-09+M-10）**：本地三项之外，CI 由 `frontend-type-check`、`frontend-lint`、`frontend-format` 作业强制同样三项；其中 lint 作业跑 `npm run lint:ci`（`= eslint .`，**检查模式不带 `--fix`**），与本地 `npm run lint`（带 `--fix`）语义刻意分离——防止「可自动修复的违规被 CI 静默修好后通过」。上表命令为本地执行口径，不变。
 
 ## 十、变更日志
+- **v1.8 (2026-10-31)**：T17 补 CI 强制注记（批次1 M-09+M-10，零生产代码）——CI 新增/改造三个作业强制三项检查：`frontend-lint` 与 `frontend-complexity` 改跑 `npm run lint:ci`（检查模式不带 `--fix`，消除「自动修复后静默通过」假绿），新增 `frontend-format` 跑 `npm run format:check`（此前仅本地强制）。**本地三项检查命令与顺序一字未改**（`npm run lint` 仍带 `--fix` 供本地修复），属检查/修复语义分离的口径补记，故不触发根级 §5.4 沙盒期。配套：子模块 `package.json` 新增 `lint:ci` script。依据根级 §5.2，经人工审批（用户指令「同步相关文档」）后应用。
 - **v1.7 (2026-10-05)**：T14 / T15 覆盖率命令勘误——`vitest --coverage --threshold 80` → `npm run test:coverage`；T15 的 `vitest --coverage --coverage.include=...` 补 `run` 子命令。**根因**：vitest 4 已移除 `--threshold` CLI 参数，原命令实测报 `CACError: Unknown option '--threshold'`（exit 1），照抄即门禁假红；缺 `run` 则裸 `vitest` 在本地进 watch 模式、在 CI 才有一次性行为，两种环境行为不一致。**阈值效力一字未改**：`vitest.config.ts` 的 `coverage.thresholds`（整体 80 / `src/stores/**` 90）自动强制，不达标仍判失败，故不触发根级 §5.4 沙盒期。同步销项 `docs/compose/specs/2026-07-06-rules-files-fix-plan.md:314` 的历史待办（其提议的 `--coverage.threshold=80` 属 vitest 3 形制，vitest 4 下同样失效）。依据根级 §5.2，经人工审批后应用。
 - **v1.6 (2026-09-17)**：修复 T16 工具选型不可落地问题——原指定 `vitest-mutant` / `@vitest/mutate` 在 npm 均不存在（E404）且 Vitest 无 `--mutate` 旗标，经根级 §5 人工审批改用 `@stryker-mutator/vitest-runner` v10.0.0，命令改为 `npm run test:mutate`，≥ 80% 红线不变。
 
