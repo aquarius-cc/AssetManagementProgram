@@ -10668,3 +10668,33 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 - §5.4 判定：不触发沙盒期——修复缺陷与既有规范（B1-B10 / DR-4 / CT-4）对齐，未新增或收紧红线。
 
 *登记人：AtomCode ｜ 状态：【已关闭】（本地先红后绿 + CI 首跑 16/16 全绿 job 级直证），2026-11-01 登记 / 同日转档*
+
+## BF-169【待核查】CI Pipeline run #169 attempt1 丢失 `CI 汇总` job——`if: always()` 必跑 gate 未执行而 run 仍判 success（平台侧一次性丢 job，重跑恢复）｜来源：2026-11-01 BF-167/168 转档推送（head `9b88650`）取证观察
+
+### 一、现象与定性
+
+- run `41287728167`（run_number=169，event=push，head=`9b88650`，attempt1）conclusion=success，但仅 **15/16 job**——`ci-summary`（ci.yml:510，`if: always()`，needs 15）未出现在任何 job/check-run 列表中，且未被计入失败（run 照常判绿）。
+- **定性【推测】**：平台侧调度抖动导致 job 丢失。仓库逻辑不可解释（证据见 §二：两 SHA 的 ci.yml 无差异；同 push 另两个汇总类 gate 正常执行；重跑即恢复）。
+
+### 二、证据（全部 CI/API 直证）
+
+- **三 API 交叉一致（attempt1 时点）**：REST run jobs `total_count=15`；REST commit check-runs `total=28`（清单内无「CI 汇总」）；GraphQL `gh run view` jobs=15。
+- **YAML 同一性**：`git diff 0036106..9b88650` 仅 2 个文档文件（账本+融合报告）；`git show 9b88650:.github/workflows/ci.yml` 确含 `ci-summary` / `if: always()`。
+- **同 push 对照**：Duplicate Guard run `41287728106`（护栏汇总 success）、Dependency Security Scan run `41287728190`（Security 汇总 success）均正常——唯 ci.yml 的汇总丢失。
+- **历史对照（gate 设计两态实证）**：`41274792870` 16/16，CI 汇总 job_id=124764800287 success；探针 run `41282332561`，CI 汇总 job_id=124786912036 failure 阻断。
+- **平台状态**：githubstatus.com `/api/v2/summary.json`（页面 updated_at=2026-11-01T08:59:53Z）Actions/API 全 operational，`incidents=[]`。
+- **时间戳异常（原样记录，不作因果解释）**：run JSON `created_at=2026-11-01T09:10:30Z` 晚于 `updated_at=2026-11-01T09:06:03Z`（倒挂）；attempt1 最晚 job `completed_at=09:59:50Z` 晚于 run `updated_at`——元数据内部不一致，与丢 job 现象同期出现。
+- **实际影响**：docs-only 提交（2 文件），attempt1 实跑 15 job 全 success → 结论碰巧无害。但「汇总 gate 静默缺席且 run 判绿」属 M-02/BF-167 同族失效形态——现有 CD gate 只验 run conclusion 四项（event/branch/conclusion/sha），**不验 summary job 是否存在**，此为当前盲区。
+
+### 三、处置（用户拍板：重跑验证 + 登记）
+
+- **attempt2（`gh run rerun 41287728167`）**：run conclusion=success；`CI 汇总` check-run success（started=`10:19:03Z`，completed=`10:19:06Z`，job_id=124819672628）；全部 job success——**重跑恢复，未复现**。
+- **CD 双放行**：run `41291617252`（attempt1 完成触发）success、run `41296960103`（attempt2 完成触发）success，两轮部署门禁均正常执行。
+- **工具边界**：REST `/actions/runs/{id}/jobs` 不支持 `attempt` 查询参数（带 `attempt=2` 返回 total=17 跨 attempt 混列，含 attempt1 的 job_id=124802512925）——job 级判定一律以 commit check-runs 为准，不引用该接口的 attempt 计数。
+
+### 四、复发阈值与升级路径
+
+- 同类丢失**复发 ≥2 次**（不同 SHA/日期任一成立即计数）→ 立即升级加固立项：在 CD gate 或独立护栏中断言 head_sha 上「CI 汇总」check-run **存在且 success**（把「gate 自身存在性」纳入校验，消除本盲区）。
+- 未复发 → 保持【待核查】观测态，无需仓库改动；下次 CI 取证时顺带复核汇总 job 存在性（动作已并入取证惯例）。
+
+*登记人：mimo ｜ 状态：【待核查】（平台侧一次性丢 job，attempt2 重跑恢复；复发阈值 ≥2 次触发加固立项），2026-11-01*
