@@ -10589,3 +10589,40 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 - §5.4 判定：不触发沙盒期——阻断阈值与 exit 条件未变，属门禁稀释面闭合 + 描述与实现对齐（去伪存真）。
 
 *登记人：mimo ｜ 状态：【待验证】（本地验证全绿；待推送后 CI 首跑 + 探针注入取证转【已关闭】），2026-10-31*
+
+## BF-168【待验证】批次 2 用户可见逻辑缺陷三件——M-03 Dashboard「即将到期」先截断后过滤系统性漏报（窗口超集过滤 + 截断后移；维护提醒分支经复核非 Bug 仅补锁定用例）+ M-04 报废导出「损坏日期」列恒空（field 拼写修正）+（归位登记）合同导出「签订日期」列恒空（contract_sign_date → contract_start_date）｜来源：`docs/Review/merge-audit-20261031.md` M-03 / M-04 行 + `docs/Review/merge-codegraph-audit-20261101.md` §1.3（合同导出列归位）
+
+### 一、问题与定性（纯 Selector/View 配置，零迁移）
+
+- **M-03**：`dashboard_selector.py` 旧实现 `order_by("asset_purchase_date")[:50]` 先截断再 Python 内筛「剩余 0~days 天」——升序取最老 50 条，保修普遍已过期被丢弃；资产数 >50 时系统性漏报（越新越不可能入选）。**维护提醒分支（get_maintenance_reminders）经复核非 Bug**：合格条件「入库满 24 月」随 `asset_entry_date` 升序单调，截断与先筛后取完全等价（订正 codebuddy F-02 对该分支的误判，已在 merge-audit 与 ExpiredAuditReport 双报告留痕）。
+- **M-04**：`damaged_asset_view.py:67` 导出列 field 拼写 `damaged_asset_date`，模型真名 `damaged_date`（models/damaged_asset.py:72）；`core/excel_export/workbook.py` 的 `getattr(..., None)` 静默吞成 None →「损坏日期」列恒空，运行期零报错。
+- **（归位）合同导出列**：`contract_view.py:101` field `contract_sign_date` 在模型上不存在（真名 `contract_start_date`）→「签订日期」列恒空，同型缺陷。表头**不改**（「签订日期」↔ contract_start_date 与前端既有口径一致：contractBatchImport.config.ts:47 / ContractForm.vue:112 双证）；backend `docs/资产数据字典.md:120`、`All_Fields_details.md:124`、`GuideDocumentation/数据库管理字典.md:115`、`docs/API详细文档0608.md:988` 等历史文档中的 `contract_signing_date` 为漂移，**不回改**。
+
+### 二、修复方案
+
+- **M-03**：`get_expiring_assets` 改三段式——① `Max("asset_warranty_period")` 聚合定窗口下界（标量日期区间，**不写 DB 端日期加法**，SQLite/PostgreSQL 行为一致），两端 ±31 天吸收 relativedelta 月末钳位；② Python 内按 `days_remaining` 精确复筛（窗口是超集）；③ `(days_remaining, id)` 排序**之后**再 `[:_ALERT_LIMIT]` 截断（旧实现截断在过滤前）。维护提醒魔法数 50 换 `_ALERT_LIMIT` 常量（语义不变）。
+- **M-04 / 合同列**：两处 field 名一行修正。
+- **新增护栏**：`core/tests/test_export_columns_contract.py`——遍历 3 个 app router 上全部带 `export_columns` 的 ViewSet（实测 9 ViewSet / 61 列），逐列沿 `_meta.get_field` 递归解析；**非关系字段必须是路径末段**（堵 `damaged_date__xxx` 假绿面）、全错收集一次性 fail、报错带 ViewSet/表头/字段与实际所在模型；`_MIN_CHECKED=50` 防枚举失效恒绿。该护栏在先红阶段同时命中合同列拼错（对第三处修复的锚定）。
+- **夹具提升（DR-4）**：`full_scope_user` 从 `test_base_selector.py` 类内夹具提升至 `conftest.py` 文件级，与新测试共用单一定义。
+
+### 三、影响面（8 文件一笔提交）
+
+3 处代码（`dashboard_selector.py` / `damaged_asset_view.py` / `contract_view.py`）+ 夹具提升 2 文件（`conftest.py` / `test_base_selector.py`）+ 测试 4 文件（新增 `test_dashboard_alert_window.py` 7 用例、`test_export_columns_contract.py` 1 用例，修改 `test_p2_04_export_endpoints.py` 泛化 `_export_column_by_header` + 追加单元格断言）。**零迁移（CT-6 N/A）、零跨端契约变更；`export_columns` 为类属性不进 OpenAPI 产物，`api-schema-baseline.json` 免重导出。**
+
+**性能取舍留痕**：修复取消 DB 侧 `LIMIT 50` 兜底，改为「1 次 Max 聚合 + 窗口内全行迭代」——取舍理由与注释（不用 DB 日期加法）一致，当前数据量可接受；`max_warranty` 聚合结果为后续可选缓存点（不阻塞）。`days` 负值（`dashboard_view.py` 仅钳上界，-100 时窗口为空返回 []）与旧行为一致、无回归，可选加固 `max(0, ...)` 与 M-28 同族，另立不并入本批。
+
+### 四、测试验证（先红后绿，全部留痕）
+
+- **先证红**（stash 限定 3 个实现文件回退修复前状态，跑定向三件套）：**恰好 3 红**——`test_beyond_first_50_candidates_are_returned`（51+ 名次漏报复现）/ `test_damaged_export_damaged_date_cell_matches_db`（`len(values)==1` 失败，恒空列）/ `test_export_columns_resolve_to_model_fields`（护栏命中 `contract_sign_date` 不存在）。`git stash pop` 后复跑定向三件套 **14 passed**。
+- **批次回归**：`pytest apps/assetmanagement core/tests -q` **1657 passed**（15:28，exit 0；含 core/tests——pytest.ini 无 testpaths，不带该路径护栏不跑）。
+- **行数护栏（LT-3 逻辑行口径，`--print` 实测）**：`dashboard_selector.py` 305 / `contract_view.py` 347 / `damaged_asset_view.py` 202，均 <500；file-guard / func-guard exit 0。
+- **ruff**：全部改动文件 All checks passed（I001/C408 已清零）。
+- **保修缩放屏障**：`test_multi_year_warranty_window_scaling`（23 月前采购 + 2 年保修 → 1 个月后到期，days=31）锁死 `12*max_warranty` 缩放——若窗口退化为固定 12 个月，该行在 DB 段即被裁 → 红（CT-4）。
+
+### 五、关联与残余
+
+- 审计行：merge-audit-20261031 M-03 / M-04 + §三 批次 2；merge-codegraph-audit-20261101 §1.3（M-03/M-04/合同列三行）与 OP 表 M-03/M-04 行同步为「已修 · BF-168」。
+- **转【已关闭】条件**：本批 8 文件提交后 CI 首跑全绿（backend-lint 护栏自测 + backend-test）；无需探针（纯业务代码，非 CI 编排）。
+- §5.4 判定：不触发沙盒期——修复缺陷与既有规范（B1-B10 / DR-4 / CT-4）对齐，未新增或收紧红线。
+
+*登记人：AtomCode ｜ 状态：【待验证】（本地先红后绿全绿留痕；待提交后 CI 首跑转【已关闭】），2026-11-01*
