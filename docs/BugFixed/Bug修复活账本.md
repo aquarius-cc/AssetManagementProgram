@@ -10632,7 +10632,7 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 
 *登记人：mimo ｜ 状态：【已关闭】（本地证红 + 首跑 16/16 绿 + 四门探针红 + CD 门禁双实例 fail-closed + 绿放行样本，全部 job/step 级 CI 直证；未验证项见 §六），2026-10-31 登记 / 2026-11-01 转档*
 
-## BF-168【待验证】批次 2 用户可见逻辑缺陷三件——M-03 Dashboard「即将到期」先截断后过滤系统性漏报（窗口超集过滤 + 截断后移；维护提醒分支经复核非 Bug 仅补锁定用例）+ M-04 报废导出「损坏日期」列恒空（field 拼写修正）+（归位登记）合同导出「签订日期」列恒空（contract_sign_date → contract_start_date）｜来源：`docs/Review/merge-audit-20261031.md` M-03 / M-04 行 + `docs/Review/merge-codegraph-audit-20261101.md` §1.3（合同导出列归位）
+## BF-168【已关闭】批次 2 用户可见逻辑缺陷三件——M-03 Dashboard「即将到期」先截断后过滤系统性漏报（窗口超集过滤 + 截断后移；维护提醒分支经复核非 Bug 仅补锁定用例）+ M-04 报废导出「损坏日期」列恒空（field 拼写修正）+（归位登记）合同导出「签订日期」列恒空（contract_sign_date → contract_start_date）｜来源：`docs/Review/merge-audit-20261031.md` M-03 / M-04 行 + `docs/Review/merge-codegraph-audit-20261101.md` §1.3（合同导出列归位）
 
 ### 一、问题与定性（纯 Selector/View 配置，零迁移）
 
@@ -10664,7 +10664,7 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 ### 五、关联与残余
 
 - 审计行：merge-audit-20261031 M-03 / M-04 + §三 批次 2；merge-codegraph-audit-20261101 §1.3（M-03/M-04/合同列三行）与 OP 表 M-03/M-04 行同步为「已修 · BF-168」。
-- **转【已关闭】条件**：本批 8 文件提交后 CI 首跑全绿（backend-lint 护栏自测 + backend-test）；无需探针（纯业务代码，非 CI 编排）。
+- **转【已关闭】条件（2026-11-01 已满足，CI 直证）**：本批 8 文件提交后 CI 首跑全绿——run `41274792870`（event=push，head=`0036106`，conclusion=success）**16/16 job 全绿零失败零 skipped**（后端 - 代码规范(ruff，含护栏自测) job_id=124754674985 success、后端 - 测试 + 覆盖率 job_id=124754941846 success、后端 - 变异测试 job_id=124764068440 success，均按 `dev.txt` 钉版实跑，CT-7 口径）；ruff 收尾提交 `87d5bfc`/`0036106` 亦包含于该 run 祖先链。无需探针（纯业务代码，非 CI 编排）。
 - §5.4 判定：不触发沙盒期——修复缺陷与既有规范（B1-B10 / DR-4 / CT-4）对齐，未新增或收紧红线。
 
-*登记人：AtomCode ｜ 状态：【待验证】（本地先红后绿全绿留痕；待提交后 CI 首跑转【已关闭】），2026-11-01*
+*登记人：AtomCode ｜ 状态：【已关闭】（本地先红后绿 + CI 首跑 16/16 全绿 job 级直证），2026-11-01 登记 / 同日转档*
