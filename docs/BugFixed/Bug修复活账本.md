@@ -10550,7 +10550,7 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 
 ---
 
-## BF-167【待验证】批次 1 CI 门禁加固四件套——M-02 ci-summary 收全 15 job（门禁稀释假绿）+ M-09 CI lint 去 --fix（检查/修复语义分离）+ M-10 新增 frontend-format + M-24 新增 guard-summary；附 M-02 方案A：ci-cd 触发源改 CI Pipeline + 按 SHA 回查安全扫描｜来源：`docs/Review/merge-audit-20261031.md` M-02（P1）/ M-09 / M-10 / M-24（P2）行 + §三 批次 1
+## BF-167【已关闭】批次 1 CI 门禁加固四件套——M-02 ci-summary 收全 15 job（门禁稀释假绿）+ M-09 CI lint 去 --fix（检查/修复语义分离）+ M-10 新增 frontend-format + M-24 新增 guard-summary；附 M-02 方案A：ci-cd 触发源改 CI Pipeline + 按 SHA 回查安全扫描｜来源：`docs/Review/merge-audit-20261031.md` M-02（P1）/ M-09 / M-10 / M-24（P2）行 + §三 批次 1
 
 ### 一、问题与定性（CI 编排，零生产代码）
 
@@ -10575,7 +10575,7 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 
 仅 CI 编排 3 文件 + 护栏脚本 2 新文件 + 子模块 package.json 1 行；**零生产代码、零跨端契约变更、零数据库迁移**，`api-schema-baseline.json` 无需重导出。
 
-### 四、测试验证（本地全绿；CI 首跑与探针取证待完成）
+### 四、测试验证（本地全绿 + CI 首跑/探针/CD 三线 job 级直证，明细见 §六）
 
 - **先证红**：护栏初跑 FAIL，精确列出 10 个未覆盖 job + `guard-summary` 缺失 + `_workflow_name` 真 bug（TOP_KEY 正则只匹配空值行，对 `name: CI Pipeline` 恒失败）；修复后 **PASS**（BF-061 假绿教训的先红后绿纪律）。
 - `pytest scripts/tests` **29 passed**（含新 7 用例：未挂 needs 红 / 内联绿 / 块状绿 / 汇总 job 缺失红 / 监听名不一致红 / 一致绿 / 真实仓库回归绿）。
@@ -10585,10 +10585,52 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 ### 五、关联与残余
 
 - 审计行：merge-audit-20261031 M-02（P1 表）/ M-09 / M-10 / M-24（P2 表）+ §三 批次 1；前序同型 **BF-061**（ci-summary 漏判 mutation job）。
-- **转【已关闭】条件（残余取证）**：① 两个提交单元（子模块 package.json → 根仓三 workflow + 两脚本 + gitlink）推送后 CI 首跑全绿；② 探针分支 7 项注入测试——第 3 项（CD 真闭合：CI 红 → gate 拒绝）与第 4 项（poll 正样本：扫描完成 → gate 放行）为关键证据，是排除新增静默风险的唯一手段；③ 文档同步随批落地（根级 AGENTS v3.7.2 / 前端 AGENTS v9.9.1 / frontend-testing-rules v1.8，同 commit）。
+- **转【已关闭】条件（残余取证，2026-11-01 全部收齐）**：① ✅ 推送后 CI 首跑全绿（run `41274792870`，16/16，见 §六-①）；② ✅ 探针四门红证 + 点名的第 3 项（CD 真闭合）与第 4 项（poll 放行样本）双直证（见 §六-②③；原称「7 项注入测试」的完整清单仓内无出处，据实标注于 §六-未验证项）；③ ✅ 文档同步随批落地（根级 AGENTS v3.7.2 + frontend-testing-rules v1.8 + 本条登记 @`1281523`；前端 AGENTS v9.9.1 @子仓 `9ba1fb1`，同批次推送）。
 - §5.4 判定：不触发沙盒期——阻断阈值与 exit 条件未变，属门禁稀释面闭合 + 描述与实现对齐（去伪存真）。
 
-*登记人：mimo ｜ 状态：【待验证】（本地验证全绿；待推送后 CI 首跑 + 探针注入取证转【已关闭】），2026-10-31*
+### 六、CI 直证（job 级取证，2026-11-01 收齐；CT-7 口径 = CI 声明工具链实跑）
+
+**① 首跑全绿（转档条件一）**
+
+- CI Pipeline run `41274792870`（event=push，head=`0036106`，conclusion=success）：16/16 job success，其中 `CI 汇总` job_id=124764800287 **success**（M-02 绿路径直证：15 needs 全收后全绿放行）。
+- Duplicate Guard run `41274792849`（success）：`护栏汇总` job_id=124754709554 success（三护栏 124754674467/124754674721/124754674743 全 success）。
+- Dependency Security Scan run `41274792859`（event=push，success）。
+- CD Pipeline run `41278286817`（success）：`部署门禁校验` job_id=124764828112 success（step#2 CI 结论四项校验 success + step#3 安全扫描按 SHA 回查 success）→ `Docker Build & Push` 124764840699 success——**此即账本点名「第 4 项 poll 正样本」：CI 绿 + 扫描完成 → gate 放行**。
+
+**② 探针四门红证（PR #1，用后即关即删；master 全程未污染）**
+
+探针 = `vue-assetmanagement/src/composables/useProbeGates.ts`（208 行；`no-console` 违规 + Prettier 格式违规 + FR-6 逻辑行 206>200 未登记），子仓 `4711c2a` / 父仓 `9a68472`。
+
+- CI Pipeline run `41282332561`（event=pull_request，conclusion=failure）：
+  - `前端 - 代码规范 (ESLint)`（lint:ci，M-09）job_id=124776610378 **failure**，step#5（「ESLint 检查（只检查，不带 --fix，违规即红不默写回工作区）」）日志原文 `208:1 error Unexpected console statement ... no-console` / `1 problem (1 error, 0 warnings)` / `exit code 1`——**违规未被 --fix 静默修复，直接红 = 检查/修复语义分离实证**。
+  - `前端 - 格式检查 (Prettier)`（M-10 新增门）job_id=124776610419 **failure**，step#5（「Prettier 格式检查（只比对，不改写）」）——CI 首次强制格式即真抓违规。
+  - `CI 汇总`（M-02）job_id=124786912036 **failure**，step#2（「汇总全部 Job 结果」）日志原文 `⚠️CI 未通过，阻止合并：frontend-complexity=failure, frontend-format=failure, frontend-lint=failure, frontend-mutation=skipped, frontend-test=skipped` + `exit code 1`——**M-02 核心实证：非汇总 job 的红全部进入汇总、skipped 不算通过**。
+  - 附赠：`前端 - 复杂度检查` job_id=124776610356 failure（同探针 `no-console` 归因，非独立缺陷）；后端 8 job 全 success（ruff/type/mypy/测试/变异等，探针零跨面污染）；`前端-测试` 124776883967 与 `前端-变异` 124776884516 因 needs 链 skipped（汇总口径已如实记 skipped）。
+- Duplicate Guard run `41282332650`（conclusion=failure）：
+  - `FR-6 Composable 规模回归护栏` job_id=124776610468 **failure**，step#3 日志原文 `[FAIL] 前端规模护栏失败: 未登记超限 Composable: useProbeGates.ts 逻辑行 206 > 200`。
+  - `护栏汇总`（M-24）job_id=124776661056 **failure**，step#2 日志原文 `⚠️护栏未通过，阻止合并：fr6-composable-guard=failure` + `exit code 1`——**M-24 直证：单护栏红传导至统一汇总并阻断**。
+  - BR-4 124776610314 / 重复代码 124776610466 success（探针零跨面污染）。
+- Dependency Security Scan run `41282332556`（event=pull_request，success）——PR 事件下扫描正常运行且绿，无误报。
+- 本地先证红（推送前）：`eslint` exit 1 / `prettier --check` exit 1 / `check_frontend_invariants.py` exit 1；父仓 pre-commit 的 FR-6 护栏同步拦截探针提交（`[HOOK-ABORT]`，属故意违规，探针提交以 `--no-verify` 放行并在 message 留痕）——**护栏本地+CI 双端真红**。
+
+**③ CD 部署门禁（账本点名「第 3 项 CD 真闭合」，双实例）**
+
+- 有机实例（push/master CI 红）：CD run `41275560518`——`部署门禁校验` job_id=124756917873 **failure**，step#2 日志原文 `WR_CONCLUSION: failure` 分支 → `exit code 1`；`Docker Build & Push` 124756937031 与 `Prune` 124756936513 均 **skipped**。
+- 探针实例（PR 事件）：CD run `41285870874`——`部署门禁校验` job_id=124786937955 **failure**，step#2 日志原文 `WR_EVENT: pull_request` / `WR_HEAD_BRANCH: probe/bf167-gates` / `WR_CONCLUSION: failure` / `WR_HEAD_SHA: 9a68472…` → `exit code 1`；Docker 124786953160 + Prune 124786953441 **skipped**——**非 push/master 事件与红 CI 两类触发均被 fail-closed 拒绝，部署零执行**。
+- push/master 路径的 `CI 汇总` 红另有有机直证：ruff 红跑 run `41274525944`，`CI 汇总` job_id=124756892250 **failure**（非探针、生产路径同款）。
+
+**本地验证边界（据实标注）**
+
+- 已验：三门本地证红（eslint/prettier/FR-6 exit 1）、pre-commit 拦截、YAML 静态复核、护栏自测 29 passed（登记时）。
+- 环境限制：Windows 宿主无完整 shell，workflow 内 bash 分支逻辑本地不可执行，全部交 CI 覆盖（本 §六 即 CI 实跑结果）；PS 编码坑（附录 A 型）曾致临时取证脚本被 Temp 清理，重建后复取，证据数值全部经 `gh api` 原始字节二次核对。
+
+**未验证项（不猜测、不代偿）**
+
+- 原关闭条件所称「探针分支 7 项注入测试」的完整 7 项清单**仓内无出处**（全仓 rg 仅命中账本自身；merge-audit-20261031 与融合报告均只有「探针注入测试」五字）。本次按融合报告 `docs/Review/merge-codegraph-audit-20261101.md` §三 批次 1 权威口径执行**四门红证**；其中点名的第 3/4 项已由 §六-③① 双直证，**其余项内容不可考，不补写、不臆造**。
+- 四门红证取自 pull_request 事件 run（用户拍板 PR 分支探针方案，master 免污染、免 revert/复绿两轮）；push/master 事件路径的 ci-summary 红由有机 run `41274525944` 补足（§六-③末行），两事件路径均有实证。
+- 「复绿取证」按 PR 方案无需执行：master 自 `0036106` 未再推送，最新 push CI（`41274792870`）保持 success，探针双仓分支已删除（PR #1 closed，远端+本地零残留，`useProbeGates.ts` 已随切回 master 消失）。
+
+*登记人：mimo ｜ 状态：【已关闭】（本地证红 + 首跑 16/16 绿 + 四门探针红 + CD 门禁双实例 fail-closed + 绿放行样本，全部 job/step 级 CI 直证；未验证项见 §六），2026-10-31 登记 / 2026-11-01 转档*
 
 ## BF-168【待验证】批次 2 用户可见逻辑缺陷三件——M-03 Dashboard「即将到期」先截断后过滤系统性漏报（窗口超集过滤 + 截断后移；维护提醒分支经复核非 Bug 仅补锁定用例）+ M-04 报废导出「损坏日期」列恒空（field 拼写修正）+（归位登记）合同导出「签订日期」列恒空（contract_sign_date → contract_start_date）｜来源：`docs/Review/merge-audit-20261031.md` M-03 / M-04 行 + `docs/Review/merge-codegraph-audit-20261101.md` §1.3（合同导出列归位）
 
