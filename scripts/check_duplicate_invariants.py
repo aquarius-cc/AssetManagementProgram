@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """重复代码回归护栏 (Duplicate Code Regression Guard)
 
 守护可验证不变量，防止已在活账本中关闭的重复实现复现。
@@ -6,12 +5,13 @@
 
 退出码：
   0 = 全部通过
-  1 = 阻断项失败（G-1~G-3、G-5 任一命中）
+  1 = 阻断项失败（G-1~G-3、G-5~G-7 任一命中）
 
 用法：python scripts/check_duplicate_invariants.py
 """
 
 import argparse
+import ast
 import re
 import sys
 from pathlib import Path
@@ -23,6 +23,18 @@ FRONTEND = ROOT / "vue-assetmanagement"
 
 BLOCKING = []
 WARNINGS = []
+
+# G-6/G-7 共享豁免名单（BF-170）：system_admin-only 域的批量删除——
+# 权限类（IsSystemAdmin）已在视图层兜底，无部门范围语义可校验。
+G6_G7_EXEMPT = frozenset(
+    {
+        "batch_delete_asset_type",
+        "batch_delete_contract",
+        "batch_delete_storage",
+        "batch_delete_department",
+        "batch_delete_employee",
+    }
+)
 
 
 def read_text(path: Path) -> str:
@@ -37,8 +49,7 @@ def read_text(path: Path) -> str:
 def iter_py_files(scope_dir: Path):
     if not scope_dir.exists():
         return
-    for path in scope_dir.rglob("*.py"):
-        yield path
+    yield from scope_dir.rglob("*.py")
 
 
 def check_g1_closed_patterns_absent():
@@ -102,9 +113,83 @@ def check_g5_no_shadow_modules():
             )
 
 
+def _iter_ast_trees(apps_dir: Path):
+    """apps/ 下全部 .py 的 (path, ast_tree)（语法错误跳过，由 ruff/mypy 兜底）。"""
+    for path in apps_dir.rglob("*.py"):
+        try:
+            tree = ast.parse(read_text(path))
+        except SyntaxError:
+            continue
+        yield path, tree
+
+
+def check_g6_batch_delete_services_carry_user():
+    """G-6: service 层批量删除必须携带 user 参数（BF-170，B14 逐条校验自动化断言）
+
+    范围谓词：父目录名 == services 或 文件名 == services.py（覆盖包式与单文件两种布局）。
+    仅断言 user 参数存在（AST arg 检测），不断言默认值/跳过分支——
+    「必填无跳过」由签名纪律与 CT-1 用例在运行时约束。
+    """
+    apps_dir = BACKEND / "apps"
+    if not apps_dir.exists():
+        return
+    for path, tree in _iter_ast_trees(apps_dir):
+        is_service_file = path.parent.name == "services" or path.name == "services.py"
+        if not is_service_file:
+            continue
+        rel = path.relative_to(ROOT)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("batch_delete_"):
+                args = {a.arg for a in node.args.args + node.args.kwonlyargs}
+                if "user" not in args and node.name not in G6_G7_EXEMPT:
+                    BLOCKING.append(
+                        f"G-6 批量删除服务缺少 user 参数 {rel}:{node.lineno} {node.name}（B14 逐条校验）"
+                    )
+
+
+def check_g7_view_batch_delete_wired():
+    """G-7: view 层批量删除必须接线 batch_delete_passes_user = True（BF-170，B12 自动化断言）
+
+    检测含 `batch_delete_service = <X>.<name>` 赋值的类；取赋值尾段标识符（服务函数名）
+    查共享豁免名单，未豁免而未接线（或接线非 True）→ BLOCKING。
+    """
+    apps_dir = BACKEND / "apps"
+    if not apps_dir.exists():
+        return
+    for path, tree in _iter_ast_trees(apps_dir):
+        rel = path.relative_to(ROOT)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            service_name: str | None = None
+            passes_user = None
+            for stmt in node.body:
+                if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
+                    target = stmt.targets[0]
+                    # 类体赋值目标为 ast.Name；属性赋值（self.x = ...）为 ast.Attribute——两者皆收
+                    attr = target.attr if isinstance(target, ast.Attribute) else (
+                        target.id if isinstance(target, ast.Name) else None
+                    )
+                    if attr not in ("batch_delete_service", "batch_delete_passes_user"):
+                        continue
+                    if attr == "batch_delete_service":
+                        # 取赋值尾段标识符：OutAssetService.batch_delete_outasset → batch_delete_outasset
+                        if isinstance(stmt.value, ast.Attribute) and isinstance(stmt.value.attr, str):
+                            service_name = stmt.value.attr
+                    else:
+                        passes_user = stmt.value
+            if service_name is None or service_name in G6_G7_EXEMPT:
+                continue
+            if not (isinstance(passes_user, ast.Constant) and passes_user.value is True):
+                BLOCKING.append(
+                    f"G-7 批量删除视图未接线 passes_user {rel}:{node.lineno} {node.name} "
+                    f"（service={service_name}，需 batch_delete_passes_user = True）"
+                )
+
+
 def main(argv=None) -> int:
     global ROOT, BACKEND, FRONTEND
-    parser = argparse.ArgumentParser(description="重复代码回归护栏 (G-1~G-5)")
+    parser = argparse.ArgumentParser(description="重复代码回归护栏 (G-1~G-3、G-5~G-7)")
     parser.add_argument("--root", type=Path, default=None, help="扫描根目录(默认仓库根)")
     args = parser.parse_args(argv)
 
@@ -118,6 +203,8 @@ def main(argv=None) -> int:
     check_g2_operation_log_single_impl()
     check_g3_frontend_single_source()
     check_g5_no_shadow_modules()
+    check_g6_batch_delete_services_carry_user()
+    check_g7_view_batch_delete_wired()
 
     for item in BLOCKING:
         print(f"[BLOCK] {item}")

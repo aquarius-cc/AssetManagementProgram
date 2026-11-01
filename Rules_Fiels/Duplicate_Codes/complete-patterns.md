@@ -850,6 +850,17 @@
 
 ---
 
+### A-51. 【关闭 2026-11-01】批量删除用户身份携带双缺口收口 + 护栏 G-6/G-7（B14/B12 同型：waste + out 两 Service 不收 user，view 层 flag 漏接；§1.8 新发现义务登记）
+- **状态**：✅ 已关闭 | 关闭日期：2026-11-01 | 本批修复（BF-170 批次 2）
+- **判定**：OP-02/OP-03（merge-codegraph-audit-20261101，P1）——`waste_asset_service`（cancel/batch_delete）与 `out_asset_service`（batch_delete/_delete_one）均不收 user，全表取行删除，同仓 asset/recycle/damaged 三链已收口（`ensure_asset_visible`，ASSET_NOT_VISIBLE 入 fail_items），出库/报废为唯一漏网；view 层缺 `batch_delete_passes_user = True` 接线。同型于 A-31（lifecycle 面 user 收口），本条为其报废/出库两域补齐。
+- **修复内容**：两 Service 签名追加 `*, user` kw-only 必填（operator_* 有默认值，语法上无法追加必填位置参；kw-only 防位置错传）；`ensure_asset_visible` 无条件执行（无跳过分支）——out 在 `lock_row_or_409` 持锁后状态校验前（TOCTOU 模板），waste 在资产解析后 delete 前；view 接线 `batch_delete_passes_user = True`（out destroy/cancel 另补 `user=request.user`）；既有直调 15 处显式补 user（superuser/属部门经理，原断言不改）。
+- **护栏升级（G-6/G-7 通用检查）**：`scripts/check_duplicate_invariants.py` 新增 `check_g6_batch_delete_services_carry_user()`（service 层 `def batch_delete_*` 必须含 user 参数；范围谓词＝父目录 `services` 或文件名 `services.py`）与 `check_g7_view_batch_delete_wired()`（含 `batch_delete_service =` 赋值的类必须 `batch_delete_passes_user = True`，赋值尾段标识符查共享豁免名单）；共享豁免 5（asset_type/contract/storage/department/employee，system_admin-only 域，权限类已在视图层兜底）。docstring/argparse 退出码同步「G-1~G-3、G-5~G-7 任一命中阻断」。配套自测 `scripts/tests/test_duplicate_invariants.py` +9 用例（红绿双向，含单文件 services.py 布局、views/ 不受检、False 接线红）。
+- **边界声明**：G-6 仅断言 user 参数存在（AST 检测），不断言默认值/跳过分支——「必填无跳过」由签名纪律与 CT-1 用例运行时约束；G-7 目标节点同时接受 ast.Name（类体）与 ast.Attribute（属性）。
+- **验证命令**：`python scripts/check_duplicate_invariants.py`（PASS，真仓绿）；`pytest scripts/tests/test_duplicate_invariants.py`（16 passed，先红后绿——G-7 初版 ast.Attribute 误判被自测红夹具捕获后修正）；三组跨部门用例 `test_employee_rbac_scope.py`（19）/`test_waste_asset_rbac.py`（4）/`test_out_asset_rbac.py`（5）全绿；批次回归 `pytest apps/assetmanagement core/tests` 1657 passed。
+- **登记日期**：2026-11-01 | 关联：**BF-170**（批次 2）；**A-31/A-32**（同型闭环前序）；根级 AGENTS §1.8 同批补 G-6/G-7（v3.7.3）
+
+---
+
 ## D — 待核查（To Verify）
 
 ### D-1. ✅ 已关闭 2026-09-10 —— unregisteredasset batch_create 手写循环收敛至 batch_execute
