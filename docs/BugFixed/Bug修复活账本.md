@@ -10698,3 +10698,38 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 - 未复发 → 保持【待核查】观测态，无需仓库改动；下次 CI 取证时顺带复核汇总 job 存在性（动作已并入取证惯例）。
 
 *登记人：mimo ｜ 状态：【待核查】（平台侧一次性丢 job，attempt2 重跑恢复；复发阈值 ≥2 次触发加固立项），2026-11-01*
+
+## BF-170【待验证】批次 2 P1 行级隔离三连——OP-01 员工域行级隔离旁路（employees action 裸 filter 任意登录用户可枚举全公司员工）+ OP-03 报废批量删除跨部门（不收 user 全表查找）+ OP-02 出库批量删除跨部门（同型，全仓唯一漏网）；配套 G-6/G-7 护栏（批量删除必须携带用户/视图必须接线）防再发｜来源：`docs/Review/merge-codegraph-audit-20261101.md` OP 表 OP-01/OP-02/OP-03（P1）+ 批次 2 执行方案 v1.1（拍板①②）
+
+### 一、问题与定性（行级隔离 / B14，零迁移）
+
+- **OP-01**：`views/department_view.py:71` get_permissions else 分支仅 `IsAuthenticated`，`employees` action（:100-107）`get_object` 后直调 `EmployeeSelector.get_employees_by_department_instance`（selectors.py:188-189 裸 `Employee.objects.filter(employee_department=...)`）——任意登录用户遍历部门即可枚举全公司员工，§4.7 明令禁止的「action 内 filter」写法。
+- **OP-02**：`out_asset_service.py` `batch_delete_outasset`（:296-298）/`_delete_one`（:307）均不收 user，`get_outasset_for_update` 全表取行——同仓 asset/recycle/damaged 三链均已收口（`ensure_asset_visible`），出库为唯一漏网。
+- **OP-03**：`waste_asset_service.py` `cancel_waste_asset`（:25）按 `asset_recordcode__asset_code` 全表查找、不收 user（与 OP-02 同型）。
+
+### 二、修复方案（v1.1：kw-only 必填 + 无跳过分支）
+
+- **核心设计**：三服务签名追加 `*, user` kw-only 必填（operator_* 均有默认值，语法上无法追加必填位置参；kw-only 同时防 operator 误传为 user）；`ensure_asset_visible` **无条件执行**（无 `if user is not None` 跳过分支）；既有直调（测试 10 处）显式补 user。mixin `kwargs["user"] = request.user`（batch_mixins.py:394）恰为 kw 形式，与全仓骨架零冲突。
+- **OP-01**：`core/department_scope.py` 新增 `is_department_visible(department_code, user)`（三态语义唯一实现处，DR-1）；`department_view.employees` 对不可见部门抛 `Http404`（与部门不存在 404 同形，不泄露存在性）。
+- **OP-02**：`batch_delete_outasset`/`_delete_one` 追加 `*, user`，lambda 透传；`ensure_asset_visible(asset, user)` 插在 `lock_row_or_409` 持锁后、状态校验前（锁内校验，TOCTOU 模板）；view 三处接线（destroy/batch_delete_service flag/cancel 补 `user=request.user`、类体 `batch_delete_passes_user = True`）。
+- **OP-03**：`cancel_waste_asset`/`batch_delete_waste_assets` 追加 `*, user`，资产解析后、delete 前插 ensure；view 类体 flag；serializer help_text 改 B14 逐条校验语义。
+- **护栏**：`check_duplicate_invariants.py` 新增 **G-6**（service 层 `def batch_delete_*` 必须含 user 参数）与 **G-7**（view 层 `batch_delete_service =` 赋值必须 `batch_delete_passes_user = True`），豁免名单 5（asset_type:204 / contract:453 / storage:159 / department:385 / employee:339，均为 system_admin-only 域）；配套自测 `scripts/tests/test_duplicate_invariants.py` 扩 G-6/G-7 用例。
+- **文档**：账本新增 A-51；根级 AGENTS.md §1.8 补 G-6/G-7（v3.7.2 → v3.7.3）。
+
+### 三、影响面
+
+后端 10 文件（3 service + 2 view + 1 scope helper + 1 serializer + 1 护栏 + 1 自测 + 1 基线重导）+ 测试 4 文件（新增 2 / 扩展 2，含 10 处既有直调显式化）+ 文档 3 处（BF-170 / A-51 / AGENTS）。**零迁移、零跨端契约变更、禁改 `batch_delete_execute` 公共实现（impact=92）与 `resolve_viewset_permissions`。**
+
+### 四、测试验证（计划，执行后回填）
+
+- 三组跨部门用例：员工枚举（404×3 / 200×2，含下级展开与 AUD-21 无部门拒）、出库（批量 fail_items ASSET_NOT_VISIBLE + 单条 destroy/cancel 404 + 混合批次）、报废（同构 4 用例 + auditor 403）。
+- 护栏先红后绿：红夹具证红 → 组 1-3 落地后真仓 exit 0。
+- 终态：`pytest apps/usermanagement apps/assetmanagement core/tests -q` 全绿 + ruff/mypy（CT-7 对齐 dev.txt 后取证）+ schema 基线重导（404 描述与 help_text 均非破坏性）。
+
+### 五、关联与残余
+
+- 审计行：merge-codegraph-audit-20261101 OP-01/OP-02/OP-03 + §四-1（G-6/G-7 建议源）；前序同型：BF-048（员工域 B12 首次落地）、AUD-21（无 Employee 反转 []）。
+- **§5.4 判定：不触发沙盒期**——依 v3.5.1（G-5）先例：G-6/G-7 不新增规范内容，仅对既有强制规范（B14 逐条校验、B12 行级隔离）加自动化断言，落地即 0 违规，属护栏覆盖面扩展而非红线收紧。
+- **转【已关闭】条件**：三组用例 + 护栏自测绿落地推送后，CI 首跑全绿（含 mutation ≥ 基线 83.25676365492598）。
+
+*登记人：AtomCode ｜ 状态：【待验证】（修复方向已拍板，执行后回填验证证据），2026-11-01*
