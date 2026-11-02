@@ -52,8 +52,8 @@
 | **M-03** Dashboard 截断 | 订正「到期预警已修复，维护提醒非 Bug」 | `dashboard_selector.py` 已改为**窗口超集过滤 + 截断后移**（注释明标 `M-03: 修复先截断后过滤的漏报`），含新增 `test_dashboard_alert_window.py` | ✅ **已修 · BF-168** |
 | **M-04** 导出空列 | 待修 | `damaged_asset_view.py:67` 已为 `field: "damaged_date"` | ✅ **已修 · BF-168** |
 | （未编号）合同导出列 | 未登记 | `contract_view.py:101` `contract_sign_date → contract_start_date` | ✅ **已修 · BF-168（归位登记）** |
-| **M-05** 双 toast | 待修 | `usePaginationSearch.ts:113-114` `notifyCallerError` + `ElMessage.error` 并存 | ⛔ 仍开放 |
-| **M-06** 删除双成功 | 待修 | `disableAutoMessage` 仅存在于 `recycleAssetStore` / `damagedAssetStore` / `operationLogStore`，**broken/lost/found/repair 4 store 仍缺** | ⛔ 仍开放 |
+| **M-05** 双 toast | 待修 | `usePaginationSearch.ts:113-114` `notifyCallerError` + `ElMessage.error` 并存 | ✅ **已修 · 工作树（批次 4，BF-172）**；同型家族另五处收编见 BF-171/B-29（已提交 39b7118），漏网 1 处已登记 B-30 |
+| **M-06** 删除双成功 | 待修 | `disableAutoMessage` 仅存在于 `recycleAssetStore` / `damagedAssetStore` / `operationLogStore`，**broken/lost/found/repair 4 store 仍缺** | ✅ **已修 · 工作树（批次 4，BF-172）** |
 | **M-07** 批量字面量 | 待修（8 处） | 生产代码 **8 处** `max_batch_size=100`（asset_service:287 / lifecycle:426,454 / contract:472 / asset_type:223 / storage:180 / recycle:365 / out_asset:291） | ⛔ 仍开放（数量与源A 一致） |
 | **M-08** 枚举硬编码 | 待修（5 处） | `notification/helpers.py:54` `role="dept_manager"`、`usermanagement/selectors.py:201,236`、`providers.py:37` `employee_status="active"` | ⛔ 仍开放 |
 | **M-11** 宽 except | 待修 | `core/batch_mixins.py:143,216` 仍 `except Exception` | ⛔ 仍开放 |
@@ -81,8 +81,8 @@
 
 | ID | 源 | file:line / symbol | 问题 | 修复建议 | 影响面 | 建议验证方式 | 状态 |
 |:--|:--|:--|:--|:--|:--|:--|:--|
-| **M-05** | A③F-03 | `src/composables/usePaginationSearch.ts:113-114` | 列表加载失败**双 toast**（`notifyCallerError` + 无条件 `ElMessage.error`），违反 M-RC-09 单出口注释 | 删 `ElMessage.error(messages.loadFailed)` | 单文件 | 模拟 AxiosError/非 AxiosError 各断言仅 1 次 toast | ⛔ |
-| **M-06** | A③F-04 | `stores/{brokenAsset,lostAssetStore,foundAssetStore,repairAssetStore}.ts` + `useAssetLifecycleActions.ts:67-71` | 生命周期详情页删除出现**两条成功提示**（store 自动消息 + composable 手动消息） | 4 store 补 `disableAutoMessage: true`（与 recycle/damaged 对齐） | 4 个配置 | 挂载断言删除流程仅 1 条 toast | ⛔ |
+| **M-05** | A③F-03 | `src/composables/usePaginationSearch.ts:113-114` | 列表加载失败**双 toast**（`notifyCallerError` + 无条件 `ElMessage.error`），违反 M-RC-09 单出口注释 | 删 `ElMessage.error(messages.loadFailed)` | 单文件 | 模拟 AxiosError/非 AxiosError 各断言仅 1 次 toast | ✅（工作树 · 批次 4） |
+| **M-06** | A③F-04 | `stores/{brokenAsset,lostAssetStore,foundAssetStore,repairAssetStore}.ts` + `useAssetLifecycleActions.ts:67-71` | 生命周期详情页删除出现**两条成功提示**（store 自动消息 + composable 手动消息） | 4 store 补 `disableAutoMessage: true`（与 recycle/damaged 对齐） | 4 个配置 | 挂载断言删除流程仅 1 条 toast | ✅（工作树 · 批次 4） |
 | **M-07** | A③F-05 | `services/*` 8 处 `max_batch_size=100` | **DR-1 常量旁路**：`core/batch_mixins.py:74 DEFAULT_MAX_BATCH_SIZE` 为唯一真值，8 处字面量旁路 | 8 处删实参走默认回落；按 §1.8 登记账本（与 B-4 同族） | 零行为变更 | `rg 'max_batch_size *= *100'` 生产 0 命中 + 批量 pytest 全绿 | ⛔ |
 | **M-08** | A①AUD-31-1 | `notification/helpers.py:54`、`usermanagement/selectors.py:201,236`、`providers.py:37` | **BR-3 枚举硬编码** `role="dept_manager"` / `employee_status="active"` 共 5 处 | 替换为 `Employee.Role.DEPT_MANAGER` / `EmployeeStatus.ACTIVE` | 小，语义零变化 | rg 零字面量 + notification/usermanagement pytest | ⛔ |
 | **M-11** | A③F-06 | `core/batch_mixins.py:143,216` | `batch_execute` 宽 `except Exception` 吞 **DatabaseError**：连接中断/死锁被降级为逐条失败，无 savepoint 时 PG 事务中止会污染 success_items 与落库一致性 | 在 `except Exception` 前显式 `except django.db.DatabaseError: raise`（fail-fast） | 单文件，需核对各调用方 savepoint | 模拟 DatabaseError 断言整体失败而非逐条 fail_items | ⛔ |
@@ -110,8 +110,8 @@
 | **OP-10** | B P3-1 | `unregisteredasset/handlers.py:154-222` | S1 场景裸 `Asset.objects.create` + FSM 落态**无资产级 create/state 审计**（S2/S3 已由 M-16 补痕）→ 对齐 M-16 范式补 `log_state_change` | ⛔ |
 | **OP-11** | B P3-5 | `serializers/asset_crud_serializers.py:91-127` | `AssetDetailSerializer` 含 `asset_current_status` 但**无 `read_only_fields`**，且是 ViewSet 兜底类（「未上膛的枪」）→ 补 `read_only_fields = fields` 零行为变更 | ⛔（与 M-01 同文件族，可同批） |
 | M-20 | A③F-15 | `stores/assetStore.ts:144-147` vs `:173` | getList 无参回落 `page_size:10` 与 `defaultPageSize:20` 不一致 → 统一取 defaultPageSize | ⛔ |
-| **OP-13** | B P3-13 | `composables/useExcelExport.ts:165` | `toISOString()` **UTC 时间戳**做导出文件名（本地 16:00 后日期少一天）→ 改 `toLocalDateString`（M-33 单源） | ⛔ |
-| **OP-14 / OP-15** | B P3-14/15 | `types/outasset.ts:126`、`types/asset.ts:321,364` | 类型裸 `string` + 注释只列 4 态 → 改枚举类型 / 注释改 8 态全集 | ⛔ |
+| **OP-13** | B P3-13 | `composables/useExcelExport.ts:165` | `toISOString()` **UTC 时间戳**做导出文件名（本地 16:00 后日期少一天）→ 改 `toLocalDateString`（M-33 单源） | ✅（工作树 · 批次 4） |
+| **OP-14 / OP-15** | B P3-14/15 | `types/outasset.ts:126`、`types/asset.ts:321,364` | 类型裸 `string` + 注释只列 4 态 → 改枚举类型 / 注释改 8 态全集 | ✅（工作树 · 批次 4；OP-14 采纳**别名化**拍板：`export { AssetCurrentStatus as OutAssetCurrentStatus }`，非补宽方案） |
 | **OP-16/17/18 群** | B P3-2/3/4/6/7 | `backend-business-rules.md` §三 / `state_machine/unregistered.py` / `asset_lifecycle_mixin.py:82-90` | 规则文档三处缺口（特殊回退表缺 S1 两路径、`repairing→damaged` 双边、**合同状态机零文档**）+ lifecycle 审计缺 before/after + S1 裸 create 字面违约 | ⛔（文档批次） |
 | **OP-19 群** | B P3-8/9/10 | `employee_query_actions.py:234` / `role_view.py:80` 等 / `config/urls.py:155` | 工号探测存在性、系统配置读面、`/metrics/` 无鉴权 → 前者改 `get_queryset()`，后两者 **[待确认]** 需业务/运维拍板 | 🔵 |
 | **OP-20** | B P3-11 | `backend/.env:9,14` | 疑似真实凭据，已核实**从未入库**（`git log --full-history` 空）→ 确认轮换 + pre-commit 强拦截 | ⛔ |
@@ -165,6 +165,7 @@
 批次 4【前端 UX 小改】 M-05 + M-06 + OP-13 + OP-14 + OP-15
   → 双 toast 两处 + 4 store disableAutoMessage + 导出文件名时区 + 类型/注释
   验证：toast 各 1 条断言；16:00 后日期断言；type-check + vitest 全绿。
+  ✅ **已执行（2026-11-02，工作树待提交，BF-172）**：12 用例先红后绿 + 三项检查 + 全量 2431 全绿 + 护栏双 PASS。
 
 批次 5【DRY 常量收敛，零行为变更】 M-07 + M-08（并入账本 B-4 批次登记）
   → 8 处 max_batch_size + 5 处枚举字面量
@@ -222,7 +223,8 @@
 
 - [可验证] M-01 仍开放 — 依据：`asset_service.py:132` 签名直读（无 `user` 参数）+ `asset_view.py:135` 调用实测。
 - [可验证] M-03/M-04 已修于工作区 — 依据：`dashboard_selector.py` 窗口过滤实现 + `damaged_asset_view.py:67` 字段名 + `git diff --stat`（6 文件未提交）。
-- [可验证] M-05/M-06/M-07/M-08/M-11/M-12 仍开放 — 依据：本次 `rg`/直读（双 toast 并存 :113-114；4 store 缺 `disableAutoMessage`；8 处字面量逐行列出；`helpers.py:54`+`selectors.py:201,236`+`providers.py:37`；`batch_mixins.py:143,216`；`dashboard_selector.py:69`）。
+- [可验证] M-05/M-06/M-07/M-08/M-11/M-12 仍开放 — 依据：本次 `rg`/直读（双 toast 并存 :113-114；4 store 缺 `disableAutoMessage`；8 处字面量逐行列出；`helpers.py:54`+`selectors.py:201,236`+`providers.py:37`；`batch_mixins.py:143,216`；`dashboard_selector.py:69`）。（**2026-11-02 续记**：其中 M-05/M-06 已修于工作树，见 BF-172；M-07/M-08/M-11/M-12 维持仍开放。）
+- [可验证] 批次 4 已修于工作树（M-05/M-06/OP-13/OP-14/OP-15）— 依据：定向 12 用例先红后绿 + type-check/lint:ci/format:check 全过 + 全量 2431/2431 exit 0 + 护栏双 PASS；`git -C vue-assetmanagement status` 实测 15 文件未提交（含 1 新增集成 spec）；同型家族收编批已提交（前端 `39b7118`，BF-171/B-29）。
 - [可验证] OP-01~OP-03 — 依据：`codegraph node` 直出源码（department_view.py:100/71、selectors.py:188、out_asset_service.py:307、waste_asset_service.py:57）+ `codegraph impact`（2/6/92 符号）。
 - [可验证] 覆盖率/护栏 — 依据：源B 本机实跑（pytest 2269 passed / 89.40%；Service 98%；前端 Stores 97.21%；五护栏 exit 0）。
 - [可验证] M-18 dev 高危 4 项与生产 0 high — 依据：本次 `npm audit --omit=dev`（7 moderate / 0 high）与全量输出（37 / 4 high，均 dev）。

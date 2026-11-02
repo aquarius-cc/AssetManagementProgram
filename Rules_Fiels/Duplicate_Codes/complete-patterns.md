@@ -696,8 +696,15 @@
 - **修复内容（8 触点 / 6 生产文件 + 1 spec）**：① 6 主触点 = 保留既有显式 `logError(...)` 行 + `ElMessage.error(fallback)` → `notifyCallerError(error, fallback)`（与 `notifySubmitError` 基准完全同构；**关键**：helper 只在 AxiosError 分支写日志，删显式 logError 会丢非 Axios 观测面——终审实测修正了早稿「helper 内部含 logError 不重复调」的错误前提）；SmartListContainer 改后 ElMessage import 删除（唯一使用点消失）、补 notifyCallerError import；Waste/Storage/HDSN 补 import。② 2 第二触点 = 手写 `isAxiosError` 三分支删除 → `notifyCallerError(error, '操作失败' / '操作失败，请重试')` + 既有 logError 保留 + `isAxiosError` import 各删 1（消息提取 DR-1 单源到 `getErrorMessage`）。
 - **行为变化（M-RC-09 既定契约，errorHandler.spec 已锁）**：AxiosError 双弹 → 拦截器单弹；非 Axios Error 文案 fallback → `err.message`；非 Error 抛出物文案不变；HDSN submit「操作失败」前缀拼贴消失。
 - **测试（CT-4 先红后绿）**：`SmartListContainer.spec.ts` 3 处改动——:106 断言 `'自定义加载失败'` → `'network down'`（修复前红）；fallback 用例输入改非 Error（`'disk-full'`）断言保持 `'加载数据失败'`（两侧绿锚，防 fallback 链被误删）；新增 AxiosError 用例（`messageError` 0 次 + `logError` 仍被调，修复前 1 弹 → 红）。5 表单无既有 spec，按拍板方案 A 不新建（锚 = errorHandler.spec 既有 notifyCallerError 双轨单测 + 全量回归 + rg 收敛）。
-- **验证证据（2026-11-02 实测）**：证红 2 failed / 11 passed → 证绿 13 passed（定向 spec）；`vue-tsc --build` 0 error；`eslint .` 0 error；`format:check` 本批 7 文件 0 告警（既有 3 文件基线漂移非本批引入）；rg 收敛：6 文件 catch 内 `ElMessage.error` 直弹 0（业务分支直弹 14 处保留）、Storage/HDSN `isAxiosError` 0 命中；全量 coverage 见提交记录。
+- **验证证据（2026-11-02 实测）**：证红 2 failed / 11 passed → 证绿 13 passed（定向 spec）；`vue-tsc --build` 0 error；`eslint .` 0 error；`format:check` 本批 7 文件 0 告警（既有 3 文件基线漂移非本批引入）；rg 收敛：6 文件 catch 内 `ElMessage.error` 直弹 0（业务分支直弹 14 处保留）、Storage/HDSN `isAxiosError` 0 命中；全量 coverage 见提交记录。**提交留痕**：前端 `39b7118`（恰 7 文件：6 生产 + 1 spec）；根仓账本 `7ecce40`。
 - **登记日期**：2026-11-02 | 关闭日期：2026-11-02 | 关联：**M-05**（同型首例，方向相反）；**P-1-4**（notifySubmitError 收编基准）；**B-27/B-28**（前序 FE 收敛条目）；`errorHandler.spec.ts`（双轨契约锚）
+
+### B-30. 【新发现 2026-11-02】M-RC-09 手写双轨第 7 处漏网：RoleManage.vue handleDelete 删除失败双弹（前端；§1.8 新发现义务）
+- **编号**：顺延登记（B-29 后最大号 +1）。**状态**：☐ 待修复 | 登记日期：2026-11-02 | 登记来源：B-29 关闭后的文档同步（核查 2026-10-27 审计报告 RC-09 行）实测——RC-09 点名清单 8 处中 RoleManage 原点名 `:165`（获取列表失败）已收编 `notifyCallerError`，但 `handleDelete` 为**未点名的另一处漏网**，B-29 八触点清单亦未覆盖。
+- **判定**：`src/views/system/RoleManage.vue:266-272` `handleDelete` catch 手写 `response?.data?.message || err.message || '删除失败'` 三级消息提取 + `ElMessage.error(msg)` 直弹——AxiosError 场景拦截器（request.ts `notifyApiError`）已提示 → **双弹**，与 B-29 六处同型；三级提取与 `getErrorMessage`（errorHandler.ts）逐语义重复（DR-1）。注意该 catch 当前**无显式 logError 行**（与 B-29 六处形态有别），收编时按 `notifySubmitError` 基准补 `logError` + `notifyCallerError` 两行并存还是仅 `notifyCallerError`（非 Axios 观测面取舍），执行前拍板。
+- **修复方案**：catch 收编 M-RC-09 单出口（`notifyCallerError(error, '删除失败')`），删手写三分支；`ElMessage` import 保留（业务成功分支仍在用）。
+- **验证命令**：`rg -n "response\?\.data\?\.message" vue-assetmanagement/src`（预期 0 命中）；`rg -n "ElMessage\.error" vue-assetmanagement/src/views/system/RoleManage.vue`（预期仅手写校验等业务分支）；`npx vitest run src/utils/__tests__/errorHandler.spec.ts`（双轨契约锚）。
+- **关联**：**B-29**（同型收编前批，形态差异 = 无 logError）；**M-05**（双 toast 家族首例）；RC-09 行续记见 `docs/Review/ExpiredAuditReport/20261027/opencode-codegraph-audit-2026-10-27.md`
 
 ---
 

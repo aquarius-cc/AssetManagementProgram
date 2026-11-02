@@ -10733,3 +10733,59 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 - **转【已关闭】条件**：三组用例 + 护栏自测绿落地推送后，CI 首跑全绿（含 mutation ≥ 基线 83.25676365492598）。
 
 *登记人：AtomCode ｜ 状态：【待验证】（修复方向已拍板，执行后回填验证证据），2026-11-01*
+
+## BF-171【已关闭】B-29 提示层八触点收编——M-RC-09 单出口同型残留 ×6 + 同文件 submit 第二触点 ×2，全部收编 `notifyCallerError`；修复方向与 M-05 相反（收编而非删除）｜来源：`Rules_Fiels/Duplicate_Codes/complete-patterns.md` B-29（§1.8 新发现义务，批次 4 M-05 执行时同类排查实测）
+
+### 一、问题与定性（双 toast UX / M-RC-09 单出口回归缺口）
+
+- **六主触点**：`SmartListContainer.vue:174`、`WasteAssetForm.vue:211`、`UnregisteredAssetForm.vue:412`、`StorageForm.vue:161`、`HardDiskSNForm.vue:353`、`DamagedAssetForm.vue:407`——catch 内手写 `logError + ElMessage.error(fallback)` 未走 M-RC-09 单出口；AxiosError 场景拦截器（request.ts）已提示 → 必双弹；非 Axios Error 文案吃 fallback 而非 `err.message`。
+- **两第二触点**（批次外同文件新发现）：`StorageForm.vue:193-203` / `HardDiskSNForm.vue:437-447` submit catch 手写 `isAxiosError` 三分支消息提取 + 无条件弹，与 `getErrorMessage`（errorHandler.ts）逐语义重复（DR-1）。
+
+### 二、修复内容
+
+- 六主触点：保留既有显式 `logError` 行（**关键事实**：helper 仅在 AxiosError 分支写日志，删显式 logError 会丢非 Axios 观测面），`ElMessage.error(fallback)` → `notifyCallerError(error, fallback)`；SmartListContainer 改后 `ElMessage` import 删除（唯一使用点消失）并补 `notifyCallerError` import；Waste/Storage/HDSN 补 import。
+- 两第二触点：手写三分支删除 → `notifyCallerError(error, '操作失败' / '操作失败，请重试')`，既有 logError 保留，`isAxiosError` import 各删 1。
+- 行为变化（M-RC-09 既定契约，`errorHandler.spec` 已锁）：AxiosError 双弹 → 拦截器单弹；非 Axios Error 文案 fallback → `err.message`；非 Error 抛出物文案不变。
+- 5 表单无既有 spec，按拍板方案 A 不新建 mount spec（锚 = `errorHandler.spec` 既有 notifyCallerError 双轨单测 + 全量回归 + rg 收敛）。
+
+### 三、测试验证（已回填）
+
+- `SmartListContainer.spec.ts` 3 处改动先红后绿：证红 2 failed / 11 passed → 证绿 13 passed（断言文案收编 + fallback 输入改非 Error 绿锚 + 新增 AxiosError 单弹用例）。
+- 门禁：`vue-tsc --build` 0 error；`eslint .` 0 error；`format:check` 本批 7 文件 0 告警（既有 3 文件基线漂移非本批引入）。
+- rg 收敛：6 文件 catch 内 `ElMessage.error` 直弹 0（业务分支直弹 14 处保留）、Storage/HDSN `isAxiosError` 0 命中；护栏双 PASS（check_duplicate_invariants / check_frontend_invariants）。
+
+### 四、提交与关联
+
+- 提交：前端 `39b7118`（恰 7 文件：6 生产 + 1 spec，批次 4 未提交遗留文件刻意隔离）；根仓 `7ecce40`（B-29 账本销项 + 子模块指针）。
+- 残余（双 toast 家族）：M-05（`usePaginationSearch.ts:113-114`，批次 4，→ BF-172）；`RoleManage.vue` handleDelete 未点名漏网（→ 重复账本 **B-30** 登记待修）。
+
+*登记人：mimo ｜ 状态：【已关闭】（2026-11-02，前端 39b7118 + 根仓 7ecce40）*
+
+## BF-172【已修复·待提交】批次 4 前端 UX 五件——M-05 列表加载失败双 toast 删除 + M-06 四 store 删除双成功提示（disableAutoMessage）+ OP-13 导出文件名 UTC 偏一天 + OP-14 出库状态类型收窄（别名化拍板）+ OP-15 状态注释 8 态口径｜来源：`docs/Review/merge-codegraph-audit-20261101.md` M-05/M-06（§二台账行 84/85）+ OP-13/OP-14+OP-15（B P3-13/14/15，行 113/114）+ 批次 4 计划 §四
+
+### 一、问题与定性
+
+- **M-05**：`usePaginationSearch.ts:113-114` `notifyCallerError` 之后又无条件 `ElMessage.error`——注释声明单出口，实现必双弹（同 BF-171 家族方向相反：此处为删除多余弹，家族另五处为收编法）。
+- **M-06**：`disableAutoMessage` 守卫仅覆盖 recycleAsset/damagedAsset/operationLog 3 store，broken/lost/found/repair 4 store 缺失 → 生命周期详情页删除走 `useAssetLifecycleActions.ts:67-71` 出现 store 自动消息 + composable 手动消息两条成功 toast。
+- **OP-13**：`useExcelExport.ts:165` `toISOString()` 生成 UTC 时间戳做导出文件名，本地 16:00 后日期少一天；与 `utils/excelExporter.ts` 本地口径不一致（M-33 单源）。
+- **OP-14**：`types/outasset.ts:126` `outasset_current_status: string | null` 裸 string；同文件 8 键枚举已定义。
+- **OP-15**：`types/asset.ts:321,364` 注释只列 4 态，实际后端接受 8 态全集。
+
+### 二、修复内容
+
+- M-05：删无条件 `ElMessage.error(messages.loadFailed)`，保留 `notifyCallerError` 单出口。
+- M-06：4 store 补 `disableAutoMessage: true`（与 recycle/damaged 对齐，工厂层守卫统一）；useAssetLifecycleActions 手动消息双弹随之消除。
+- OP-13：导出文件名改 `formatDateTimeFull`（单源本地时区链路）。
+- OP-14：类型收窄为 `AssetCurrentStatus | null`；`OutAssetCurrentStatus` 按别名化拍板与 asset 枚举单一来源对齐（`export { AssetCurrentStatus as OutAssetCurrentStatus }`，**非**原报告建议的 `| string | null` 补宽方案）。
+- OP-15：两处注释改 8 态全集（`in_store/in_use/recycled_pending/damaged/scrapped/broken/lost/repairing`）。
+
+### 三、测试验证（已回填，工作树）
+
+- 定向 12 用例先证红 → 全绿：usePaginationSearch.spec（AxiosError/非 AxiosError 各断言仅 1 次 toast）、4 个 store spec（删除流程仅 1 条成功 toast）、useAssetLifecycleActions.integration.spec（防回归锚）、useExcelExport.spec。**TZ=Asia/Shanghai**（vitest.config.ts:1），OP-13 断言窗口取本地 07:30（UTC 跨日差异区；16:00 属假绿窗口）。
+- 门禁：type-check / lint:ci / format:check（本批文件）全过；全量 2431/2431 exit 0（分层阈值 ts 80 / stores 90 自动强制）；护栏双 PASS。
+
+### 四、转关闭条件
+
+批次 4 文件提交推送 + CI 全绿后回填哈希转【已关闭】；本地工具链版本与 dev.txt/package.json 存在漂移疑问，CT-7 CI 直证随 GitHub API 网络恢复后补取。
+
+*登记人：mimo ｜ 状态：【已修复·待提交】（2026-11-02，工作树；提交后回填转关闭）*
