@@ -1,11 +1,9 @@
-# -*- coding: utf-8 -*-
-"""重复代码回归护栏（G-1~G-3、G-5~G-7）自测：每条不变量造一个复发夹具证红，干净镜像证绿。
+"""重复代码回归护栏（G-1~G-3、G-5~G-8）自测：每条不变量造一个复发夹具证红，干净镜像证绿。
 
 护栏：scripts/check_duplicate_invariants.py（进程内调用 main()，--root 注入夹具根）。
 """
-from helpers import write
-
 import check_duplicate_invariants as g
+from helpers import write
 
 SVCS = "asset_management_backend/apps/assetmanagement/services/operation_log_service.py"
 FORMAT = "vue-assetmanagement/src/utils/Format.ts"
@@ -143,6 +141,62 @@ def test_g7_exempt_service_green(tmp_path, capsys):
           "class V:\n"
           "    batch_delete_service = S.batch_delete_department\n"
           )
+    assert g.main(["--root", str(tmp_path)]) == 0
+    assert "[RESULT] PASS" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------
+# G-8：role/employee_status 历史字面量回归拦截（M-08）
+# --------------------------------------------------------------------------
+
+
+def test_g8_role_kwarg_literal_red(tmp_path, capsys):
+    write(tmp_path / "asset_management_backend" / "apps" / "em" / "views" / "a.py",
+          'def f():\n    filter(role="dept_manager")\n')
+    assert g.main(["--root", str(tmp_path)]) == 1
+    assert "G-8" in capsys.readouterr().out
+
+
+def test_g8_status_assign_literal_red(tmp_path, capsys):
+    write(tmp_path / "asset_management_backend" / "apps" / "em" / "services" / "a.py",
+          "def f():\n    employee_status = 'left'\n")
+    assert g.main(["--root", str(tmp_path)]) == 1
+    assert "G-8" in capsys.readouterr().out
+
+
+def test_g8_enum_call_form_green(tmp_path, capsys):
+    write(tmp_path / "asset_management_backend" / "apps" / "em" / "services" / "a.py",
+          "from apps.usermanagement.models import EmployeeRole\n"
+          "def f():\n"
+          "    filter(role=EmployeeRole.DEPT_MANAGER, employee_status=EmployeeStatus.ACTIVE)\n")
+    assert g.main(["--root", str(tmp_path)]) == 0
+    assert "[RESULT] PASS" in capsys.readouterr().out
+
+
+def test_g8_non_whitelist_literal_green(tmp_path, capsys):
+    """值域白名单外的字面量（如 asset_admin）不受 G-8 约束。"""
+    write(tmp_path / "asset_management_backend" / "apps" / "em" / "views" / "a.py",
+          "def f():\n    filter(role='asset_admin')\n")
+    assert g.main(["--root", str(tmp_path)]) == 0
+    assert "[RESULT] PASS" in capsys.readouterr().out
+
+
+def test_g8_migrations_and_tests_not_scanned(tmp_path, capsys):
+    """migrations/（CT-6 禁改）与 tests/（夹具）在范围外。"""
+    write(tmp_path / "asset_management_backend" / "apps" / "em" / "migrations" / "0001.py",
+          "def seed():\n    Employee.objects.create(role='dept_manager')\n")
+    write(tmp_path / "asset_management_backend" / "apps" / "em" / "tests" / "test_x.py",
+          "def t():\n    Employee(employee_status='active')\n")
+    assert g.main(["--root", str(tmp_path)]) == 0
+    assert "[RESULT] PASS" in capsys.readouterr().out
+
+
+def test_g8_docstring_noise_green(tmp_path, capsys):
+    """docstring/help_text/错误文案中的字面量是 AST 字符串表达式，不构成 kwargs/赋值，不误红。"""
+    write(tmp_path / "asset_management_backend" / "apps" / "em" / "views" / "a.py",
+          "def f():\n"
+          '    """示例: role=\'dept_manager\', employee_status=\'active\'"""\n'
+          "    return '有效值为: active, left, retirement'\n")
     assert g.main(["--root", str(tmp_path)]) == 0
     assert "[RESULT] PASS" in capsys.readouterr().out
 

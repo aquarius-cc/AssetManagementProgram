@@ -5,7 +5,7 @@
 
 退出码：
   0 = 全部通过
-  1 = 阻断项失败（G-1~G-3、G-5~G-7 任一命中）
+  1 = 阻断项失败（G-1~G-3、G-5~G-8 任一命中）
 
 用法：python scripts/check_duplicate_invariants.py
 """
@@ -147,6 +147,57 @@ def check_g6_batch_delete_services_carry_user():
                     )
 
 
+def check_g8_enum_literals_absent():
+    """G-8: role/employee_status 历史字面量回归拦截（M-08，枚举收编自动化断言）
+
+    口径（批次 5 v1.1 拍板）：AST 收窄——仅检测两类节点，防 docstring/help_text/
+    错误文案噪音误红：
+    ① 关键字实参 role=<str> / employee_status=<str>（调用点，含 filter/Q/create 语义）
+    ② 赋值/注解赋值目标名为 role / employee_status 且右值为字面量
+    值域白名单 = M-08 收编的 4 个字面量（dept_manager/active/left/retirement）；
+    范围 = apps/**.py，排除 migrations/（CT-6 禁改历史迁移）与 tests/（夹具不受
+    生产收编约束）。
+    """
+    g8_literals = frozenset({"dept_manager", "active", "left", "retirement"})
+    g8_fields = {"role", "employee_status"}
+    apps_dir = BACKEND / "apps"
+    if not apps_dir.exists():
+        return
+    for path, tree in _iter_ast_trees(apps_dir):
+        parts = path.parts
+        if "tests" in parts or "migrations" in parts:
+            continue
+        rel = path.relative_to(ROOT)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                continue
+            if isinstance(node, ast.keyword):
+                field = node.arg
+                if field not in g8_fields:
+                    continue
+                value = node.value
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                if isinstance(node, ast.Assign):
+                    targets = [
+                        t.id if isinstance(t, ast.Name) else t.attr if isinstance(t, ast.Attribute) else None
+                        for t in node.targets
+                    ]
+                else:
+                    t = node.target
+                    targets = [t.id if isinstance(t, ast.Name) else t.attr if isinstance(t, ast.Attribute) else None]
+                if not any(t in g8_fields for t in targets):
+                    continue
+                value = node.value
+            else:
+                continue
+            if isinstance(value, ast.Constant) and isinstance(value.value, str) and value.value in g8_literals:
+                BLOCKING.append(
+                    f"G-8 枚举字面量回潮 {rel}:{node.lineno} "
+                    f"{field if isinstance(node, ast.keyword) else targets}={value.value!r}"
+                    f"（M-08 收编，应改用 EmployeeRole/EmployeeStatus）"
+                )
+
+
 def check_g7_view_batch_delete_wired():
     """G-7: view 层批量删除必须接线 batch_delete_passes_user = True（BF-170，B12 自动化断言）
 
@@ -189,7 +240,7 @@ def check_g7_view_batch_delete_wired():
 
 def main(argv=None) -> int:
     global ROOT, BACKEND, FRONTEND
-    parser = argparse.ArgumentParser(description="重复代码回归护栏 (G-1~G-3、G-5~G-7)")
+    parser = argparse.ArgumentParser(description="重复代码回归护栏 (G-1~G-3、G-5~G-8)")
     parser.add_argument("--root", type=Path, default=None, help="扫描根目录(默认仓库根)")
     args = parser.parse_args(argv)
 
@@ -205,6 +256,7 @@ def main(argv=None) -> int:
     check_g5_no_shadow_modules()
     check_g6_batch_delete_services_carry_user()
     check_g7_view_batch_delete_wired()
+    check_g8_enum_literals_absent()
 
     for item in BLOCKING:
         print(f"[BLOCK] {item}")

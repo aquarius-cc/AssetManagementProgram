@@ -1,5 +1,5 @@
 # AI 执行引擎总配置 (Root Engine)
-> 版本：v3.7.3 | 最后更新：2026-11-01
+> 版本：v3.7.4 | 最后更新：2026-11-02
 > 职责：跨端契约仲裁、全局红线、宪法级规则（测试/DRY/安全/可观测性/AI鲁棒性/交互写作）、子引擎路由
 
 ## §1 核心执行协议（所有子引擎必须遵守）
@@ -98,7 +98,7 @@ AI 应在任务完成后，以"**SKILL 建议**"的形式向用户提出，格�
 > 本契约的引入依据 §5.2 流程，已通过人工审批（2026-08-13）。依据 §5.4，本规则进入 14 个自然日沙盒缓冲期，期满人工复核后转为强制执行。
 
 - **活账本**：重复代码模式的唯一事实来源为 `Rules_Fiels/Duplicate_Codes/complete-patterns.md`（四区：已关闭/待修复/降级/待核查）。AI 新增或关闭条目**必须**同步登记，并附证据与验证命令。
-- **回归护栏**：`scripts/check_duplicate_invariants.py` 守护不变量 G-1~G-3、G-5~G-7（已关闭模式不复现、操作日志查询唯一实现、前端状态映射单一来源、影子死文件禁止与包并存、G-6 批量删除服务必须携带用户参数、G-7 视图批量删除必须接线 passes_user），由 CI job `duplicate-guard.yml` 在 push/PR 执行，G-1~G-3、G-5~G-7 阻断。**G-4（error_code 注册）已定案无需注册**——服务层 `error_code` 仅供批量 `fail_items` 日志、前端零消费（账本 `:1700` 留痕），属语义级定性检查，护栏不实现自动化（2026-10-13 订正：原文「G-4 仅报告」与实现不符，实为无 G-4 实现函数）。
+- **回归护栏**：`scripts/check_duplicate_invariants.py` 守护不变量 G-1~G-3、G-5~G-8（已关闭模式不复现、操作日志查询唯一实现、前端状态映射单一来源、影子死文件禁止与包并存、G-6 批量删除服务必须携带用户参数、G-7 视图批量删除必须接线 passes_user、G-8 枚举字面量回潮拦截——role/employee_status 的 kwargs/赋值形态字面量 {dept_manager, active, left, retirement}，migrations/tests 范围外），由 CI job `duplicate-guard.yml` 在 push/PR 执行，G-1~G-3、G-5~G-8 阻断。**G-4（error_code 注册）已定案无需注册**——服务层 `error_code` 仅供批量 `fail_items` 日志、前端零消费（账本 `:1700` 留痕），属语义级定性检查，护栏不实现自动化（2026-10-13 订正：原文「G-4 仅报告」与实现不符，实为无 G-4 实现函数）。
 - **新发现义务**：AI 在代码审查或生成过程中发现新的重复实现，**必须**登记入账本，禁止仅口头提及而不留痕。
 
 ### 1.9 行数口径红线（全端通用）
@@ -319,6 +319,7 @@ AI 在任务完成后，必须输出以下审计票：
 > **执行监督**：审计票自检项中必须包含 `Fact-1[√]` 和 `Style-1~Style-3[√]`。
 
 ## §10 变更日志
+- **v3.7.4 (2026-11-02)**：**§1.8 回归护栏清单扩展——新增 G-8（M-08 枚举收编自动化断言）**——G-8：role/employee_status 的 kwargs/赋值形态字面量 {dept_manager, active, left, retirement} 回潮即红（口径经批次 5 v1.1 拍板：AST 收窄仅 kwargs/赋值两类节点，docstring/help_text/错误文案噪音不误红；范围 = apps/**.py，migrations/（CT-6 禁改）与 tests/（夹具）在范围外），由 `check_g8_enum_literals_absent()` 落地，守护枚举由 G-1~G-3、G-5~G-7 更新为 **G-1~G-3、G-5~G-8**，阻断范围同步；配套自测 `scripts/tests/test_duplicate_invariants.py` +6 用例 + `ci.yml` 护栏自测注释 G-5~G-7→G-5~G-8。**§5.4 适用性判定：不触发沙盒期**——依 v3.5.1（G-5）/v3.7.3（G-6/G-7）先例：本项不新增规范内容，仅对既有规范 M-08 收编（七处字面量已改枚举，rg 三组生产零命中已取证）加自动化断言，落地即 0 违规，属护栏覆盖面扩展而非红线收紧。
 - **v3.7.3 (2026-11-01)**：**§1.8 回归护栏清单扩展——新增 G-6/G-7（BF-170 批次 2，P1 行级隔离三连）**——G-6：service 层 `def batch_delete_*` 必须携带 user 参数（范围谓词＝父目录 `services` 或文件名 `services.py`）；G-7：含 `batch_delete_service =` 赋值的 view 类必须 `batch_delete_passes_user = True`（赋值尾段标识符查共享豁免名单，5 项 system_admin-only 域）。守护枚举由 G-1~G-3、G-5 更新为 G-1~G-3、G-5~G-7，阻断范围同步。账本登记 A-51；配套自测 `scripts/tests/test_duplicate_invariants.py` +9 用例（先红后绿，G-7 初版 ast.Attribute 误判由红夹具捕获后修正）。**§5.4 适用性判定：不触发沙盒期**——依 v3.5.1（G-5）先例：本项不新增规范内容，仅对既有强制规范（B14 逐条校验、B12 行级隔离）加自动化断言，落地即 0 违规，属护栏覆盖面扩展而非红线收紧（提交信息与 BF-170 条目已显式声明该理由）。
 - **v3.7.2 (2026-10-31)**：**SC-7 ③ 执行状态同步（批次1 CI 门禁加固，零业务代码）**——③ 中 ci-cd.yml 部署前置门禁描述随实现更新：`workflow_run` 触发源由 `Dependency Security Scan` 改为 `CI Pipeline`（安全扫描按依赖变更分流非必跑，监听它即让 gate 真闭合依赖一个可能不跑的 workflow），gate 改为「校验 CI 结论四项 + `actions: read` 按 SHA 回查安全扫描 + 短轮询兜底（repo vars 配参，一律 fail-closed）」双步结构，监听名一致性由 `scripts/check_ci_orchestration.py` 断言。同批配套（非本文件）：ci.yml ci-summary 收全 15 job、CI lint 改 `lint:ci` 去 `--fix`、新增 frontend-format job、duplicate-guard.yml 增 guard-summary。依 §5.2 流程经人工审批（用户指令「同步相关文档」，方案 A + 监听名断言已先行拍板）后应用。**§5.4 适用性判定**：不触发沙盒期——阻断阈值与 exit 条件未变，属描述与实现对齐 + 既有门禁稀释面的闭合（去伪存真），与 v3.7.1 同类。历史变更记录中 v3.7.0 ③ 的旧链路表述不作回溯改写。
 - **v3.7.1 (2026-10-13)**：**§1.8 G-4 定性订正（结论核验纪律，非门禁收紧）**——原「守护不变量 G-1~G-5 …沙盒期内 G-1~G-3、G-5 阻断、G-4 仅报告」与实现不符：`check_duplicate_invariants.py` 无 G-4 实现函数（自测套件亦仅测 G-1/G-2/G-3/G-5）。G-4（error_code 注册）已定案**无需注册**（服务层 `error_code` 仅供批量 `fail_items` 日志、前端零消费，账本 `:1700` 2026-09-23 已留痕），属语义级定性检查，护栏不实现自动化；守护枚举收敛为 G-1~G-3、G-5 并明确「阻断」主语为该四条。配套：`complete-patterns.md:971` 脚注同步补注。依 §5.2 流程经人工审批（2026-10-13）后应用。**§5.4 适用性判定**：不触发沙盒期——本条不收紧任何阈值、不改变 CI 阻断行为，属「护栏覆盖描述」与实现的对齐订正（去伪存真），与 v3.6.1 同类。
