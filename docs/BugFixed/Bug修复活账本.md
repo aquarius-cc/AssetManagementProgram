@@ -10789,3 +10789,29 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 批次 4 文件提交推送 + CI 全绿后回填哈希转【已关闭】；本地工具链版本与 dev.txt/package.json 存在漂移疑问，CT-7 CI 直证随 GitHub API 网络恢复后补取。
 
 *登记人：mimo ｜ 状态：【已修复·待提交】（2026-11-02，工作树；提交后回填转关闭）*
+
+
+## BF-173【已修复·待提交】批次 5 后端三件——M-07 batch-size 实参显传递重复链（14 处下沉 DEFAULT 回落）+ M-08 role/employee_status 七处枚举收编 + CT-1 mock 盲区补测 7 条｜来源：`docs/Review/merge-codegraph-audit-20261101.md` M-07/M-08（§二台账行 84/85 批次 5）+ 批次 5 计划 v1.1（拍板①②）
+
+### 一、问题与定性
+
+- **M-07**：14 处调用点以显式实参 `max_batch_size=MAX_BATCH_SIZE` 逐文件回传同一常量，属常量收敛后的「参数伪装重复链」（B-4 同型回潮，B-4 复现补记已登记）。
+- **M-08**：`role="dept_manager"` / `employee_status="active"` / `["active","left","retirement"]` 三组字面量散布 notification/usermanagement 七处，与 EmployeeRole/EmployeeStatus 枚举真值源独立并存（A-54 登记）。执行中发现原清单漏第 7 处（employee_serializers.py:174 default="active"）并入；providers 归属与行号两处审计误差均以 rg 重锚订正。
+- **CT-1**：TestNotifyDeptManagers mock 整类 Employee 不校验 filter kwargs（变异传导/漂移不红）；departments-employees 端点 status 白名单零覆盖。
+
+### 二、修复内容
+
+- M-07：删 14 处显式实参统一回落 batch_mixins `DEFAULT_MAX_BATCH_SIZE`（1cc185f）；batch_mixins docstring 同步去示例行并在 Args 删除 max_batch_size 行；unregisteredasset/services.py 顶部 import 同步删。
+- M-08：七处改 `EmployeeRole.DEPT_MANAGER` / `EmployeeStatus.ACTIVE` / `list(EmployeeStatus.values)`；department_view 400 文案逐字不变。
+- CT-1：notification 真库 3 用例（TestNotifyDeptManagersRealDb：active 收/left 不收/asset_admin 不收，显式 context manager 替代方法级 @patch——后者注入破坏 self 绑定）+ RBAC departments-employees 2 用例（status=active 仅在职/bogus 400 白名单文案）+ `test_enum_literal_equivalence.py` 枚举等价断言 2 条（顺序即契约，400 文案白名单同序）。
+- 护栏 G-8：`check_g8_enum_literals_absent()`（AST 收窄仅 kwargs/赋值、白名单 4 字面量、migrations/tests 范围外）（cd3e49f）+ 自测 +6 + AGENTS v3.7.4。
+
+### 三、测试验证（已回填，工作树）
+
+- 四域定向 pytest 1875 passed（assetmanagement/usermanagement/notification/unregisteredasset，含新 7 条）；本批触碰面 ruff/format 清零；`mypy . --strict` 0 issues（228 files）；护栏真仓 PASS + 自测 22 passed；rg 三组字面量生产零命中。
+
+### 四、转关闭条件
+
+后端 `1cc185f` 推送 + CI 全绿后回填转【已关闭】；无网络期 CT-7 CI 直证与四域之外的其余 pytest 分组（存量 14 文件 ruff format 漂移是否为已提交基线）随网络恢复补取。
+
+*登记人：mimo ｜ 状态：【已修复·待提交】（2026-11-02，后端已提交 1cc185f+cd3e49f 待推送）*

@@ -485,6 +485,7 @@
 - **位置**：apps/assetmanagement/serializers/*、apps/usermanagement/services/employee_service.py、department_service.py 等。
 - **修复建议**：收敛至 core/constants.py::MAX_BATCH_SIZE；序列化器 validate 方法体去重列为后续独立提交。
 - **状态**：✅ 已关闭（2026-08-24，commit 550a9af）。常量收敛至 core/constants.py；batch_mixins fallback 改为常量引用；字面量残留 0 处。序列化器 validate 方法体去重列为后续独立提交。
+- **复现补记（2026-11-02，批次 5 M-07）**：`DEFAULT_MAX_BATCH_SIZE` 虽已收敛，14 处调用点仍以显式实参 `max_batch_size=MAX_BATCH_SIZE` 逐文件回传同一常量（审计 M-07 定性「参数伪装的重复链」，B-4 同型回潮）。已删除 14 处显式实参统一回落 batch_mixins 默认值（提交 1cc185f）；`rg "max_batch_size=" apps` 生产 0 命中（batch_mixins 形参定义与其 docstring 合规保留）。护栏未覆盖此形态（G-1~G-8 值域外），以补记留痕代替新增不变量。
 - **验证命令**：`rg -n "MAX_BATCH_SIZE = 100" --glob "*.py" asset_management_backend`（预期无命中）
 
 ### B-5. batch-result dict 手写组装（Service 层 10+ / View 层 10+）
@@ -897,6 +898,19 @@
 - **修复内容**：枚举替换为 `export { AssetCurrentStatus as OutAssetCurrentStatus } from '@/types/asset'`（导出名保留，`statusMapping.ts` 注释引用不掉线）；`outasset_current_status` 字段由 `string | null` 收紧为 `AssetCurrentStatus | null`（3 处生产消费点均为 enum→string 协变安全，2 处测试字面量经双重断言不触发）；`statusMapping.ts:45` 注释补 1 行消歧标注。
 - **验证命令**：`rg -n "OutAssetCurrentStatus" vue-assetmanagement/src`（仅余 ~/types/outasset.ts 与 statusMapping.ts 注释命中）；`npx vitest run src/composables/__tests__/useAssetLifecycleActions.integration.spec.ts src/stores/__tests__/{broken,lost,found,repair}AssetStore.spec.ts`（119 相关用例全绿，其中 M-06 集成 4 条真链路删除单出口）；`npm run type-check`（0 error）。
 - **登记日期**：2026-11-02 | 关联：**A-9**（前端资产状态映射单源前序）；**B-2**（outasset 死副本前序）
+
+---
+
+### A-54. 【关闭 2026-11-02】role/employee_status 七处历史字面量跨域同型 → 枚举收编 + 护栏 G-8（M-08，§1.8 新发现义务登记）
+- **状态**：✅ 已关闭 | 关闭日期：2026-11-02 | 本批修复（批次 5 v1.1，提交 1cc185f/cd3e49f）
+- **判定（DR-1 跨域字面量）**：`role="dept_manager"` / `employee_status="active"` / `["active","left","retirement"]` 三组字面量散布 notification/usermanagement 两域七处，与 `apps/usermanagement/models.py:155-199` 的 `EmployeeRole/EmployeeStatus` 枚举真值源独立并存——调用点各自硬编码字符串，枚举改值即静默漂移。
+- **修复内容（七处收编）**：`apps/notification/helpers.py:54-55`（延迟 import 扩 `Employee, EmployeeRole, EmployeeStatus`）、`apps/usermanagement/providers.py:37`、`apps/usermanagement/selectors.py:201/:237`、`apps/usermanagement/views/department_view.py:117`（`valid_statuses = list(EmployeeStatus.values)`，400 文案「有效值为: active, left, retirement」逐字不变）、`apps/usermanagement/employee_serializers.py:174`（**本批执行中发现原 M-08 清单漏网的第 7 处** `default="active"`，并入收编）。
+- **执行过程订正（登记录）**：① 通知域归属订正——原审计报告将一处收编点归到 notification，实测真路径为 `providers.py:37`；② 行号漂移——报告锚 226 与实测 312/306 不符（批次 2/3 合入所致），以 rg 重锚为准。
+- **四排除项（实证，非收编面）**：permissions `_ROLE_*`（映射 key 而非调用点）、SEARCH_STATUS_ALIASES（别名表）、迁移种子（CT-6 禁改）、unregisteredasset 400 前置文案。
+- **护栏升级（G-8）**：`scripts/check_duplicate_invariants.py` 新增 `check_g8_enum_literals_absent()`（口径批次 5 v1.1 拍板：AST 收窄仅 kwargs/赋值两类节点，docstring/help_text/错误文案噪音不误红；值域白名单 = {dept_manager, active, left, retirement}；范围 = apps/**.py，migrations/ 与 tests/ 在范围外）；配套自测 +6 用例；`ci.yml:38` 护栏自测注释 G-5~G-7→G-5~G-8；根级 AGENTS §1.8 同批补 G-8（v3.7.4）。
+- **CT-1 补测（mock 盲区修复）**：既有 TestNotifyDeptManagers 以整类 mock Employee 不校验 filter kwargs、departments-employees 端点 status 白名单零覆盖——补真库 3 用例（TestNotifyDeptManagersRealDb：active 收 / left 不收 / asset_admin 不收）+ RBAC 2 用例（status=active 仅在职 / status=bogus 400 白名单文案）+ `test_enum_literal_equivalence.py` 枚举等价断言 2 条（顺序即契约）。
+- **验证命令**：rg 三组字面量生产零命中 + `pytest apps/assetmanagement apps/usermanagement apps/notification apps/unregisteredasset -q`（1875 passed）+ `ruff check .`（绿）+ `ruff format`（本批触碰面 20 文件清零；存量 14 文件漂移非本批引入，留 CI 复核）+ `mypy . --strict`（0 issues，228 files）+ `python scripts/check_duplicate_invariants.py`（真仓 PASS）；护栏自测 22 passed。2 条新收费用例（_notify helper 初版被 @patch 注入破坏 self 捕获后改显式 context manager）。
+- **登记日期**：2026-11-02 | 关联：**B-4**（batch 常量收敛前序，同批 M-07 下沉 DEFAULT 回落）；**A-51**（护栏先例 G-6/G-7，§5.4 判据延用）；根级 **v3.7.4**
 
 ### D-4. ✅ 已关闭 2026-11-02 —— repair/broken/lost/found 四端点无导出列必 500（前端已接导出按钮）
 - **状态**：✅ 已关闭 | 关闭日期：2026-11-02 | 后端 `ae58902`
