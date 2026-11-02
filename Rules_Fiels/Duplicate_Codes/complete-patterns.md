@@ -861,6 +861,32 @@
 
 ---
 
+### A-52. 【关闭 2026-11-02】资产写侧归属四入口同型越权统一收口 + 合同读面三旁路 + 合同导出绕过（D1-D4 拍板口径，[HALT] 经产品确认；§1.8 新发现义务登记）
+- **状态**：✅ 已关闭 | 关闭日期：2026-11-02 | 本批修复（批次 3，M-01/M-12/OP-04/D4）
+- **判定**：
+  1. **写侧归属四入口同型越权**：`create_asset` / `batch_create_asset` / `update_asset` / `change_outasset_employee` 均不校验归属范围——部门级角色可把资产归属落到他部门（写侧越权，读侧已隔离）；统一修复为 `department_scope.ensure_asset_attribution_in_scope`（D1/D2 拍板：OR 交集语义、三路全空 fail-closed、kw-only user 必填）。
+  2. **合同读面三旁路**：资产详情 `AssetDetailSerializer.asset_contract` / 出库详情 `OutAssetDetail.contract` 嵌套完整合同（含五财务字段）——D4 白名单 `ContractBriefSerializer` 剥离；`contract_by_asset` 端点 R4 拍板豁免（数据主体合同财务域，资产仅查询索引；保护性断言锁定认证+行级隔离门禁）。
+  3. **合同导出绕过 BF-127**：`resolve_viewset_permissions` 中 export_excel 短路优先于 action_overrides——`ContractViewSet.get_permissions` 局部覆写 `[IsSystemAdmin()]`（公共 resolve 不动，impact=53 符号）。
+- **修复内容**：`core/department_scope.py` `_ASSET_ATTRIBUTION_CHAIN` 三路径单一事实源（读面 Q 同源重构，删除第二份字面量）+ `asset_attribution_codes` / `ensure_asset_attribution_in_scope`；M-12 `get_overview_statistics` kw-only `can_view_contracts`（D3：View 注入 `is_system_admin`，Selector 不 import permissions）；前端 `ContractBrief` 类型 + 金额行有值才出 + Format 四数字字段宽松判空（R5 同型）。
+- **位置**：`core/department_scope.py` | `services/asset_service.py`（4 方法）| `selectors/dashboard_selector.py:59` | `views/dashboard_view.py:57` | `views/contract_view.py:80` | `serializers/base_model_serializers.py`（ContractBriefSerializer）| `serializers/asset_crud_serializers.py:96` / `out_asset_serializers.py:149`
+- **测试锚（7 条写面 + 5 角色×3 组 + 矩阵 8 行 + 豁免门禁 3 条）**：`test_asset_write_scope.py`（create 跨部门 400 / 三路全空双角色 / 下级部门 201 / batch 混合部分成功 / update 400+OR 兼容 200 / change_outasset_employee 400）、`test_dashboard_contract_scope.py`（5 角色参数化，auditor 坑位锁定）、`test_contract_export_scope.py`（5 角色 200/403 + 行数断言 + 401）、`test_export_matrix.py`（8 端点×权限行为矩阵）、`test_contract_brief_scope.py`（401/404/财务字段在位）
+- **状态**：✅ 已关闭 | 关闭日期：2026-11-02
+- **验证命令**：`pytest apps/assetmanagement core/tests -q`（1882+ passed）+ `pytest apps/usermanagement/tests/test_employee_rbac_scope.py -q`（19）+ 前端 4 spec 126 passed + `vue-tsc --build`（0 error）+ schema 基线重导（嵌套合同收窄 + Brief 组件，非破坏）+ ruff/mypy 改动文件全绿
+- **登记日期**：2026-11-02 | 关联：**BF-170**（批次 2 前序同型）；**A-51**（护栏 G-6/G-7）；**A-31/A-32**；R4/R6 定性留痕见 BF-170 票外本条与 `test_contract_brief_scope.py` docstring
+
+### D-4. 待核查 2026-11-02 —— repair/broken/lost/found 四端点无导出列必 500（前端已接导出按钮）
+- **判定**：四生命周期端点挂 ExportExcelMixin 但未配置 `export_columns`，权限通过后 `workbook` 生成必 500「未配置导出列」；前端已接导出按钮，用户可触达。
+- **位置**：`apps/assetmanagement/views/repair_asset_view.py` 等四 ViewSet + 前端对应导出按钮
+- **处置二选一（另起小批，本批不纳入）**：补 `export_columns`（与其它资产域端点对齐）或摘除 mixin + 前端摘按钮。
+- **登记日期**：2026-11-02 | 来源：批次 3 OP-04 导出矩阵回归时单列标注
+
+### D-5. 待核查 2026-11-02 —— out_asset_service.create 跨部门指定使用人 / recycle_asset_service 写 asset_manager 两处归属路径待核查
+- **判定**：两处写路径存在与 M-01 同型的归属落点（出库跨部门指定使用人；回收写 asset_manager），业务口径未确认（可能为合法跨部门业务流转），需产品口径后决定是否纳入 ensure 校验。
+- **位置**：`apps/assetmanagement/services/out_asset_service.py`（create）| `recycle_asset_service.py:289,411`
+- **登记日期**：2026-11-02 | 来源：批次 3 M-01 执行时同类排查
+
+---
+
 ## D — 待核查（To Verify）
 
 ### D-1. ✅ 已关闭 2026-09-10 —— unregisteredasset batch_create 手写循环收敛至 batch_execute
