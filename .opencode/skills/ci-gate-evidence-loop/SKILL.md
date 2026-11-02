@@ -1,6 +1,6 @@
 ---
 name: ci-gate-evidence-loop
-description: CI 门禁变更的取证闭环——改 .github/workflows/ 的门禁/汇总/触发条件后，把「预期路径」拆成两次提交分别用 CI 直证，再把 run ID 与 job 级结论原子地写回活账本。Use when 改动 security-scan.yml / ci-cd.yml / ci.yml 的门禁逻辑、job 级 if、汇总 job、触发条件或 needs 链, when asked to 把扫描结果接入门禁/让 audit 阻断合并/加部署前置门禁/加汇总 job/验证 audit 是否被跳过, or after user says "接入门禁"、"阻断合并"、"验证降噪路径"、"轮询 CI 结果再提交". Covers 触发路径与降噪路径预判、REST 配额降级三档、job 级结论取证、两个必查门禁缺陷、账本回填、未验证项据实标注。
+description: CI 门禁变更的取证闭环——改 .github/workflows/ 的门禁/汇总/触发条件后，把「预期路径」拆成两次提交分别用 CI 直证，再把 run ID 与 job 级结论原子地写回活账本。Use when 改动 security-scan.yml / ci-cd.yml / ci.yml 的门禁逻辑、job 级 if、汇总 job、触发条件或 needs 链, when asked to 把扫描结果接入门禁/让 audit 阻断合并/加部署前置门禁/加汇总 job/验证 audit 是否被跳过, or after user says "接入门禁"、"阻断合并"、"验证降噪路径"、"轮询 CI 结果再提交". Covers 触发路径与降噪路径预判、REST 配额降级三档、job 级结论取证、两个必查门禁缺陷、账本回填、未验证项据实标注，以及 PowerShell 宿主编码自毁坑集与 gh 取证脚本组（runs/jobs/steps/mutscore）。
 ---
 
 # CI 门禁变更的取证闭环
@@ -94,6 +94,7 @@ run: if [ "$WR_HEAD_BRANCH" != "master" ]; then
 
 其他纪律：
 
+- **脚本化轮询用附录 B 的 gh 取证脚本组**（runs/jobs/steps/mutscore），落盘必须遵守附录 A 的 PS 编码安全约束——在 PS here-string 里直接写含中文字面量的 python 会自毁。
 - 门禁类 workflow 耗时差异极大（本次 17s vs 43m），**别用固定超时**；轮询窗口按最长的那个 job 计。
 - 若 job 长时间 `in_progress`，取 `started_at` + 当前 step 名区分「真在算」与「卡死」，不要盲等。
 - 一次轮询里用一条 `$j.total_count`/`$fail` 汇总行替代逐 job 罗列，显著省配额与上下文。
@@ -134,6 +135,88 @@ run: if [ "$WR_HEAD_BRANCH" != "master" ]; then
 - [ ] 工作区有无**非本次任务产生的未跟踪文件**？——发现即**原样保留、绝不提交或删除**，并在汇报中单独告知来源存疑
 - [ ] commit 是否用 `-F <文件>` 传入？中文 commit message 内含 `|` `$` `{` 时 PowerShell 会解析失败，**必须走文件**
 
+## 附录 A — PowerShell 宿主编码自毁坑集（单会话实测踩 5 次）
+
+Windows PowerShell 5.1 的文本管道**默认不是 UTF-8**，取证脚本在「写入侧 / 读取侧 / 显示侧」三处都会毁数据：
+
+| # | 坑 | 后果 | 解法 |
+|:--|:---|:---|:---|
+| A1 | `Set-Content -Encoding ASCII`（here-string 写 .py） | here-string 内**所有中文字面量变 `????`**：`endswith('变异测试')` → `endswith('????')` → 选择器恒不匹配，表面却像「CI 数据里没这个 job」（`StopIteration`/`NOMATCH`），极具误导性 | ① write 工具写 .py（UTF-8 无 BOM，python3 源码默认 UTF-8）；② 脚本内中文一律 `\uXXXX` 转义（`'\u53d8\u5f02\u6d4b\u8bd5'`=变异测试、`'\u6d4b\u8bd5'`=测试、`'\u8986\u76d6\u7387'`=覆盖率），保持脚本纯 ASCII；③ **零中文字面量原则**：脚本只 dump 原始数据，匹配逻辑移进 Read 侧 |
+| A2 | `Get-Content`/`Set-Content` 不带 `-Encoding` | 按系统 ANSI（GBK/936）读写 UTF-8 文件 → 毁文件或全程乱码 | 同 A1①；临时中文文件用 write 工具；读一律 Read 工具（Read 走 UTF-8，不经 PS 管道） |
+| A3 | python `print` 到 PS 控制台 | 中文显示 `ǰ��` 等 mojibake | **显示问题不修**——success/failure/数字均为 ASCII 照常可读；要精确读取就写 UTF-8 文件 + Read 工具 |
+| A4 | `Set-Content` 写 commit message 文件 | 可能写入 **BOM**，导致 `git commit -F` 的 message 首字符污染（曾致 amend 去 BOM） | message 文件也用 write 工具写；提交后 `git log -1 --format=%s` 双向核关键词 |
+| A5 | PS 报 `NativeCommandError`/`CouldNotAutoLoadModule` 红字 | 原生 exe 往 stderr 写字时 PS 的包装噪音，**不代表失败** | 以 `$LASTEXITCODE` 与实际 stdout 为准；路径相对 workdir 核对（曾把 `asset_management_backend\.venv\...` 用在 workdir 已是 backend 的场景） |
+
+**兜底范式（最稳）**：脚本零中文、全量 dump `id || name || conclusion` 到 UTF-8 文件 → Read 工具读（A1/A3 免疫）→ 需要深挖时按 **id** 直取（名字匹配只发生在 Read 侧的人眼/下一次无中文脚本里）。
+
+## 附录 B — gh 取证脚本组（jobs / steps / mutscore）
+
+统一纪律：
+
+- 一律 `subprocess.check_output(['gh','api',...])` 取**原始字节**再 `.decode('utf-8')`，绝不经 PS 管道；
+- 拉 logs 用 `gh api --allow-escape-sequences .../logs`，并 `except CalledProcessError as e: raw = e.output` 兜底——**in_progress job 的 logs 端点返回 404 BlobNotFound 属正常**，此时改查 job **steps** 端点看进度；
+- 先剥 ANSI：`re.sub(r'\x1b\[[0-9;]*m','',...)`；
+- **rid/job_id 一律参数化**（曾写死 run id → 静默复读上一 run 的分数，同码双跑同分极难察觉）；
+- 耗时基线：`/actions/runs?status=success&per_page=6` + 各 job `started_at→completed_at` 差值 → 得出该 job 的「正常耗时带」（如后端测试+覆盖率 28–47min），**超带才值得怀疑卡死**，带内就继续等；
+- shell 工具调用注意超时上限：`Start-Sleep 480` + 多次 gh 串一条命令会撞 600s 超时丢整批结果——拆短或去掉 sleep 直查。
+
+### B1 — gh_jobs.py `<run_id> <outfile>`（job 级结论）
+
+```python
+import subprocess, sys, json
+d = json.loads(subprocess.check_output(
+    ['gh','api',f'repos/<owner>/<repo>/actions/runs/{sys.argv[1]}/jobs']).decode('utf-8'))
+lines = [f"jobs_total= {len(d['jobs'])}"]
+for j in d['jobs']:
+    lines.append(f"{j['name']} | {j['status']} | {j.get('conclusion')}")
+    if j.get('conclusion') == 'failure':
+        lines.append(f"   NEXT: gh_jobsteps.py {j['id']}")
+open(sys.argv[2],'w',encoding='utf-8').write('\n'.join(lines)+'\n')
+print('written')
+```
+
+### B2 — gh_jobsteps.py `<job_id> <outfile>`（逐步进度，判「真在算 vs 卡死」）
+
+```python
+import subprocess, sys, json
+d = json.loads(subprocess.check_output(
+    ['gh','api',f'repos/<owner>/<repo>/actions/jobs/{sys.argv[1]}']).decode('utf-8'))
+lines = [f"status={d['status']} conclusion={d.get('conclusion')} started={d['started_at']}"]
+for s in d.get('steps', []):
+    lines.append(f"  #{s['number']} {s['name']} | {s['status']} | {s.get('conclusion')} | end={s.get('completed_at')}")
+open(sys.argv[2],'w',encoding='utf-8').write('\n'.join(lines)+'\n')
+print('written')
+```
+
+### B3 — gh_mutscore.py `<run_id> <outfile>`（变异分数抽取）
+
+```python
+import subprocess, sys, json, re
+rid, out = sys.argv[1], sys.argv[2]
+SUFFIX = '\u53d8\u5f02\u6d4b\u8bd5'  # =变异测试（\u 转义，保持脚本纯 ASCII，防 A1）
+d = json.loads(subprocess.check_output(
+    ['gh','api',f'repos/<owner>/<repo>/actions/runs/{rid}/jobs']).decode('utf-8'))
+j = next((x for x in d['jobs'] if x.get('conclusion')=='success' and x['name'].endswith(SUFFIX)), None)
+if j is None:
+    dump = '\n'.join(f"{x['id']} || {x['name']} || {x.get('conclusion')}" for x in d['jobs'])
+    open(out,'w',encoding='utf-8').write('NOMATCH:\n'+dump+'\n'); sys.exit(0)
+try:
+    raw = subprocess.check_output(['gh','api','--allow-escape-sequences',
+        f'repos/<owner>/<repo>/actions/jobs/{j["id"]}/logs'], stderr=subprocess.STDOUT)
+except subprocess.CalledProcessError as e:
+    raw = e.output
+txt = re.sub(r'\x1b\[[0-9;]*m','',raw.decode('utf-8','replace'))
+open(out,'w',encoding='utf-8').write(
+    f"job_id={j['id']}\nscores={re.findall(r'Final mutation score of ([0-9.]+)', txt)}\nlog_bytes={len(raw)}\n")
+print('written')
+```
+
+要点：`SUFFIX` 用 `\u` 转义而非中文字面量（A1）；**NOMATCH 时导出全量 id||name**（dump-then-Read 兜底）；backend 变异 job 同法改配 `RED_LINE/baseline/score` 正则（如 `得分 ([0-9.]+)%` 或 `score = ...` 行）。
+
+### B4 — gh_runs2.py `<shaA> <shaB> <outfile>`（双 head 的 run 全景）
+
+`/actions/runs?head_sha=<full_sha>` 逐 head 各一调，输出 `id | name | status | conclusion | run_number`。注意必须传**完整 40 位 sha**（缩写查不到）；一次轮询 ≤2 次 API 调用，间隔 ≥60s（Step 4 配额纪律）。
+
 ## 反面模式（本次实战避免）
 
 | 反面 | 后果 |
@@ -146,3 +229,8 @@ run: if [ "$WR_HEAD_BRANCH" != "master" ]; then
 | 高频轮询 REST API | 自己耗尽 60 次/小时配额，被迫降级浪费回合 |
 | 只记 run 级结论 | 无法区分「门禁生效」与「别的 job 红了」 |
 | 一次提交改门禁 + 改文档 | 只能验一条路径，另一条路径的证据永远缺失 |
+| here-string + `Set-Content -Encoding ASCII` 写含中文的 python | 中文字面量全变 `????`，选择器恒不匹配 → `StopIteration`/NOMATCH，被误判成「CI 数据里没这个 job」（附录 A1） |
+| 取证脚本把 run id 写死在代码里 | 静默复读上一个 run 的分数（同码双跑同分，极难察觉），rid 必须参数化（附录 B3） |
+| 对 in_progress job 拉 logs 端点 | 404 BlobNotFound；应改查 job steps 端点看进度（附录 B 统一纪律） |
+| `Start-Sleep 480` + 多次 gh 调用串一条命令 | 撞 shell 工具 600s 超时，整批结果丢失；拆短或去掉 sleep 直查（附录 B 统一纪律） |
+| 用物理行数判断 job 时长是否「卡死」 | 未取同 job 历史耗时基线就盲等/误判；先从 `status=success` 取 3-6 个 run 的同 job `started_at→completed_at` 差值定「正常带」，当前超带才值得怀疑（附录 B 统一纪律） |
