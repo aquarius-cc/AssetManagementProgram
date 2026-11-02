@@ -874,16 +874,23 @@
 - **验证命令**：`pytest apps/assetmanagement core/tests -q`（1882+ passed）+ `pytest apps/usermanagement/tests/test_employee_rbac_scope.py -q`（19）+ 前端 4 spec 126 passed + `vue-tsc --build`（0 error）+ schema 基线重导（嵌套合同收窄 + Brief 组件，非破坏）+ ruff/mypy 改动文件全绿
 - **登记日期**：2026-11-02 | 关联：**BF-170**（批次 2 前序同型）；**A-51**（护栏 G-6/G-7）；**A-31/A-32**；R4/R6 定性留痕见 BF-170 票外本条与 `test_contract_brief_scope.py` docstring
 
-### D-4. 待核查 2026-11-02 —— repair/broken/lost/found 四端点无导出列必 500（前端已接导出按钮）
+### D-4. ✅ 已关闭 2026-11-02 —— repair/broken/lost/found 四端点无导出列必 500（前端已接导出按钮）
+- **状态**：✅ 已关闭 | 关闭日期：2026-11-02 | 后端 `ae58902`
 - **判定**：四生命周期端点挂 ExportExcelMixin 但未配置 `export_columns`，权限通过后 `workbook` 生成必 500「未配置导出列」；前端已接导出按钮，用户可触达。
-- **位置**：`apps/assetmanagement/views/repair_asset_view.py` 等四 ViewSet + 前端对应导出按钮
-- **处置二选一（另起小批，本批不纳入）**：补 `export_columns`（与其它资产域端点对齐）或摘除 mixin + 前端摘按钮。
+- **拍板（2026-11-02）**：补 `export_columns`（与其它资产域端点对齐），不摘 mixin——前端能力已接通，摘按钮属能力降级。
+- **修复内容**：四 ViewSet 补 `export_columns` + `export_filename`/`export_sheet_name`（Broken/Lost/Found 各 5 列、Repair 6 列，状态列 display_map 中文化；字段名按各模型实际列锚定）；导出行集与列表同源不变（mixin 默认钩子 `get_export_queryset()` = `get_queryset()`，行级隔离不放大）；`for_list()` 已带 `select_related` 无需补预取；四端点从「无列必 500」单列标注转正为 `test_export_matrix.py` `LIFECYCLE_EXPORT_STRICT` 强断言行（system_admin 200 / regular_user 精确 403，对齐资产域口径）；`test_export_columns_contract.py` `_MIN_CHECKED` 50→78（实测 82 列，列契约护栏自动纳入）。
+- **验证命令**：`pytest apps/assetmanagement/tests/test_export_matrix.py core/tests/test_export_columns_contract.py -q`（13 passed）；CT-4 证红（stash 视图改动后强断言 1 failed / 500）→ 证绿；ruff/mypy 改动文件全绿。零迁移、schema 免重导、前端零改动。
 - **登记日期**：2026-11-02 | 来源：批次 3 OP-04 导出矩阵回归时单列标注
 
-### D-5. 待核查 2026-11-02 —— out_asset_service.create 跨部门指定使用人 / recycle_asset_service 写 asset_manager 两处归属路径待核查
-- **判定**：两处写路径存在与 M-01 同型的归属落点（出库跨部门指定使用人；回收写 asset_manager），业务口径未确认（可能为合法跨部门业务流转），需产品口径后决定是否纳入 ensure 校验。
-- **位置**：`apps/assetmanagement/services/out_asset_service.py`（create）| `recycle_asset_service.py:289,411`
-- **登记日期**：2026-11-02 | 来源：批次 3 M-01 执行时同类排查
+### D-5. ✅ 已关闭 2026-11-02 —— out 跨部门指定使用人/保管人写侧拦截（口径 2026-11-02：禁止跨部门借用）
+- **状态**：✅ 已关闭 | 关闭日期：2026-11-02 | 后端 `8afcb45`
+- **判定**：两处写路径存在与 M-01 同型的归属落点（出库跨部门指定使用人；回收写 asset_manager），业务口径未确认（可能为合法跨部门业务流转）。
+- **拍板（2026-11-02，口径确认）**：禁止跨部门借用——部门级角色出库不得指定本部门外的使用人/保管人（`OUTASSET_PERSON_OUT_OF_SCOPE` 400）；回收回填为导数写入（人员出库入口已校验），不加校验、留口径注释。
+- **修复内容**：`core/department_scope.py` 新增 `ensure_employees_in_scope`（复用 `is_department_visible` DR-1 同源；`user is None` 放行——create 的 user 仍可选，25 处直调零改动；None 人员项跳过——partial_update 未提交字段不误拦「只改使用地点」）；`create_outasset` 插入点位于 `_validate_outasset_source` 之后（非法状态先报 `ILLEGAL_OUTASSET`，既有 400 错误码优先级不变），`batch_create_outasset` 经 user 透传自动覆盖（逐行进 `fail_items`）；`update_outasset` kw-only user 必填（4 触点：定义/view update/partial_update/既有锁超时用例）+ 锁内校验（异常整体回滚，**不加** `if user is None` 守卫防必填退化为可选）；recycle 回填处（:404 注释块）留口径留痕。
+- **位置**：`core/department_scope.py`（ensure_employees_in_scope）| `services/out_asset_service.py`（create/update）| `services/recycle_asset_service.py`（口径注释）| `views/out_asset_view.py`（2 触点）
+- **测试锚（11 例）**：`test_out_asset_service.py::TestOutAssetPersonScope`（create 跨部门申请人 400 / 跨部门保管人 400 / 同部门放行 / user=None 放行锁定 / superuser 放行 / 无部门员工 400 / 批量逐行 fail_items / update 跨部门 400 / 只改使用地点放行 / superuser update 放行 / 错误码优先级）
+- **验证命令**：`pytest apps/assetmanagement/tests/test_out_asset_service.py -q`（27 passed）；CT-4 证红（stash 代码改动后 7 failed，全为跨部门/人员用例）→ 证绿；ruff/mypy 改动文件全绿。零迁移、API 契约不变、前端零改动。
+- **登记日期**：2026-11-02 | 来源：批次 3 M-01 执行时同类排查 | 关联：**A-52**（M-01 同型写侧归属收口）
 
 ---
 
