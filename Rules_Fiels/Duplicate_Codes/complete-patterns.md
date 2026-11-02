@@ -689,6 +689,16 @@
 - **回滚风险**：低——纯方法搬运，端点契约与查询语义不变。
 - **登记日期**：2026-10-30 | 关联：**merge-audit M-06**（批次4）
 
+### B-29. ✅ 已关闭 2026-11-02 —— M-RC-09 提示层同型残留 ×6 收编单出口（前端；§1.8 新发现义务）
+- **编号**：顺延登记（B-28 后最大号 +1）。**状态**：✅ 已关闭 | 关闭日期：2026-11-02 | 登记日期：2026-11-02 | 登记来源：批次 4 M-05（usePaginationSearch.ts:113-114 修复双 toast）执行时同类排查实测——6 处残留超本批范围（各处有正向 spec 需同步），依 §1.8 单列登记，非口头带过。
+- **判定（2026-11-02 关闭时事实修正，ID-2/Fact-1）**：原登记措辞「catch 内 `notifyCallerError` 后又无条件 `ElMessage.error`」**不属实**——实测 5 个表单文件原本零 import `notifyCallerError`（rg 直证），真实形态是 catch 内**手写 `logError` + `ElMessage.error(fallback)`，未走 M-RC-09 单出口**；AxiosError 场景拦截器（request.ts）已提示，此处再弹 → 必双弹。**修复方向与 M-05 相反**：M-05 是删多余的 `ElMessage.error`，B-29 是**手写 toast 收编为 `notifyCallerError`**。已修基准同文件在即：Unregistered/Damaged 的 `notifySubmitError`（P1-4 批次已收编为 `notifyCallerError` + 显式 `logError` 两行并存），B-29 六处恰是同一收编批被漏掉的 loadEditData 路径。
+- **位置（2026-11-02 复核实测，目录笔误订正 `formsareas/` → `componentsdetails/detils/`）**：`src/components/commoncomponents/SmartListContainer.vue:174`、`src/components/componentsdetails/detils/WasteAssetForm.vue:211`、`UnregisteredAssetForm.vue:412`、`StorageForm.vue:161`、`HardDiskSNForm.vue:353`、`DamagedAssetForm.vue:407`。**批次外新发现（同文件第二触点，一并收编）**：`StorageForm.vue:193-203` 与 `HardDiskSNForm.vue:437-447` submit catch 手写 `isAxiosError` 三分支消息提取 + 无条件弹——与 `getErrorMessage`（errorHandler.ts）逐语义重复（DR-1），各 2 行触点同改。
+- **修复内容（8 触点 / 6 生产文件 + 1 spec）**：① 6 主触点 = 保留既有显式 `logError(...)` 行 + `ElMessage.error(fallback)` → `notifyCallerError(error, fallback)`（与 `notifySubmitError` 基准完全同构；**关键**：helper 只在 AxiosError 分支写日志，删显式 logError 会丢非 Axios 观测面——终审实测修正了早稿「helper 内部含 logError 不重复调」的错误前提）；SmartListContainer 改后 ElMessage import 删除（唯一使用点消失）、补 notifyCallerError import；Waste/Storage/HDSN 补 import。② 2 第二触点 = 手写 `isAxiosError` 三分支删除 → `notifyCallerError(error, '操作失败' / '操作失败，请重试')` + 既有 logError 保留 + `isAxiosError` import 各删 1（消息提取 DR-1 单源到 `getErrorMessage`）。
+- **行为变化（M-RC-09 既定契约，errorHandler.spec 已锁）**：AxiosError 双弹 → 拦截器单弹；非 Axios Error 文案 fallback → `err.message`；非 Error 抛出物文案不变；HDSN submit「操作失败」前缀拼贴消失。
+- **测试（CT-4 先红后绿）**：`SmartListContainer.spec.ts` 3 处改动——:106 断言 `'自定义加载失败'` → `'network down'`（修复前红）；fallback 用例输入改非 Error（`'disk-full'`）断言保持 `'加载数据失败'`（两侧绿锚，防 fallback 链被误删）；新增 AxiosError 用例（`messageError` 0 次 + `logError` 仍被调，修复前 1 弹 → 红）。5 表单无既有 spec，按拍板方案 A 不新建（锚 = errorHandler.spec 既有 notifyCallerError 双轨单测 + 全量回归 + rg 收敛）。
+- **验证证据（2026-11-02 实测）**：证红 2 failed / 11 passed → 证绿 13 passed（定向 spec）；`vue-tsc --build` 0 error；`eslint .` 0 error；`format:check` 本批 7 文件 0 告警（既有 3 文件基线漂移非本批引入）；rg 收敛：6 文件 catch 内 `ElMessage.error` 直弹 0（业务分支直弹 14 处保留）、Storage/HDSN `isAxiosError` 0 命中；全量 coverage 见提交记录。
+- **登记日期**：2026-11-02 | 关闭日期：2026-11-02 | 关联：**M-05**（同型首例，方向相反）；**P-1-4**（notifySubmitError 收编基准）；**B-27/B-28**（前序 FE 收敛条目）；`errorHandler.spec.ts`（双轨契约锚）
+
 ---
 
 ## C — 降级/待决策（Downgraded / Decision Gate）
@@ -873,6 +883,13 @@
 - **状态**：✅ 已关闭 | 关闭日期：2026-11-02
 - **验证命令**：`pytest apps/assetmanagement core/tests -q`（1882+ passed）+ `pytest apps/usermanagement/tests/test_employee_rbac_scope.py -q`（19）+ 前端 4 spec 126 passed + `vue-tsc --build`（0 error）+ schema 基线重导（嵌套合同收窄 + Brief 组件，非破坏）+ ruff/mypy 改动文件全绿
 - **登记日期**：2026-11-02 | 关联：**BF-170**（批次 2 前序同型）；**A-51**（护栏 G-6/G-7）；**A-31/A-32**；R4/R6 定性留痕见 BF-170 票外本条与 `test_contract_brief_scope.py` docstring
+
+### A-53. 【关闭 2026-11-02】OutAssetCurrentStatus 第二份 8 态真值源 → 别名 re-export AssetCurrentStatus（DR-1；§1.8 新发现义务登记）
+- **状态**：✅ 已关闭 | 关闭日期：2026-11-02 | 本批修复（批次 4 OP-14 可选加固，别名化路线经用户拍板）
+- **判定**：`types/outasset.ts:49-58` 的 `enum OutAssetCurrentStatus` 与 `types/asset.ts:45-54` 的 `enum AssetCurrentStatus` 8 值（in_store/in_use/recycled_pending/broken/repairing/lost/damaged/scrapped）完全重复；全仓 rg 实测 `OutAssetCurrentStatus` 代码零消费者（仅 `outasset.ts:5` 头注释与 `statusMapping.ts:45` 注释提及），且 `types/asset.ts` import 闭包（assettype/user/contract/storage/harddisksn/common）均不引用 outasset——无循环依赖。
+- **修复内容**：枚举替换为 `export { AssetCurrentStatus as OutAssetCurrentStatus } from '@/types/asset'`（导出名保留，`statusMapping.ts` 注释引用不掉线）；`outasset_current_status` 字段由 `string | null` 收紧为 `AssetCurrentStatus | null`（3 处生产消费点均为 enum→string 协变安全，2 处测试字面量经双重断言不触发）；`statusMapping.ts:45` 注释补 1 行消歧标注。
+- **验证命令**：`rg -n "OutAssetCurrentStatus" vue-assetmanagement/src`（仅余 ~/types/outasset.ts 与 statusMapping.ts 注释命中）；`npx vitest run src/composables/__tests__/useAssetLifecycleActions.integration.spec.ts src/stores/__tests__/{broken,lost,found,repair}AssetStore.spec.ts`（119 相关用例全绿，其中 M-06 集成 4 条真链路删除单出口）；`npm run type-check`（0 error）。
+- **登记日期**：2026-11-02 | 关联：**A-9**（前端资产状态映射单源前序）；**B-2**（outasset 死副本前序）
 
 ### D-4. ✅ 已关闭 2026-11-02 —— repair/broken/lost/found 四端点无导出列必 500（前端已接导出按钮）
 - **状态**：✅ 已关闭 | 关闭日期：2026-11-02 | 后端 `ae58902`
