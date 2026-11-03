@@ -183,6 +183,14 @@
 批次 7【前端护栏与测试锚，零业务代码】 OP-06 + OP-08 + OP-07
   → 护栏盲区修复（先证红后证绿）/ vi.mock 提升顶层 / 8 个 composable 补 spec
   验证：护栏变体证红；vitest 无非顶层警告；186 files 全绿。
+  ✅ **已执行（2026-11-03，根仓 3893be1 + vue 86fb829，BF-175）**：
+  OP-06 `is_store_target` 收编目录全量（证红 3 failed → 证绿 49，FR-8 stores 31→32 含
+  userStore.ts，条文 v1.5 + AGENTS v3.7.5）；OP-08 batchB 11 处 vi.hoisted/vi.mock 提升文件
+  顶层（doMock 原位，警告 11→0，9 绿）；OP-07 八件全部锚定（前 4 独立 spec 24 用例 + 后 4
+  并入消费方 spec 13 用例），验收 191 files / 2469 passed（较批 4 基线 2432 净 +37）、
+  覆盖率阈值（ts 80 / stores 90 / vue 组）无违入、type-check / lint:ci / format:check 全绿、
+  护栏 PASS + 自测 49 passed。措辞订正：OP-07 原「零测试引用」按拍板表述为
+  「spec 直接引用 0 / 生产消费方真实存在」。
 
 批次 8【OpenAPI 信封建模，纯文档】 OP-09
   → 共享 ENVELOPE_SCHEMA + 重导 api-schema-baseline.json

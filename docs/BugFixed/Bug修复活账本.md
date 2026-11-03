@@ -10815,3 +10815,48 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 后端 `1cc185f` 推送 + CI 全绿后回填转【已关闭】；无网络期 CT-7 CI 直证与四域之外的其余 pytest 分组（存量 14 文件 ruff format 漂移是否为已提交基线）随网络恢复补取。
 
 *登记人：mimo ｜ 状态：【已修复·待提交】（2026-11-02，后端已提交 1cc185f+cd3e49f 待推送）*
+
+## BF-174【已修复·待提交】批次 6 后端健壮性 + 审计合规四件——M-11 DatabaseError fail-fast + OP-05 审计快照脱敏（OC-3，D1 掩码拍板）+ OP-10 S1 补痕 + M-19 审计失败可观测（D2 approve 强一致拍板）｜来源：`docs/Review/merge-codegraph-audit-20261101.md` M-11/OP-05/OP-10/M-19 + 批次 6 方案 v1.1（7 处缺口修正 + 拍板①②）
+
+### 一、问题与定性
+
+- **M-11**：`core/batch_mixins.py` 两处宽 `except Exception` 把 DatabaseError（连接中断/死锁/事务中止，含 TransactionManagementError）降级为逐条 INTERNAL_ERROR——无 savepoint 时后续条目连锁抛错，有 savepoint（batch_delete_execute 每条 atomic）时"已成功"条目同样不可信。有/无 savepoint 均应 fail-fast。调用方登记 13 处（初稿 10 处漏 asset:339/lifecycle:480,506）；delete 链路无 IntegrityError→AppValidationError 映射，靠「全部软删」兜底（如实订正）。
+- **OP-05**：`EmployeeDetailSerializer(fields="__all__")` 快照经 employee_view/employee_audit_adapter 原样落 `AuditLog.before_data/after_data`，明文手机号违反 OC-3 红线。与 BF-165【WAI 关闭】不冲突：WAI 判词仅限 API 三读路径，落库快照消费方仅 IsAuditorOrAdmin（7 端点实测），且手机号仍可经员工端点取得——作用域不相交、不减少任何既有能力。
+- **OP-10**：unregisteredasset S1 两路径裸 `Asset.objects.create` + M-60 声明例外的 FSM 旁路（unregistered_create_and_recycle/damaged）零资产级审计，S2/S3 已由 M-16 补痕。
+- **M-19**：审计写失败被吞仅一行 error 日志；audit_adapter.py 4 处直调 OperationLogService 后自吞为真实活吞点（初稿遗漏），audit_helper.safe_audit_log 的 except 分支为死代码（GenericAuditService 内部全吞不上抛）未加指标。
+
+### 二、修复内容
+
+- M-11：两处 `except DatabaseError: raise` 插于 `except Exception` 前（:142/:215 锚点）+ 模块 docstring「DatabaseError 例外：fail-fast 整批中止」+ 两方法 Raises 补记；不抽公共 helper（两个 1 行异常路由，DR-6 无收益）。
+- OP-05（D1 掩码拍板）：新增 `core/audit_sanitizer.py`（`AUDIT_SENSITIVE_FIELD_MASKERS` 表驱动 + `mask_sensitive_snapshot` 递归/幂等，复用 `mask_phone_number` 前 3 后 4）；`GenericAuditService.log_operation` 入口唯一收口接线 2 行。零改动声明：employee_serializers.py / employee_view.py / employee_audit_adapter.py 一字不改（收口点下移所致）；tripwire 全绿直证 BF-165 未被推翻。
+- OP-10：handlers.py 新增 `_asset_audit_logger()`（M-16 延迟加载，导入次序沿 isort 字母序 audit 在前——初稿「先 operation_log_service 后 audit」表述与代码相反已订正）+ `_resolve_jobcode()` 两个 helper；`_force_finalize_recycle` 改用 helper（行为逐字等价）；S1 两路径 FSM 前 `log_asset_create`（after_data 如实 in_store）+ FSM 后 `log_state_change`（in_store → recycled_pending/damaged，trigger 可追溯）；不改走 AssetService.create_asset（超出补痕边界）；operator_name 传缺省（与 M-16 一致，另开票）。
+- M-19（D2 strict 拍板）：`core/metrics.py` +`AUDIT_WRITE_FAILED` Counter（channel: asset_operation_log / generic_audit_log / unregistered_adapter 三渠道）；`_safe_log` +`strict: bool = False` 失败即计数、strict 时上抛由外层事务回滚；`log_state_change` +strict 透传；audit_adapter 4 吞点各 +1 行指标；damaged_asset_service approve 报废单点 `strict=True`（方法级 @transaction.atomic，抛出即整单回滚：单据仍 pending、资产仍 damaged）；config/alert_rules.yml +`AuditWriteFailed`（increase 5m > 0，for 1m，critical）。
+
+### 三、测试验证（已回填，工作树）
+
+- 先红后绿（CT-4）：4 新增测试文件 HEAD 证红 9 failed（M-11 ×4 / M-19 ×3 / OP-05 员工链路 ×2）→ 实现后证绿；合计 6 测试文件（4 新增 2 追加）：test_batch_db_failfast 5 例 / test_audit_snapshot_masking 6 例 / test_audit_write_failure 3 例 / test_employee_audit_masking 2 例 / test_handlers +2 例（latest("id") 防同毫秒）/ damaged 追加未单列（strict 路径由 test_audit_write_failure strict 用例 + 全量兜底）。
+- 四域回归 2104 passed / 0 failed（755s）；tripwire 12 passed（BF-165 未推翻直证）；ruff check/format 全仓清零；mypy 本批新增 0（audit_sanitizer 返回类型 1 处已修；6 处 unused-ignore 为存量漂移，HEAD 同基线）；护栏 4 命令 PASS（file/function/duplicate/line_metrics）；makemigrations --dry-run No changes detected；spectacular 导出与 api-schema-baseline.json diff **IDENTICAL**（纯行为改动零契约漂移）。
+- 实现期订正三笔：test 导入链遭 ruff isort 重排回危险次序（M-16 环复现）→ `# isort: off` 锁序；_force_finalize_recycle 重构漏 helper 赋值 NameError（红绿夹击捕获）；M-19 monkeypatch 作用域须包住 captureOnCommitCallbacks（on_commit 延迟执行，内层退出即假绿）。
+
+### 四、转关闭条件
+
+后端提交推送 + CI 全绿后回填转【已关闭】；残余项三项登记不阻塞：①存量明文 AuditLog 行需 DBA 手工 SQL（models_audit.py:76-78 禁 ORM 改写已有记录）；②同前 3 后 4 号码改写快照不可分辨（可选增强 after_data["employee_phone_changed"] 未做）；③S1/S2/S3 operator_name 未透传（M-16 同型，另开票）。mutmut 双门禁随 CI 执行（Windows 原生不可跑）。
+
+*登记人：mimo ｜ 状态：【已修复·待提交】（2026-11-03，后端原子提交待推送）*
+
+## BF-175【已修复·待 CI 全绿】批次 7 前端护栏与测试锚三件——OP-06 FR-8 口径收编（is_store_target 假绿盲区）+ OP-08 batchB 非顶层 vi.mock 提升警告清零 + OP-07 八 composable 测试锚定｜来源：`docs/Review/merge-codegraph-audit-20261101.md` OP-06/07/08 + 批次 7 方案 v4 冻结
+### 一、问题与定义
+- **OP-06**：`scripts/check_frontend_invariants.py` `is_store_target` 以 `startswith("use")` 排除 composable，`userStore.ts`（"user" 前缀）被误排除——护栏报 31 / 实际 32，未来该 store 超 500 行将假绿（FR-8 stores 口径失效）。
+- **OP-08**：`batchB.contract.spec.ts` 11 处 `vi.hoisted`/`vi.mock`（:225/:230 hoisted + :239~:302 九 mock）位于 describe 块内，vitest 4.1.11 报 warning「future version will error」——升级即 CT-5 假红（全仓唯一违规文件，警告 11 条）。
+- **OP-07**：8 个 composable（126/89/77/71/35/24/23/18 逻辑行）无 spec 直接引用形成行为盲区；措辞按拍板：**spec 直接引用 0 / 生产消费方真实存在**（useGroupedAssetList、useAssetInfoCards、useDashboardPage、CommonList/GroupedAssetChildTable 等均在用）。
+### 二、修复内容（零业务代码）
+- OP-06：`is_store_target` 收编目录全量（`__tests__` 除外边界保留），:68 FR-6 `is_target` 一字不动；证红 3 failed（>500 行变体/排除条件/真仓扫描）→ 证绿自测 **49 passed** + `--print` FR-8 stores **32 文件**含 userStore.ts；条文 `frontend-business-rules.md` FR-8 v1.5（目录全量）+ AGENTS v3.7.5 变更日志；历史台账「31 文件」记载不回溯。
+- OP-08：11 处提升至 import 后文件顶层（hoisted 两常量 factories 引用关系不变、九 mock 内联 stub 无 describe 局部变量依赖），`vi.doMock`（M-17/M-22/M-25 依赖 resetModules 时序）原位不动；mock 经 doMock 拦 API 层不触真实 axios，提升外溢零语义。
+- OP-07：前 4 独立 spec（useGroupChildrenCache 8 用例：缓存命中零重复/失败单出口/白名单透传 R-1/hasMore 计算/并发去重/append vs 覆盖/折叠保缓存/空组键守卫；useAssetExtendedInfoCards 4：三卡空资料不渲染/状态列 formatter 单源派生/storageMapping 未知回落/描述空白不可见；useGroupedAssetSelection 7：组勾选级联/count=0 恒未选/半选态/明细反推只动本组/行级 toggle/selectedGroupKeys 当前页/跨页平铺留存；useAssetSearchOptions 5：双值空间单请求/截断告警/分组门控/失败保空/手动加载）；后 4 并入消费方 spec（usePreviewPagination 3→AssetBatchImport、usePageHeader 4→AppBreadcrumb、useDashboardUser 3→useDashboardPage、useContainerWidth 3→GroupedAssetChildTable）。
+### 三、测试验证（已回填，提交 3893be1 + 86fb829）
+- vitest 全量 **191 files / 2469 passed**（较批 4 基线 2432 净 +37）；batchB 警告 **0**（先红 11）；API-schema/覆盖率阈值（`src/**/*.ts` 80 / stores 90 / vue 组）无违入；三项检查 type-check / lint:ci / format:check 全绿（assetAPI unused 误留 + 4 spec 格式漂移清零）；护栏 PASS（FR-6 55 / FR-8 32 / FR-5 121）+ 自测 49 passed。
+- 实施期订正四笔：AppBreadcrumb 并入用 usePageHeader 断言原写 `matched[1]='主框架'` 实测为 `'某列表'`（matched 自 `/main` 起，`/` 不入父链）按实现订正；useDashboardPage 并入新 describe 漏独立 beforeEach/clearAllMocks 致首跑 1 failed（mockAuthLogout 计数累计）→ 补 beforeEach + restoreAllMocks 双钩子后绿；batchB 提升后 spec 内注释与标签按顶层归属改写；print 组内 act 依赖的 `nextTick` 时机经跳跑修正。
+### 四、转关闭条件
+推送后 CI 全绿回填转【已关闭】（含期末 BF-173 CI 结论补证一并处理）。
+
+*登记人：mimo ｜ 状态：【已修复·待 CI 全绿】（2026-11-03，根仓 3893be1 + vue 86fb829 即随本段提交联动推送）*
