@@ -18,7 +18,9 @@ logical_line_count 对齐：BR-4 为物理跨度行数 - 空行 - '#' 注释行�
          2. 台账中的每个条目，当前逻辑行数必须仍 > 200（已拆分/删除未移除即红，防台账腐烂）。
          3. 台账条目登记的断言行数必须 > 200（数值手写非法即红）。
 
-  FR-8 (stores)：检查 stores 目录下所有 *.ts（非 use*.ts）文件逻辑行是否超过 500。
+  FR-8 (stores)：检查 stores 目录下所有 *.ts 文件逻辑行是否超过 500（目录即边界，
+       `__tests__` 除外；historic「非 use*.ts」前缀排除已废除——OP-06 收编，
+       原口径误排除 userStore.ts 致 31/32 假绿盲区）。
        严格模式：超限即红，无台账豁免（当前全仓 stores 均 ≤500，无存量登记必需）。
 
 逻辑行口径（FR-6 条文，FR-8/FR-5 script 段沿用）：逻辑行 = 物理行 - 空行 - 整行注释；
@@ -72,7 +74,12 @@ def is_target(path: Path) -> bool:
 
 
 def is_store_target(path: Path) -> bool:
-    if path.suffix != ".ts" or path.name.startswith("use"):
+    """FR-8 目录即边界（OP-06）：stores/ 下全部 .ts（__tests__ 除外）均计入。
+
+    历史口径「非 use*.ts」曾以 ``startswith("use")`` 排除 composable 风格文件，
+    实为误伤 ``userStore.ts``（"userStore" 以 "use" 开头）→ 31/32 假绿盲区，已收编。
+    """
+    if path.suffix != ".ts":
         return False
     parts = path.parts
     return not any(part == "__tests__" for part in parts)
