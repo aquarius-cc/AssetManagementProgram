@@ -10788,7 +10788,7 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 
 批次 4 文件提交推送 + CI 全绿后回填哈希转【已关闭】；本地工具链版本与 dev.txt/package.json 存在漂移疑问，CT-7 CI 直证随 GitHub API 网络恢复后补取。
 
-*登记人：mimo ｜ 状态：【已修复·待提交】（2026-11-02，工作树；提交后回填转关闭）*
+*登记人：mimo ｜ 状态：【已关闭】（2026-11-04，批 6 收端提交 49a3096 落地含 core/batch_mixins.py + core/metrics.py；推送 CI 全绿回填）*
 
 
 ## BF-173【已修复·待提交】批次 5 后端三件——M-07 batch-size 实参显传递重复链（14 处下沉 DEFAULT 回落）+ M-08 role/employee_status 七处枚举收编 + CT-1 mock 盲区补测 7 条｜来源：`docs/Review/merge-codegraph-audit-20261101.md` M-07/M-08（§二台账行 84/85 批次 5）+ 批次 5 计划 v1.1（拍板①②）
@@ -10844,7 +10844,7 @@ CI 直证补取完成：run `41470492279`（HEAD ae66c51）16 job 全绿 + run `
 
 后端提交推送 + CI 全绿后回填转【已关闭】；残余项三项登记不阻塞：①存量明文 AuditLog 行需 DBA 手工 SQL（models_audit.py:76-78 禁 ORM 改写已有记录）；②同前 3 后 4 号码改写快照不可分辨（可选增强 after_data["employee_phone_changed"] 未做）；③S1/S2/S3 operator_name 未透传（M-16 同型，另开票）。mutmut 双门禁随 CI 执行（Windows 原生不可跑）。
 
-*登记人：mimo ｜ 状态：【已修复·待提交】（2026-11-03，后端原子提交待推送）*
+*登记人：mimo ｜ 状态：【已提交】（2026-11-03，后端原子提交 c9cbfed/a438d06；2026-11-04 批 6 收端 49a3096 闭面）*
 
 ## BF-175【已关闭】批次 7 前端护栏与测试锚三件——OP-06 FR-8 口径收编（is_store_target 假绿盲区）+ OP-08 batchB 非顶层 vi.mock 提升警告清零 + OP-07 八 composable 测试锚定｜来源：`docs/Review/merge-codegraph-audit-20261101.md` OP-06/07/08 + 批次 7 方案 v4 冻结
 ### 一、问题与定义
@@ -10879,4 +10879,4 @@ CI 直证补取完成：run `41470492279`（HEAD ae66c51）16 job 全绿 + run `
 ### 四、转关闭条件
 推送根仓 backend 子模块 + 批次 8 CI 全绿回填转【已关闭】（含 api-schema-check / backend-lint / 后端测试/覆盖率 job 直证）。
 
-*登记人：mimo ｜ 状态：【已修复·待提交】（2026-11-04，后端原子提交 e3b8f50 + 30085f6 本地，待 push → CI 直证转关闭）*
+*登记人：mimo ｜ 状态：【已修复·待 CI】（2026-11-04，后端原子提交 e3b8f50 + 30085f6 + be47667 已推送，等根仓指针 CI 全绿转关闭）*
