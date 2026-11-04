@@ -93,7 +93,7 @@
 | **OP-06** | B P2-3 | `scripts/check_frontend_invariants.py:74-78` | **护栏盲区**：`is_store_target` 用 `startswith("use")` 排除 composable，**`userStore.ts` 被误排除**（护栏 31 / 实际 32），未来超 500 行将假绿 | 排除条件改显式白名单或目录全量扫描 + 护栏自测证红证绿 | 仅护栏脚本，零业务 | 造 `userStore.ts` >500 行变体断言护栏红 | ⛔ |
 | **OP-07** | B P2-4 | `src/composables/useGroupChildrenCache.ts`(126) 等 8 个 | **8 个 composable 零测试引用**（`rg` 复核 0 命中），FR-6 规模榜首区无行为锚 | 按逻辑行降序补 spec（前 4 优先），微小件并入消费方测试 | 仅测试面 | 新增 spec 全绿且 8 个各有独立锚 | ⛔ |
 | **OP-08** | B P2-5 | `src/composables/__tests__/batchB.contract.spec.ts:220-298` | `vi.hoisted`/`vi.mock` **位于 describe 块内**（实测 :225/:230/:239 起，均在 `describe('M-12/M-19…')` 内），vitest 4.1.11 警告「future version 将报错」→ 升级即 CT-5 假红 | 全部提升至文件顶层 | 单 spec 文件 | 运行无 `vi.mock` 非顶层警告 | ⛔ |
-| **OP-09** | B P2-6 | `utils/response_utils.py:23,37`、`core/mixins.py:91-215` | **OpenAPI 信封仅 8% 建模**：338 响应规格中 27 个含 `{code,message,data}`，211 个裸对象 → 生成客户端拿到错误契约（§4.8 OS-5 同类失真） | 共享 `ENVELOPE_SCHEMA` 后处理器（复用 `core/pagination.py:94-118`），零运行时改动 | 仅 schema 产物 | 重导基线 diff 只落预期端点、CI `api-schema-check` 绿 | ⛔ |
+| **OP-09** | B P2-6 | `utils/response_utils.py:23,37`、`core/mixins.py:91-215` | **OpenAPI 信封仅 8% 建模**：338 响应规格中 27 个含 `{code,message,data}`，211 个裸对象 → 生成客户端拿到错误契约（§4.8 OS-5 同类失真） | 共享 `ENVELOPE_SCHEMA` 后处理器（复用 `core/pagination.py:94-118`），零运行时改动 | 仅 schema 产物 | 重导基线 diff 只落预期端点、CI `api-schema-check` 绿 | ✅ **已修 · BF-178（2026-11-04：提交 e3b8f50 幽灵 8 条 + 30085f6 envelope_postprocessor 四零收编，基线 273→265、19 destroy 204→200 信封，--validate 双跑 identical，8 护栏全绿）** |
 | **M-03** | A③F-02 | `selectors/dashboard_selector.py:296-336` | Dashboard 即将到期**先截断后过滤**系统性漏报（维护提醒分支经复核非 Bug） | 已按窗口超集过滤 + 截断后移修复 | — | >50 条夹具断言第 51+ 名次正确入选（新增 `test_dashboard_alert_window.py`，含 2 年保修缩放用例锁死 `12*max_warranty`） | ✅ **已修 · BF-168** |
 | **M-04** | A③F-09 | `views/damaged_asset_view.py:67` | 报废导出「损坏日期」列恒为空（field 拼写 `damaged_asset_date` ≠ 模型 `damaged_date`） | 已改 `damaged_date` | — | 单元格行断言在 `test_p2_04_export_endpoints.py`（按表头定位「损坏日期」列，非空且等于 DB 值）；`test_export_columns_contract.py` 为静态字段解析护栏（61 列，61 列全可解析才绿） | ✅ **已修 · BF-168** |
 | **M-14** | A②R-03 | `setup.cfg:20-83 [mutmut]` | 变异范围仅 assetmanagement services（≈29%），usermanagement/notification 零覆盖 | 分批扩 source_paths（先 usermanagement），扩前评估耗时 | 立项 | T7 双门禁留痕 | 📕 立项 |
@@ -195,6 +195,18 @@
 批次 8【OpenAPI 信封建模，纯文档】 OP-09
   → 共享 ENVELOPE_SCHEMA + 重导 api-schema-baseline.json
   验证：spectacular --validate + diff 只落预期端点（OS-6），CI api-schema-check 绿。
+
+  ✅ **已执行（2026-11-04，后端 e3b8f50 + 30085f6，BF-178）**：
+  阶段 0 机械分类基线 273 op（27 envelope / 189 bare / 15 非 JSON / 42 no-body）
+  → 提交 1 幽灵 CRUD 8 条退场（dashboard×5 去 ResponseWrapperMixin 404 双保险 +
+  permissions×3 http_method_names 405，先红后绿 + 双向 grep 零引用）→ 提交 2
+  envelope_postprocessor 单点接线（core/envelope_schema.py + POSTPROCESSING_HOOKS，
+  x-envelope 标记）；量化四零直证（bare 0 / 嵌套 0 / 15 非 JSON 名单保持 / no-body 名单保持），
+  19 真实 destroy 204→200 信封化、qr-code-image image/png 声明、G-1 注释 7 处/3 文件
+  267→265、T2.7 statistics/sort 断言下钻、api_schema fixture 上提根 conftest（DR-1）；
+  基线重导 --validate 双跑 identical，8 条护栏 core/tests/test_openapi_envelope_contract.py
+  全绿、员工域 test_employee_openapi_contract / security / search_contract 回归绿；
+  护栏（BR-4/BR-6/duplicate invariants）PASS。
 
 批次 9【前端缓存时序，大回归面单独成批】 M-13
   → 18 处 M-RC-08 改 await 后失效

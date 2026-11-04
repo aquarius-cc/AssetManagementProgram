@@ -10862,3 +10862,21 @@ CI 直证补取完成：run `41470492279`（HEAD ae66c51）16 job 全绿 + run `
 推送后 CI 全绿回填转【已关闭】（含期末 BF-173 CI 结论补证一并处理）。
 
 *登记人：mimo ｜ 状态：【已关闭】（2026-11-04，vue 86fb829 + 根 3893be1/d630bbf 推送完毕，CI run 41823276338 全绿回填）*
+
+## BF-178【已修复·待 CI】批次 8 OpenAPI 信封全包建模 + 幽灵 CRUD 退场（OP-09）——提交 1 幽灵 8 条清理（dashboard 404 / permissions 405）+ 提交 2 envelope 后处理器（四零收编 + 19 destroy 信封化 + 基线重建）｜来源：`docs/Review/merge-codegraph-audit-20261101.md` OP-09 + 批次 8 拍板意见与意见 4 冻结
+### 一、问题与定义
+- **OP-09**：基线 273 operation 振动响应 38% 形态实体（27 envelope / 189 bare / 15 非 JSON / 无 body 42），底盘严重不匹配：运行时全量响应 `success_response` 但 189 条以裸 JSON 声明（生成客户端拿到错误契约，§4.8 OS-5 同类失真）。
+- **幽灵 CRUD 8 条**：dashboard×5（去 mixin 前 ResponseWrapperMixin 默认 CRUD 方法在 GET-only `viewsets.ViewSet` 上引发 `perform_create/perform_destroy` 500 死路）+ permissions×3（同 mixin 缺 fallback 兜底）。基线 operationId：`v1_dashboard_{list,create,retrieve,update,destroy}` / `v1_users_permissions_{create,update,destroy}`。
+- **真实 DELETE 19/19**：运行时全部信封 200（mixins.destroy + 15 处自定义覆盖直证 21 条中的 19 真实端点），基线却 204 无 body（D1 失真）。
+### 二、修复内容（schema + view 机制面）
+- 提交 1（`e3b8f50`）：dashboard 移除 ResponseWrapperMixin + `http_method_names=["get","head","options"]`（5 条运行时 404 双保险）；permission_view 同名单（3 条运行时 405，list/re mixin 保留）；反向锁 + 先红后绿（1 failed→1 passed）+ 前端/后端双向 grep 零引用。
+- 提交 2（`30085f6`）：`core/envelope_schema.py`（envelope_response 单点 + `x-envelope` 标记）配 base.py `POSTPROCESSING_HOOKS` 接线；调研面 15 改入名单 / 21 改量名单；19 destroy 204→200 信封包裹，qr-code-image 显式 `(200,image/png)` 声明，T2.7 statistics/sort 断言下钻 (`.data.$ref` / `data` 内层)；G-1 security 注释 7 处 / 3 文件 267→265 同步；api_schema fixture 上提根 conftest（提交 3 收口）。
+- 基线重导：`api-schema-baseline.json --validate` + 双跑 identical True（hook+基线同进退）。
+### 三、测试验证（已回填，提交 e3b8f50 + 30085f6）
+- **量化四零直证**（scripts/_op09_verify.py 临时直证脚本，不入库）：bare_left **0** / double_envelope **0** / non_json_violation **0** / no_body_violation **0** / delete_204_left **0** / delete_enveloped_200 **19** / x_envelope_count **202** / 幽灵 **0**（273→265 对账精确）。
+- 护栏 8 条（core/tests/test_openapi_envelope_contract.py）全绿：phantom 反向锁 / bare 2xx 全信封 / no_nested / non_json 零污染 / no-body 名单保持 / D1 destroy 反向 204 / x-envelope 单点标记 / 名单计数（15/21/265 精确对账）；工程域回归：test_employee_openapi_contract（T2.7 改写）/ test_openapi_security_schema / test_employee_search_contract 全绿，conftest 上提后相关域 4 passed + 8 passed。
+- 静态门禁：ruff check（核心域 9 文件 0 errors）/ format check 9 文件("~/ Green") / mypy CI 口径 232 source files ✓ / 三护栏（BR-4 / BR-6 / duplicate invariants G-1~G-3, G-5~G-8）PASS exit 0。物理 pytest/wsl 后端全量由 CI 担保（本地 Windows 环境未开 WSL+postgres 三件套）。
+### 四、转关闭条件
+推送根仓 backend 子模块 + 批次 8 CI 全绿回填转【已关闭】（含 api-schema-check / backend-lint / 后端测试/覆盖率 job 直证）。
+
+*登记人：mimo ｜ 状态：【已修复·待提交】（2026-11-04，后端原子提交 e3b8f50 + 30085f6 本地，待 push → CI 直证转关闭）*

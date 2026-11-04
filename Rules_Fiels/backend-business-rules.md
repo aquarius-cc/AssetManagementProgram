@@ -1,7 +1,7 @@
 
 ---
 
-### 📄 文档 4：后端业务规范 `/Rules_Fiels/backend-business-rules.md` (v1.20)
+### 📄 文档 4：后端业务规范 `/Rules_Fiels/backend-business-rules.md` (v1.21)
 
 # 后端业务规范与设计思路 (Backend Business Rules)
 > 版本：v1.20 | 最后更新：2026-10-24
@@ -280,8 +280,11 @@ repairing ──repair_done──┘    │               │                  �
 | OS-5 | **双向红线** | 「文档超前于运行时」同样是失真：禁止为迁就文档去改运行时口径，也禁止给不消费参数的端点硬加参数声明 |
 | OS-6 | **校对义务** | 任何改动 `@extend_schema` / 新增端点的 PR，必须重导出 `api-schema-baseline.json` 并 diff，确认变更**只落在预期端点**；无消费方的失真同样要修（它坑未来接入方与生成客户端） |
 | OS-7 | **契约类端点必须有 schema 护栏** | 仅 HTTP 行为测试无法发现文档失真。涉及 OpenAPI 声明的端点须有用例**对照运行时事实**断言（响应结构 / 参数集 / enum），且**必须包含反向护栏**（OS-5）；断言值取自权威源（如 `TextChoices`），禁止硬编码字面量 |
+| OS-8 | **信封全包后处理器（OP-09）** | 2xx JSON 响应统一经 `core/envelope_schema.py::envelope_postprocessor`（`POSTPROCESSING_HOOKS` 单点接线）补 `{code,message,data}` 信封；真实 DELETE 一律 200 信封（204 无 body 声明禁用）；名单端点（`NON_ENVELOPE_OPERATIONS` 15 条非 JSON 媒体 / `ENVELOPE_NO_BODY_OPERATIONS` 21 条无 body 待运行时直证）整体跳过，禁止包入名单端点；基线重导必须 `--validate` 双跑一致 |
 
 **【聚合响应结构】** 响应体即 payload，`code` / `message` 属响应包装、**不入 schema**。无写入/校验需求的聚合端点用 `inline_serializer` 显式声明字段；不得为「文档需要」新增一个存在误导的 Serializer（会让读者误以为存在写入路径）。
+
+**【信封全包（OP-09 批次 8）】** 2xx JSON 响应统一由 `POSTPROCESSING_HOOKS` 后处理器补 `{code,message,data}` 信封（schema 侧单点收敛，与 `utils.response_utils.success_response` 运行时形态互为镜像）；各 View 不再在全量端点上重复手写响应形态声明。跳过名单集中维护于 `core/envelope_schema.py` 常量；真实 DELETE 统一信封 200（运行时 mixins.destroy 全部如此），幽灵 CRUD 路由（GET-only 只读 ViewSet 上被 DRF 默认补出的写方法）必须以 `http_method_names` 过滤或移除 ResponseWrapperMixin 收场，不得留 500 死路。
 
 ## 五、后端代码复用与量化规范（DRY 落地）
 本细则对应宪法级规则 DR-1、DR-3、DR-5、DR-6，所有后端代码必须遵守。
@@ -297,6 +300,7 @@ repairing ──repair_done──┘    │               │                  �
 | BR-7	| **调用链验证** |	视图（View）→ 服务（Service）→ 选择器（Selector）的纵深不得超过 3 层（View→Service→Selector 为标准深度）。若出现 View→Service→Service→Selector 等 4 层+，必须扁平化或使用事件驱动解耦。|	合并中间层或引入事件 |
 
 ## 六、变更日志
+- v1.21 (2026-11-04): **新增 §4.8 OS-8（信封全包后处理器，OP-09 / 批次 8 落地）**——基线 265 operation 直证（op9 机械分类）：裸 JSON 信封包装 0 残留、信封内嵌 0、非 JSON 0 违约、no-body 0 违约 + 真实 DELETE 19/19 修正为信封 200（204 无 body 全退场）+ 幽灵 CRUD 8 条（dashboard×5 经去 ResponseWrapperMixin 运行时 404 / permissions×3 经 `http_method_names` 过滤运行时 405）退场；`core/envelope_schema.py`（ENVELOPE_EXT_NAME `x-envelope` 单点）经 base.py `POSTPROCESSING_HOOKS` 接线；qr-code-image `(200, image/png)` 精确媒体声明；G-1 security 注释 7 处 / 3 文件 267→265 同步；`api_schema` fixture 上提根 conftest（DR-1，跨域共享）。基线重导 `--validate` 双跑一致；8 条护栏（core/tests/test_openapi_envelope_contract.py）全绿。登记：BF-178；融合报告 OP-09 批次 8 收口。
 - v1.20 (2026-10-24): **B4 豁免条款落地（M-28 方案 A，[PATCH-BE] 经用户拍板放行）**——① B4 约束内容追加「非分页列表豁免」：仪表盘 `limit`（top-N，运行时上限 100）与 `days`（时间窗，上限 365）为聚合/截断类 action 参数，不适用 `page`/`page_size` 分页契约；② 配套代码去重：`dashboard_view.py` 两处 `limit` 解析与两处 `days` 同形 `try/except`（各 4 行 ×4 处）收敛为唯一 helper `_parse_int_param(query_params, key, default, upper)`（DR-1），行为逐字等价（缺省/空值/非法回退 default，超上限钳位）；③ 新增测试 10 例（`TestParseIntParam` 8 例单元 + 2 例端点集成，落在 `test_dashboard_view_api.py`）。回归：全量 pytest + cov / `mypy --strict` / ruff check+C90+format / 五护栏 / `makemigrations --dry-run` / OpenAPI 基线零漂移（门禁数字见 BF-140 登记）。登记：BF-140，融合报告 M-28 已修复。
 - v1.19 (2026-10-21): **§4.7 三态表条文订正（AUD-21 授权可见性缺口 / 融合审计 M-01，[PATCH-BE] 经用户「执行，并同步相关文档」放行）**——① 「无 Employee 记录」从 `None` 行移入「空列表」行：`core/department_scope.py:56-57` 修复为最严兜底 `[]`（`if not employee: return []`），superuser 分支（`:50-51`）与 system_admin/auditor 全局角色分支（`:62-63`）语义不变；② 配套注册开关 `AUTH_SELF_REGISTRATION_ENABLED`：`base.py:248` 缺省 True（dev/test 存量行为），`production.py:69` fail-closed 缺省 False（未显式置 true 即关闭），注册双入口 `views.py:116-117`（AuthUserViewSet.create）与 `:237-238`（RegisterAPIView.post）非 system_admin 一律 403，`extend_schema` 同步声明 403；③ 新增只读核查命令 `python manage.py audit_orphan_accounts`（Exists 子查询、`--json`/`--active-only`，只读）。回归：全量 2029 passed / cov 88.93%（≥80）/ Service 98%（≥90）/ `mypy --strict` 0 errors（228 files）/ ruff check+C90+format 绿 / 四护栏 PASS / `makemigrations --dry-run` 无变更 / mutmut 83.2925% ≥ 基线 83.25676365492598（T7 双门禁 PASS）/ OpenAPI 基线 `--lang en` 重导 diff 精确（2×403 + 1×description）。残留：dev/test 开关下 `AuthUserViewSet.create` 匿名建号存量保留（拍板①，单列后续项）；生产注册入口暴露 `[待确认]` 不变。登记：BF-125，融合报告 M-01 已修复。
 - v1.18 (2026-09-29): **BR-6 条文实质修订**——「500 行」补齐口径定义（原条文只写「不含迁移文件」，未定义行数口径，是 D3 连续两次误判的根因）。① 口径统一为**逻辑行**＝物理跨度 − 空行 − 纯 `#` 注释行 − 模块 docstring，唯一实现 `scripts/line_metrics.py`，**BR-4/BR-6 共用**（DR-1 消重）；② **测试文件不再纳入** BR-6（与 BR-4 护栏既有 `is_test()` 排除对齐，用户 2026-09-29 拍板）；③ 新增护栏 `scripts/check_file_length_guard.py` + 台账 `Rules_Fiels/BR6_file_length_ledger.md` + CI `backend-lint` job 内 step，**零存量债，上线即阻断**，不适用 §5.4 沙盒期；④ 明令禁用 PowerShell `Measure-Object -Line`（跳空行，`operation_log_service.py` 真实 508 会被报成 447，低估约 12%）。**连带影响**：BR-4 口径同步剔除 docstring（原为「docstring 计入代码行」），因其台账当时为空表且 0 违规，实测无行为变化，已回归验证。误判纠正记录：D3 先按 `wc -l` 误判 `operation_log_service.py`(508) 违规、继而误判 `contract_service.py`(489) 为唯一目标，两次均系口径未定义所致；按逻辑行口径二者实为 432 / 399，**均不违规，故取消全部拆分动作**，交付物转为「护栏 + 口径定义」。另修复护栏 `read_text` 的 BOM 假绿缺陷：原 `utf-8` 解码遇 BOM 产生 U+FEFF 致 `ast.parse` 失败、文件被静默跳过，超限文件可蒙混过关；改为 `utf-8-sig` 打头（由负向测试发现）。
