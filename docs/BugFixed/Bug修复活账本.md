@@ -10814,7 +10814,9 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 
 后端 `1cc185f` 推送 + CI 全绿后回填转【已关闭】；无网络期 CT-7 CI 直证与四域之外的其余 pytest 分组（存量 14 文件 ruff format 漂移是否为已提交基线）随网络恢复补取。
 
-*登记人：mimo ｜ 状态：【已修复·待提交】（2026-11-02，后端已提交 1cc185f+cd3e49f 待推送）*
+CI 直证补取完成：run `41470492279`（HEAD ae66c51）16 job 全绿 + run `41823276338`（HEAD d630bbf，批次 7 登记 follow-up）success——CT-7 结论以 CI 同版工具链复取得证。
+
+*登记人：mimo ｜ 状态：【已关闭】（2026-11-04，run 41823276338 全绿回填）*
 
 ## BF-174【已修复·待提交】批次 6 后端健壮性 + 审计合规四件——M-11 DatabaseError fail-fast + OP-05 审计快照脱敏（OC-3，D1 掩码拍板）+ OP-10 S1 补痕 + M-19 审计失败可观测（D2 approve 强一致拍板）｜来源：`docs/Review/merge-codegraph-audit-20261101.md` M-11/OP-05/OP-10/M-19 + 批次 6 方案 v1.1（7 处缺口修正 + 拍板①②）
 
@@ -10844,7 +10846,7 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 
 *登记人：mimo ｜ 状态：【已修复·待提交】（2026-11-03，后端原子提交待推送）*
 
-## BF-175【已修复·待 CI 全绿】批次 7 前端护栏与测试锚三件——OP-06 FR-8 口径收编（is_store_target 假绿盲区）+ OP-08 batchB 非顶层 vi.mock 提升警告清零 + OP-07 八 composable 测试锚定｜来源：`docs/Review/merge-codegraph-audit-20261101.md` OP-06/07/08 + 批次 7 方案 v4 冻结
+## BF-175【已关闭】批次 7 前端护栏与测试锚三件——OP-06 FR-8 口径收编（is_store_target 假绿盲区）+ OP-08 batchB 非顶层 vi.mock 提升警告清零 + OP-07 八 composable 测试锚定｜来源：`docs/Review/merge-codegraph-audit-20261101.md` OP-06/07/08 + 批次 7 方案 v4 冻结
 ### 一、问题与定义
 - **OP-06**：`scripts/check_frontend_invariants.py` `is_store_target` 以 `startswith("use")` 排除 composable，`userStore.ts`（"user" 前缀）被误排除——护栏报 31 / 实际 32，未来该 store 超 500 行将假绿（FR-8 stores 口径失效）。
 - **OP-08**：`batchB.contract.spec.ts` 11 处 `vi.hoisted`/`vi.mock`（:225/:230 hoisted + :239~:302 九 mock）位于 describe 块内，vitest 4.1.11 报 warning「future version will error」——升级即 CT-5 假红（全仓唯一违规文件，警告 11 条）。
@@ -10859,4 +10861,4 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 ### 四、转关闭条件
 推送后 CI 全绿回填转【已关闭】（含期末 BF-173 CI 结论补证一并处理）。
 
-*登记人：mimo ｜ 状态：【已修复·待 CI 全绿】（2026-11-03，根仓 3893be1 + vue 86fb829 即随本段提交联动推送）*
+*登记人：mimo ｜ 状态：【已关闭】（2026-11-04，vue 86fb829 + 根 3893be1/d630bbf 推送完毕，CI run 41823276338 全绿回填）*
