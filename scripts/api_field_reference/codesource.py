@@ -154,8 +154,9 @@ def _key(method, path):
 def _response_properties(operation, schemas):
     """取 200 响应体的第一层字段名。
 
-    兼容三种外层形态：裸数组（列表接口）、``{"results": [...], "count": n}``
-    分页信封、以及普通对象。分页信封取 ``results`` 元素的属性，
+    兼容四种外层形态：裸数组（列表接口）、``{"results": [...], "count": n}``
+    分页信封、OP-09 响应信封（顶层 ``{code, message, data}``，业务字段下钻
+    ``data`` 内层）、以及普通对象。分页信封取 ``results`` 元素的属性，
     否则会把 ``count``/``next``/``previous`` 当成业务字段。
     """
     responses = operation.get("responses") or {}
@@ -164,6 +165,11 @@ def _response_properties(operation, schemas):
             continue
         content = ((responses[status] or {}).get("content") or {})
         schema = _deref((content.get("application/json") or {}).get("schema") or {}, schemas)
+        # OP-09 响应信封下钻：顶层 code/message/data 的 endpoints 业务字段都移到
+        # data 内层（backend core/envelope_schema.py envelope_response 生成）。
+        props = schema.get("properties") or {}
+        if {"code", "message", "data"} <= set(props):
+            schema = _deref(props["data"] or {}, schemas)
         if schema.get("type") == "array":
             schema = _deref(schema.get("items") or {}, schemas)
         elif "results" in (schema.get("properties") or {}):
