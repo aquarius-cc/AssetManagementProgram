@@ -662,13 +662,14 @@
   - 平台说明：本环境 `rg` 静默返回空，护栏检索用 `grep`。
 
 ### B-26. 【新发现 2026-10-13】`.section-title` 同款样式块 ×5 重复（前端 SCSS；§1.8 新发现义务）
-- **编号**：顺延登记（B-25 后最大号 +1）。**状态**：☐ 待修复 | 登记日期：2026-10-13 | 登记来源：P3 批次 C（项5 类型迁移）执行中 rg 顺带实测——重复账本原 **0 命中**，依 §1.8 新发现义务登记，非口头带过。
+- **编号**：顺延登记（B-25 后最大号 +1）。**状态**：✅ 已关闭 | 登记日期：2026-10-13 | **关闭日期：2026-11-05（批次 10 Stage 3）** | 登记来源：P3 批次 C（项5 类型迁移）执行中 rg 顺带实测——重复账本原 **0 命中**，依 §1.8 新发现义务登记，非口头带过。
 - **判定**：同名类 **8 个共同属性全等**（`color`/`font-size: 16px`/`font-weight: 600`/`padding: 12px 16px`/`border-left: 4px solid var(--color-primary)`/`border-radius: 4px` 及背景同值、外边距同值），5 处独立书写；**2 处真差异须先归一再收敛**：
   - **`margin`**：`common-forms.scss:78` `28px 0 20px 0` ≡ `AssetForm.vue:473`/`RecycleSharedInfo.vue:130`/`RecycleAssetForm.vue:414` `28px 0 20px`（写法等价），但 `SelectedRecordsTable.vue:66` **独为 `0`**（是否有意待确认）；
   - **`background` 来源**：`common-forms.scss:80-84` **内联** `--color-primary-lighter` 渐变，其余 4 处 `var(--gradient-card-highlight)`——亮色态两值同值（`#f0f7ff→#e8f4ff`，`src/styles/variables.css:65`），但 `html.dark` 下仅 var 版切换（`variables.css:190` rgba 蓝灰），**内联版暗色不跟随**（差异非纯样式重复，含暗色适配语义）。
 - **位置**（2026-10-13 实测行号）：`src/assets/styles/common-forms.scss:74-87`、`src/components/componentsdetails/detils/AssetForm.vue:469-478`（`:deep(.section-title)` 形态）、`src/components/componentsdetails/detils/detilschildcomponents/SelectedRecordsTable.vue:62-71`、`src/components/componentsdetails/detils/detilschildcomponents/RecycleSharedInfo.vue:126-135`、`src/components/componentsdetails/detils/RecycleAssetForm.vue:410-419`。
 - **修复方案**：[待决策] ① 先归一两差异项（SelectedRecords `margin:0` 是否有意；内联渐变是否改 `var(--gradient-card-highlight)` 以恢复暗色跟随——改法则 common-forms 与其余 4 处完全同源）；② 共同属性收敛至 `common-forms.scss` 单源，`.vue` 删本地块（`AssetForm.vue` 同步去 `:deep` 形态）。
 - **验证命令**：`rg -n "\.section-title" vue-assetmanagement/src -g '*.vue' -g '*.scss'`（当前 5 文件命中；收敛后应剩 1）
+- **修复与关闭证据（2026-11-05，前端 `34ee807`）**：`src/assets/styles/common-forms.scss` 头部新增 `@mixin section-title-block`（按 D-9 命名冲突警示与 dashboard `@mixin section-title` 严格异名）承载共同属性，背景改 `var(--gradient-card-highlight)` 恢复暗色跟随（B-26-② 结论采纳）；form-container 内 `.section-title` 改 `@include`，4 组件（AssetForm / RecycleAssetForm / RecycleSharedInfo / SelectedRecordsTable）各补 `@use ... as *` + include；SelectedRecordsTable 按 **B-26-①** 显式保留 `margin: 0`（最小差异留痕）。验证复测：`@include section-title-block` 5 处、`margin: 28px 0 20px` .vue 0 命中、`@mixin section-title` 定义仅 dashboard 1 处；build/type-check/lint/format 全 0。5 页 × 亮/暗双主题目视验收移交用户移交留痕（代码侧编译与令牌双主题直证在位）。
 
 ### B-27. 【已关闭 2026-10-15】el-pagination `@size-change` 直连 fetch ×3 不回退页码（前端；§1.8 新发现义务 + M-3 同型）
 - **编号**：顺延登记（B-26 后最大号 +1）。**状态**：✅ 已关闭 | 登记日期：2026-10-15 | 登记来源：P3 批次 M-3 修复执行中依 §1.8 新发现义务登记——原审查仅列 3 处直连，实测同型面为 5 处（含 composable 钳制与已正确的 NotificationList），修完即关闭留痕。
@@ -1128,6 +1129,7 @@
 > 故同表登记；但实现与 CI 归属不同（`ci.yml` 而非 `duplicate-guard.yml`），不可混为一谈。
 
 ## 变更记录
+- **v2.9.61 (2026-11-05)**：关闭 **B-26**（批次 10 Stage 3，前端 `34ee807`）——`common-forms.scss` 新增 `@mixin section-title-block`（依 D-9 命名警示异名）+ form-container `.section-title` 改 include + 4 组件 `@use`/`@include` 收敛；B-26-①（SelectedRecordsTable `margin: 0` 显式保留）、B-26-②（背景改 `var(--gradient-card-highlight)` 恢复暗色跟随）均落地；验证矩阵（5 include / 旧 margin .vue 0 / mixin 定义仅 dashboard）+ build/tc/lint/fmt 全 0 见条目内。B 区 9 项自此全关。
 - **v2.9.60 (2026-11-05)**：批次 10 状态复核（M-14~M-17 销项/立项前置）——对 D-2/D-5/B 区做状态复核（复核结论与证据直附 merge-audit-20261101 M-15/M-16/M-17 行，非新修复），新增 **D-9**（D 区编号重号消歧 D-4a/D-4b/D-5a/D-5b + `.section-title` 非 B-26 家族待核查 + `@mixin section-title` 命名冲突警示 + B-26 事实订正「亮色平涂恒生效 / 暗色跟随」，B-26-② 改 `var(--gradient-card-highlight)` 验收口径改为 5 页双主题目视），无其他新增条目。
 - **v2.9.59 (2026-10-29)**：关闭 **D-8**（DR-4 判据来源分叉，发现来源 merge-audit M-RC-17 待确认项转正）——`AsideMenu.vue` 四菜单判据权限码双实现（`hasPermission(PERMISSION_CODES.*)` 读种子态）与 `usePermission.ts:105-117` 同名层级判据并存，菜单（码口径）与路由守卫（roleWhitelist 层级口径）分叉：有码无级→可见被拦、有级无级→隐藏可直达（auditlog:read 全角色有码为最宽分叉）。**收敛**：AsideMenu 解构复用层级判据删本地实现（DR-4），菜单/守卫/后端 permission_classes 三方同口径；**方向订正**——原「权限码为唯一事实来源」反转（后端无码校验，层级为唯一可达同口径，merge-audit §3.1.8 留痕①）；**行为变更锁定**：canViewAuditLog 对持码 regular_user 由可见转隐藏。防回归三层（角色矩阵 / 有码低角色 false 锁定 ×3 / ?raw 源码守卫）。验证：全量 vitest **179 files / 2337 passed**（+9）、vue-tsc / eslint / prettier / FR 护栏全 0；活账本 BF-163、merge-audit §3.1.8 同步。
 - **v2.9.58 (2026-10-08)**：关闭 **A-49**（DR-1 测试侧，§1.8 新发现义务）——分组两 spec 同名 `expandGroup` helper 双份实现且共载与真实 element-plus@2.13.7 不符的载荷 `true`（真实载荷为 `[row]`），随 **BF-078** 需求2（`onExpandChange` 归一化，用户裁定「不应连带展开」为 Bug）同批统一为 `[row]` 并注释实证留痕。BF-078 整批登记（四需求：汇总列序勾选前置 / 不连带展开 / 返回状态恢复 AC-67j / 单条组取消自动展开 AC-67e 反向修订），活账本 BF-078 条目、方案书 §3.12.12 落地证据、验收标准 AC-67e/AC-67j 同步。验证：全量 vitest **152 files / 2075 passed** exit 0（较 BF-077 同日基线 2052 净增 23）、覆盖率 statements 93.01% / stores 97.84%（双阈值过）、type-check / lint / format:check 全 0、双护栏 PASS。
