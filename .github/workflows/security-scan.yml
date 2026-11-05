@@ -284,6 +284,21 @@ jobs:
           fi
           echo "✅ 文档与环境文件未发现裸赋值密钥"
 
+      # [OP-19-OP-20] .env 跟踪断言: .gitignore 不构成不跟踪证据(ignore 盲点),
+      # git ls-files 为权威口径; 根仓 + 两子仓零容忍(与本地钩子 check_secret_tracking.py 同口径)
+      - name: 断言跟踪面无 .env 文件（根仓+子模块）
+        run: |
+          for repo in . asset_management_backend vue-assetmanagement; do
+            MATCHES=$(git -C "$repo" ls-files | rg '\.env$' || true)
+            if [ -n "$MATCHES" ]; then
+              echo "❌ $repo 存在已跟踪 .env 文件:"
+              echo "$MATCHES"
+              echo "修复: git -C $repo rm --cached <文件> 后重新提交"
+              exit 1
+            fi
+          done
+          echo "✅ 全仓(含子模块)无已跟踪 .env"
+
       - name: 已轮换泄露凭据残留检查（黑名单）
         run: |
           echo "=== 检查历史事故凭据是否回流 ==="
