@@ -1,7 +1,7 @@
 
 ---
 
-### 📄 文档 4：后端业务规范 `/Rules_Fiels/backend-business-rules.md` (v1.22)
+### 📄 文档 4：后端业务规范 `/Rules_Fiels/backend-business-rules.md` (v1.23)
 
 # 后端业务规范与设计思路 (Backend Business Rules)
 > 版本：v1.20 | 最后更新：2026-10-24
@@ -176,6 +176,16 @@ repairing ──repair_done──┘    │               │                  �
 
 > **公开扫码约束（R4-04）**：匿名扫码响应受 §4.6 最小暴露白名单约束（仅 6 字段），敏感字段一律不返回；✅ 表示"仅白名单内信息可见"，非全量可见。
 
+### 4.2.1 读面豁免登记（P3-9，2026-11-05）
+
+P3-9 读面收口后，`RoleViewSet`（list/retrieve）与 `PermissionViewSet`（list/retrieve）为 `IsSystemAdmin`（防角色/权限配置枚举泄露）。**读面默认规则：仅系统管理员**；需对一般登录用户保持可读的读端点必须登记下表豁免——**未登记即越权面**（发现即按新 P3 级授权问题处理）。
+
+| # | 端点 | 消费方 | 理由 |
+|:--|:--|:--|:--|
+| 1 | `GET /api/v1/departments/tree/`（部门树） | 员工/资产/未登记资产表单部门选择器 | 一般登录用户填单需选择部门；部门数据范围已由行级隔离保证（§4.3） |
+| 2 | `GET /api/v1/asset-types/`（资产类型列表） | 资产表单/未登记资产表单类型选择器 | 字典数据、无 PII，一般登录用户填单必需 |
+| 3 | `GET /api/v1/storages/`（仓库列表） | 资产表单/出库表单仓库选择器 | 字典数据、无 PII，一般登录用户填单必需 |
+
 ### 4.3 行级数据隔离
 
 | 角色 | 数据范围 | Selector 过滤方式 |
@@ -326,7 +336,7 @@ repairing ──repair_done──┘    │               │                  �
 | BR-7	| **调用链验证** |	视图（View）→ 服务（Service）→ 选择器（Selector）的纵深不得超过 3 层（View→Service→Selector 为标准深度）。若出现 View→Service→Service→Selector 等 4 层+，必须扁平化或使用事件驱动解耦。|	合并中间层或引入事件 |
 
 ## 六、变更日志
-- v1.22 (2026-11-05): **批次 11 P3 文档缺口三补 + OP-18 例外 E-1**——① 「特殊回退操作」增 S1 两行（未登记资产 S1 创建即回收/创建即报废旁路，初始态由 E-1 显式注入非依赖模型默认值）；② `repairing→damaged` 改标双入口共边（维修失败确认 `repair_failed` / 报废申请 `to_damaged`，transitions.py M-30 注释同边）；③ 新增 §3.1 合同状态机小节（8 态单向链 / 单出边 / `ContractInvalidTransitionError`（AUD-15）/ `allowed_next_states` 脏数据返 `[]`；与资产状态机三点差异；同步约束三处 `_CONTRACT_TRANSITIONS` + `test_contract_fsm.py` + 小节）。约束 7 追加例外 E-1（S1 裸 create 显式注入 `IN_STORE` 枚举，`handlers._create_unregistered_asset`，M-01 落地后重评）。登记：BF-181；merge-audit P3-2/3/4/6/7。
+- v1.23 (2026-11-05): **P3-9 读面收口 + §4.2.1 豁免登记**——RoleViewSet / PermissionViewSet 读 action 由 `IsAuthenticated` 收紧为 `IsSystemAdmin`（防角色/权限配置枚举泄露）；新增 §4.2.1 读面豁免登记（departments tree / asset-types / storages 三行，列消费方与理由；未登记即越权面）。登记：BF-181。——① 「特殊回退操作」增 S1 两行（未登记资产 S1 创建即回收/创建即报废旁路，初始态由 E-1 显式注入非依赖模型默认值）；② `repairing→damaged` 改标双入口共边（维修失败确认 `repair_failed` / 报废申请 `to_damaged`，transitions.py M-30 注释同边）；③ 新增 §3.1 合同状态机小节（8 态单向链 / 单出边 / `ContractInvalidTransitionError`（AUD-15）/ `allowed_next_states` 脏数据返 `[]`；与资产状态机三点差异；同步约束三处 `_CONTRACT_TRANSITIONS` + `test_contract_fsm.py` + 小节）。约束 7 追加例外 E-1（S1 裸 create 显式注入 `IN_STORE` 枚举，`handlers._create_unregistered_asset`，M-01 落地后重评）。登记：BF-181；merge-audit P3-2/3/4/6/7。
 - v1.21 (2026-11-04): **新增 §4.8 OS-8（信封全包后处理器，OP-09 / 批次 8 落地）**——基线 265 operation 直证（op9 机械分类）：裸 JSON 信封包装 0 残留、信封内嵌 0、非 JSON 0 违约、no-body 0 违约 + 真实 DELETE 19/19 修正为信封 200（204 无 body 全退场）+ 幽灵 CRUD 8 条（dashboard×5 经去 ResponseWrapperMixin 运行时 404 / permissions×3 经 `http_method_names` 过滤运行时 405）退场；`core/envelope_schema.py`（ENVELOPE_EXT_NAME `x-envelope` 单点）经 base.py `POSTPROCESSING_HOOKS` 接线；qr-code-image `(200, image/png)` 精确媒体声明；G-1 security 注释 7 处 / 3 文件 267→265 同步；`api_schema` fixture 上提根 conftest（DR-1，跨域共享）。基线重导 `--validate` 双跑一致；8 条护栏（core/tests/test_openapi_envelope_contract.py）全绿。登记：BF-178；融合报告 OP-09 批次 8 收口。
 - v1.20 (2026-10-24): **B4 豁免条款落地（M-28 方案 A，[PATCH-BE] 经用户拍板放行）**——① B4 约束内容追加「非分页列表豁免」：仪表盘 `limit`（top-N，运行时上限 100）与 `days`（时间窗，上限 365）为聚合/截断类 action 参数，不适用 `page`/`page_size` 分页契约；② 配套代码去重：`dashboard_view.py` 两处 `limit` 解析与两处 `days` 同形 `try/except`（各 4 行 ×4 处）收敛为唯一 helper `_parse_int_param(query_params, key, default, upper)`（DR-1），行为逐字等价（缺省/空值/非法回退 default，超上限钳位）；③ 新增测试 10 例（`TestParseIntParam` 8 例单元 + 2 例端点集成，落在 `test_dashboard_view_api.py`）。回归：全量 pytest + cov / `mypy --strict` / ruff check+C90+format / 五护栏 / `makemigrations --dry-run` / OpenAPI 基线零漂移（门禁数字见 BF-140 登记）。登记：BF-140，融合报告 M-28 已修复。
 - v1.19 (2026-10-21): **§4.7 三态表条文订正（AUD-21 授权可见性缺口 / 融合审计 M-01，[PATCH-BE] 经用户「执行，并同步相关文档」放行）**——① 「无 Employee 记录」从 `None` 行移入「空列表」行：`core/department_scope.py:56-57` 修复为最严兜底 `[]`（`if not employee: return []`），superuser 分支（`:50-51`）与 system_admin/auditor 全局角色分支（`:62-63`）语义不变；② 配套注册开关 `AUTH_SELF_REGISTRATION_ENABLED`：`base.py:248` 缺省 True（dev/test 存量行为），`production.py:69` fail-closed 缺省 False（未显式置 true 即关闭），注册双入口 `views.py:116-117`（AuthUserViewSet.create）与 `:237-238`（RegisterAPIView.post）非 system_admin 一律 403，`extend_schema` 同步声明 403；③ 新增只读核查命令 `python manage.py audit_orphan_accounts`（Exists 子查询、`--json`/`--active-only`，只读）。回归：全量 2029 passed / cov 88.93%（≥80）/ Service 98%（≥90）/ `mypy --strict` 0 errors（228 files）/ ruff check+C90+format 绿 / 四护栏 PASS / `makemigrations --dry-run` 无变更 / mutmut 83.2925% ≥ 基线 83.25676365492598（T7 双门禁 PASS）/ OpenAPI 基线 `--lang en` 重导 diff 精确（2×403 + 1×description）。残留：dev/test 开关下 `AuthUserViewSet.create` 匿名建号存量保留（拍板①，单列后续项）；生产注册入口暴露 `[待确认]` 不变。登记：BF-125，融合报告 M-01 已修复。
