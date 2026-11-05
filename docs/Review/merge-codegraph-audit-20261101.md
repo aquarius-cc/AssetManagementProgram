@@ -218,6 +218,15 @@
 
 批次 10【账本/立项/依赖】 M-14 + M-15 + M-16 + M-17 + M-18 + M-20
   → mutmut 扩围立项 / 账本 D 区闭环 / B 区批次（B-4/B-5 先做）/ dev 依赖升级
+   验证与状态（2026-11-05 全链闭环）：M-14 立项交付 `docs/M14-mutmut-扩围立项-20261105.md`
+   （WSL 实测只立项不改 cfg，方案 A 推荐，`setup.cfg` diff 空）；M-15/M-16/M-17 销项复核
+   （合并审计 :100/:101 直证 + `manage.py check` / dry-run / recordcode 2 passed）；M-18 audit
+   fix 后 0 high（前端 f088f71）；M-20 `withPaginationDefaults` 单源 ×19 store（032f8cc）；
+   M-17/B-26 section-title 五处单源（34ee807，D-9 异名 mixin）。终线：根仓 CI run
+   41981011001 success + 复扫/护栏双绿 + CD run 41986457709 success（两次 CD 竞态失败为门禁
+   fail-closed 拒绝，非回归）。CI 直证双轮：run 41980304211（CD）拒绝陈旧 SHA 8766e4f、
+   run 41982869837（CD）CI 在跑超时——均为 workflow_run 门禁 fail-closed 设计行为，
+   CI 完成后重触发即闭合。
 
 批次 11【P3 文档与卫生尾巴】 OP-11 + OP-16~OP-21 + M-21 + M-22 + OP-19（[待确认] 拍板）
   → 规则文档三处补（含合同状态机章节）/ read_only_fields 一行 / .env 轮换 /
@@ -255,6 +264,7 @@
 - [可验证] M-05/M-06/M-07/M-08/M-11/M-12 仍开放 — 依据：本次 `rg`/直读（双 toast 并存 :113-114；4 store 缺 `disableAutoMessage`；8 处字面量逐行列出；`helpers.py:54`+`selectors.py:201,236`+`providers.py:37`；`batch_mixins.py:143,216`；`dashboard_selector.py:69`）。（**2026-11-02 续记**：其中 M-05/M-06 已修于工作树，见 BF-172；**M-07/M-08 已修于后端 1cc185f（批次 5，BF-173/A-54），M-07 收敛规模实扩 14 处、M-08 实测 7 处并配 G-8 护栏；M-11/M-12 维持仍开放。**）
 - [可验证] 批次 4 已修于工作树（M-05/M-06/OP-13/OP-14/OP-15）— 依据：定向 12 用例先红后绿 + type-check/lint:ci/format:check 全过 + 全量 2431/2431 exit 0 + 护栏双 PASS；`git -C vue-assetmanagement status` 实测 15 文件未提交（含 1 新增集成 spec）；同型家族收编批已提交（前端 `39b7118`，BF-171/B-29）。
 - [可验证] 批次 5 已提交（M-07/M-08）— 依据：后端 `1cc185f`（20 文件，四域 pytest 1875 passed / ruff / `mypy . --strict` 0 issues / 触碰面 format 清零）+ 根仓 `cd3e49f`（护栏 G-8 + 自测 22 passed + 真仓 PASS + AGENTS v3.7.4）；预提交钩子 4 护栏全过；CT-7 网络期 CI 直证待补（本地 ruff==mypy 版本与 dev.txt 声明一致无漂移）。
+- [可验证] 批次 10 已全链闭环（M-14~M-17/M-18/M-20/B-26）— 依据：六提交链（root `3ab77b9`/`5822918`/`6b65578` + 前端 `f088f71`/`032f8cc`/`34ee8077` 系列）+ CI run 41981011001 success（48m03s）+ CD run 41986457709 success；M-14 WSL 实测四组数据在 `docs/M14-mutmut-扩围立项-20261105.md`（pytest 228.25s / 313.01s，扩围 print-time-estimates 全 `<no tests>` 直证方案 A 必要性）；M-18 `npm audit --audit-level=high` 全量 0 high / prod 0（残留 20 moderate 非门禁）；M-20 验证矩阵 `params || {` 3 处（createEntityStore.ts:218/224/254）+ 常规 store `page_size: 10` 0；B-26 矩阵 `@include section-title-block` 5 处 / `margin: 28px 0 20px` .vue 0 / `@mixin section-title\b` 定义仅 `_dashboard-sections.scss:20`；BF-180 登记。
 - [可验证] OP-01~OP-03 — 依据：`codegraph node` 直出源码（department_view.py:100/71、selectors.py:188、out_asset_service.py:307、waste_asset_service.py:57）+ `codegraph impact`（2/6/92 符号）。
 - [可验证] 覆盖率/护栏 — 依据：源B 本机实跑（pytest 2269 passed / 89.40%；Service 98%；前端 Stores 97.21%；五护栏 exit 0）。
 - [可验证] M-18 dev 高危 4 项与生产 0 high — 依据：本次 `npm audit --omit=dev`（7 moderate / 0 high）与全量输出（37 / 4 high，均 dev）。

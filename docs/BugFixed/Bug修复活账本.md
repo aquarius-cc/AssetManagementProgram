@@ -10906,3 +10906,54 @@ CI 直证补取完成：run `41470492279`（HEAD ae66c51）16 job 全绿 + run `
 已达成：CI 全绿直证——根仓 CI Pipeline run **41944228502** success（`@88637b2`，mypy/ruff/C90/api-schema-diff/前端五面/后端测试覆盖率全 job success；前两轮失败链：run 41845268470 root CI 暴露批 6 隐债 → 批 6 收端提交 `49a3096` 闭合 AUDIT_WRITE_FAILED 引用环；run 41853701286 暴露 M-3 配套 4 处信封结构失配 → `88637b2` 补 api_field_reference response 信封下钻）；Dependency Security Scan + Duplicate Guard 双绿；CD Pipeline run **41948745557** success（部署前置安全门禁闭合）。
 
 *登记人：mimo ｜ 状态：【已关闭】（2026-11-05，根仓 6ab5df0/d665aa7/88637b2 + backend e3b8f50/30085f6/be47667/49a3096 推送完毕，CI run 41944228502 + CD run 41948745557 全绿回填）*
+
+## BF-180【已关闭】批次 10 六项收口（账本/立项/依赖）——M-14 mutmut 扩围立项（只立项不改 cfg，方案 A 推荐）+ M-15/M-16/M-17 销项复核 + M-18 dev 依赖 4 high 降零 + M-20 分页兜底单源 ×19 store + B-26 section-title 五处单源收编｜来源：`docs/Review/merge-codegraph-audit-20261101.md`（P2/P3 行 :99/:100/:101/:108/:112）+ `Rules_Fiels/Duplicate_Codes/complete-patterns.md` B-26/D-9 + 批次 10 执行方案（方案乙冻结）
+
+### 一、核实结论
+- **M-14**：`setup.cfg:61` source_paths 仅 `apps/assetmanagement/services`、:72-73 test_selection 仅 assetmanagement tests（实测直读）→ 扩 `source_paths` 不动择集时 usermanagement 变异体无测试映射进分母，双门禁（≥80.0 且 ≥ 基线 83.25676365492598）必红。WSL `~/amp-backend@49a3096` 实测（mutmut 3.8.0）：temp 扩围 `print-time-estimates` 输出 2085 条全 `<no tests>`、0 条有映射（缓存态敏感，仅证「无映射」非规模）；pytest 定向 1434 passed / 228.25s、双域 1656 passed / 313.01s（Δ +222 / +85s）。交付立项报告，方案 A（先补测到 ≥83.26 再扩围）推荐，估时 >240 分钟即暂停线先行，`setup.cfg` 本次 diff 强制为空并已验证。
+- **M-15/M-16/M-17（复核类销项）**：`init_production_data.py` 3 字段名直证正确（串行 8 passed + `--dry-run` exit 0 零写入）；`asset_view.py:196-199` recordcode 双入口兼容（`-k recordcode` 2 passed 含 path-only）；B 区复核只余 B-26 开放（`MAX_BATCH_SIZE = 100` 全仓 0 / throttles 单源 / `audit_helper.safe_audit_log` 单点复测均在位）。
+- **M-18**：`npm audit` 4 high（zod / undici / happy-dom / vite，全 dev 链）；`npm audit fix` + 锁定 vite ^8.2.4 / happy-dom ^21.0.4 后全量 0 high / prod 0；残留 20 moderate 不属 CI 门禁口径（`--audit-level=high`），留痕不阻断。
+- **M-20**：`assetStore.ts:144-147` `page_size:10` 硬回落 vs :173 `defaultPageSize:20` 双源；且 19 个 store 各自手写 `params || {page:1, page_size:10}` 兜底（DR-1 同型）。事实订正：`createEntityStore.ts` 已有 `defaultPageSize`，修复面是「兜底第二份字面量收敛」而非补机制。
+- **B-26**：`.section-title` 五文件同款样式块（台账原 ☐ 待修复）；两处真差异（SelectedRecordsTable `margin:0` / common-forms 内联渐变暗色不跟随）已按 B-26-①/② 处理。
+
+### 二、修复方案
+| # | 变更 | 文件/提交 |
+|:--|:--|:--|
+| 1 | M-14 立项报告六节交付，零代码改动（cfg 不动） | root `5822918` · `docs/M14-mutmut-扩围立项-20261105.md` |
+| 2 | M-15/M-16/M-17 销项复核+直证留痕（零代码） | root `3ab77b9` · merge-audit :100/:101/:102 订正 |
+| 3 | M-18 依赖升级（audit fix 锁文件收紧 zod/undici + dev vite/happy-dom 显式锁定） | 前端 `f088f71` · package.json + package-lock.json |
+| 4 | M-20 `DEFAULT_PAGE_SIZE=20` 单源 + `withPaginationDefaults()` 收敛 19 store 兜底（`?? { page: 1, page_size: DEFAULT_PAGE_SIZE }`）；工厂 3 行参数展开语义保留 | 前端 `032f8cc` · pagination.ts / createEntityStore.ts / 19 stores |
+| 5 | B-26 `@mixin section-title-block`（D-9 异名警示，防 dashboard 同名静默覆盖）+ form-container `.section-title` 改 `@include` + 4 组件 `@use`/include；SelectedRecordsTable 按 ① 保留 `margin:0`；背景改 `var(--gradient-card-highlight)`（② 暗色跟随恢复） | 前端 `34ee807` · common-forms.scss + AssetForm / RecycleAssetForm / RecycleSharedInfo / SelectedRecordsTable |
+| 6 | 账本三连登记：D-9（重号消歧）/ B-26 转已关闭（v2.9.60 / v2.9.61）/ merge-audit M-14~M-20 划 ✅ | root `3ab77b9` + `6b65578` |
+| [HALT] | 未触发（无状态机 / API 契约 / 迁移 / 共享枚举变更） | — |
+
+### 三、验证记录
+```text
+python manage.py check                 -> System check identified no issues
+manage.py makemigrations --dry-run     -> No changes detected
+pytest test_init_production_data.py    -> 8 passed（串行；并行共享 DB 竞态教训在案）
+pytest -k recordcode                   -> 2 passed（含 path-only）
+npm audit --audit-level=high           -> found 0 vulnerabilities（全量）/ prod 0 / 20 moderate 非门禁
+npx vitest run                         -> 193 files / 2525 tests passed
+npx vitest run --coverage(stores)      -> 96.83%/97.16%/91.18%/97.21%（≥90 达标，exit 0）
+rg 'params \|\| \{' src                -> 仅 createEntityStore.ts:218/224/254（工厂预期）
+rg 'page_size: 10' src/stores           -> 仅 auditLogStore.ts:100 阈值豁免注释态
+rg '@include section-title-block'      -> 5 处（1 form-container include + 4 组件）
+rg '@mixin section-title\b'            -> 仅 _dashboard-sections.scss:20（定义唯一，word boundary 口径）
+护栏四连                                 -> BR-6（222 py / 0 超限）· FR（55/32/121 均 0 超限）· duplicate G-1~G-3,5-8 PASS · BR-4 PASS
+CI 直证                                  -> root CI 41981011001 success（48m03s）+ DupGuard 41981010942 + Scan 41981010922 + CD 41986457709 success（1m24s）
+```
+
+### 四、对抗审核
+- **CD 两次 fail-closed 竞态**（41980304211 拒绝陈旧 SHA 8766e4f / 41982869837 CI 在跑轮询超时）——均为部署门禁 fail-closed 设计行为，非回归；CI 完成后重触发即闭合（41986457709 success）。不修门禁。
+- **M-14 数据缓存态警示**：2085 `<no tests>` 受 ~/ 副本 mutants 缓存态影响，不作为规模依据；立项文档已显式区隔「统计口径 vs 无映射证据」。
+- **moderate 20 悬挂**：不计 CI 门禁（P2-07 刻意 `--omit=dev` + `--audit-level=high`），与 SC-7 口径差异已由根级 AGENTS §6 记录在案。
+- **行号漂移自审**：登记引用 :218/224/254、auditLogStore.ts:100、_dashboard-sections.scss:20、common-forms.scss:21/:93、pagination.ts:18 均为本轮 rg 实测。
+- **视检**：5 页双主题目视验收移交用户 [待确认]（代码侧令牌双主题 / build 编译直证在位）。
+
+### 五、遗留与关联事项
+- 方案 A 后续（未排期）：usermanagement/services 补测至独立分数 ≥83.26 → tempfile 扩围试跑先红后绿 → 提交 cfg（详见立项文档 §5/§6 退出条件）。
+- 批次 9 已另行闭合（BF-179）；本条不覆盖 M-13 时序面。
+- 残余开放项（M-11/M-12/OP-04/M-19/OP-10 等）不属本批，待批次 11+。
+
+*登记人：mimo ｜ 状态：【已关闭】（2026-11-05，六提交链 3ab77b9 / f088f71 / 032f8cc / 34ee807 / 5822918 / 6b65578 推送完毕，CI run 41981011001 + CD run 41986457709 全绿回填）*
