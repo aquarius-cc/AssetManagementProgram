@@ -215,6 +215,14 @@
 批次 9【前端缓存时序，大回归面单独成批】 M-13
   → 18 处 M-RC-08 改 await 后失效
   验证：并发读时序单测 + 关键写路径回归。
+  验证与状态（2026-11-05 全链闭环）：前端 0a9a399（writeThenInvalidate 时序内核 37 端点/43 次失效
+  调用 + cache.ts epoch 代际 + setIfFresh 竞态安全写入 + request.ts writeCache 代际守卫，14 文件
+  +873/−331）；37 时序主用例 + 8 失败分支先红后绿，8 件既有 spec 零改写原样绿，全量门禁
+  192 files / 2521 tests exit 0 + rg 四连 37/43/0/0 达标。CI 直证：首轮根仓先推致三条 run checkout
+  秒死（not our ref 0a9a399，vue 补齐后重跑）—— 终线 CI run 41972037172 success + 扫描 41972037212 /
+  护栏 41972037129 双绿；BF-179 回填提交 9bfdde5 CI run 41990612607 success；末次部署由 master 最终
+  提交（BF-180）CI run 41991074674 success 触发 CD run 41998636658 success（三次 CD 竞态拒绝均为
+  workflow_run 门禁 fail-closed 设计行为，非回归）。账本 BF-179【已关闭】+ A-55 双时序收敛模式登记。
 
 批次 10【账本/立项/依赖】 M-14 + M-15 + M-16 + M-17 + M-18 + M-20
   → mutmut 扩围立项 / 账本 D 区闭环 / B 区批次（B-4/B-5 先做）/ dev 依赖升级

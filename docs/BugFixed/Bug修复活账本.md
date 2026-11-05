@@ -10885,9 +10885,9 @@ CI 直证补取完成：run `41470492279`（HEAD ae66c51）16 job 全绿 + run `
 ### 六、CI 直证（2026-11-05 回填）
 - **推送顺序教训（第一轮失败链，已闭环）**：根仓 `8766e4f` 先行推送、vue `0a9a399`（`86fb829..0a9a399`）随后——根推送触发的三条 run 全部死于 checkout：`fatal: remote error: upload-pack: not our ref 0a9a399…`（根仓推送时 vue 子模块提交尚未在远端，全部 job 在 `actions/checkout@v4 submodules:true` 秒死，17-23s × 3：CI 41972037172 首跑 / 扫描 41972037212 首跑 / 护栏 41972037129 首跑）。口径：**子模块指针推进必须子模块先推远端、根仓后推**。
 - **第二轮重跑全绿**：CI Pipeline run **41972037172** success（约 43min，全量测试 + 变异）/ Dependency Security Scan **41972037212** success / Duplicate Code Regression Guard **41972037129** success。
-- **CD 链闭合**：`8766e4f` 的 CD 41980304211 被「校验 CI 结论与提交一致性」门禁 8s 拒绝（触发时 master 已推进至批次 10 并行提交 `3ab77b9`，fail-closed 设计行为非缺陷）；master 最新提交（批次 10 收尾回填）CI run **41981011001** success（48m03s）→ CD run **41986457709** success（1m24s），部署完成，镜像含批次 9 前端代码。
+- **CD 链闭合（三次一致性门禁拒绝均为 fail-closed 设计行为非缺陷）**：`8766e4f` 的 CD 41980304211 被「校验 CI 结论与提交一致性」门禁 8s 拒绝（触发时 master 已推进至批次 10 并行提交 `3ab77b9`）；其后批次 10 收尾回填 CI run 41981011001 success（48m03s）→ CD run 41986457709 success（1m24s）；本条回填提交 `9bfdde5` CI run 41990612607 success（49m56s）→ 其 CD 41996904986 亦被同一门禁 6s 拒绝（master 已推进至 BF-180 收口提交）；master 最终提交（BF-180 批次 10 六项收口）CI run **41991074674** success（59m33s）→ CD run **41998636658** success（1m25s），部署收口，镜像含批次 9 全部前端代码。
 
-*登记人：mimo ｜ 状态：【已关闭】（2026-11-05，根仓 8766e4f + 前端 0a9a399 推送完毕，CI run 41972037172 + CD run 41986457709 全绿回填，含第一轮 not-our-ref 失败链闭环）*
+*登记人：mimo ｜ 状态：【已关闭】（2026-11-05，根仓 8766e4f + 前端 0a9a399 推送完毕，CI run 41972037172 + 回填 9bfdde5 CI 41990612607 全绿，末次部署 CD run 41998636658 success，含第一轮 not-our-ref 失败链闭环）*
 
 ## BF-178【已关闭】批次 8 OpenAPI 信封全包建模 + 幽灵 CRUD 退场（OP-09）——提交 1 幽灵 8 条清理（dashboard 404 / permissions 405）+ 提交 2 envelope 后处理器（四零收编 + 19 destroy 信封化 + 基线重建）｜来源：`docs/Review/merge-codegraph-audit-20261101.md` OP-09 + 批次 8 拍板意见与意见 4 冻结
 ### 一、问题与定义
