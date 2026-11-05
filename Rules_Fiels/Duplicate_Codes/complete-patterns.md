@@ -912,6 +912,13 @@
 - **验证命令**：rg 三组字面量生产零命中 + `pytest apps/assetmanagement apps/usermanagement apps/notification apps/unregisteredasset -q`（1875 passed）+ `ruff check .`（绿）+ `ruff format`（本批触碰面 20 文件清零；存量 14 文件漂移非本批引入，留 CI 复核）+ `mypy . --strict`（0 issues，228 files）+ `python scripts/check_duplicate_invariants.py`（真仓 PASS）；护栏自测 22 passed。2 条新收费用例（_notify helper 初版被 @patch 注入破坏 self 捕获后改显式 context manager）。
 - **登记日期**：2026-11-02 | 关联：**B-4**（batch 常量收敛前序，同批 M-07 下沉 DEFAULT 回落）；**A-51**（护栏先例 G-6/G-7，§5.4 判据延用）；根级 **v3.7.4**
 
+### A-55. 【关闭 2026-11-05】写端点缓存失效双时序并存（18 fire-and-forget + 14 删除后失效）→ writeThenInvalidate 内核收敛 + epoch 代际守卫（M-13，批次 9；§1.8 新发现义务登记）
+- **状态**：✅ 已关闭 | 关闭日期：2026-11-05 | 本批修复（批次 9，前端 `0a9a399`，BF-179）
+- **判定**：`src/api/` 写端点缓存失效分两套时序——14 处 `await unwrapResponse(...)` 后失效（正确）vs 18 处 `const result = unwrapResponse(...); invalidateAssetCache(...)` fire-and-forget（不等写完成即同步发起失效）；「已失效、写未完成」窗口内并发详情 GET 以「写前状态」回填缓存，而写响应拦截器只按写 URL 清缓存（够不到详情/列表 key），脏数据残留至 TTL 5min。同根因第二竞态：响应拦截器 writeCache 在 await 之后才取代际，在途旧快照可在失效后回填。
+- **修复内容**：① `assetCache.ts` 新增 `writeThenInvalidate<T>(write, invalidate)` 时序内核（await 写成功 → 失效 → 返回 data；写失败不失效）+ `invalidateAssetListCache()` 仅列表薄壳（P0-3 同构，禁止宽失效）；② `cache.ts` 新增 `epoch` 代际（clear/clearByPattern 内自增）+ `setIfFresh` 竞态安全写入，`request.ts::writeCache` 快照代际在 await 前、写入时守卫；③ 18 A 类必修（7 模块 fire-and-forget → 内核）+ asset.ts 5 处（update/delete 详情 pattern 显式化 + 失效移入写完成后——详情 key 生产中此前由拦截器按写 URL 清，行为等价；batchCreateAssets 列表薄壳；markBroken/batchDelete 纯收敛）+ 14 D 类收敛（既有 await 形态 → 内核，产出 pattern 含顺序不变，零行为变更）；④ damagedAsset 匿名审批类型抽具名 `DamagedApproveResult`；⑤ assetCache.ts 头注释行号锚改方法名锚（行号漂移修复）+ 接入清单 37/43 计数同步。
+- **验证命令**：rg 四连——`writeThenInvalidate\(` 合计 **37** / 调用侧 `invalidate*`（排除 assetCache.ts 定义文件）**43** / `const result = unwrapResponse` **0** / asset.ts `clearCacheByPattern\(` **0**；新增 `src/api/__tests__/assetCacheTiming.spec.ts` 45 用例（37 时序主用例全序全等 + 8 失败分支，先红后绿：asset.ts 3 红 → 修后绿）+ `cache.spec.ts` 5 条 + `responseHandler.spec.ts` 2 条全绿；8 件既有 spec（asset + 7 生命周期模块 + subResourceCache 契约）零改写原样绿；`npm run test:coverage` exit 0（192 files / 2521 tests，覆盖率 src ≥80 / stores ≥90）+ vue-tsc 零输出 + lint/format 绿。
+- **登记日期**：2026-11-05 | 关联：**BF-179**；审计 **M-13**（`merge-codegraph-audit-20261101.md:90`，与后端 M-13 同号消歧锚）；**B-29**（提示层单出口收敛先例，DR-1）；**A-54**（收敛 + 护栏先例）
+
 ### D-4. ✅ 已关闭 2026-11-02 —— repair/broken/lost/found 四端点无导出列必 500（前端已接导出按钮）
 - **状态**：✅ 已关闭 | 关闭日期：2026-11-02 | 后端 `ae58902`
 - **判定**：四生命周期端点挂 ExportExcelMixin 但未配置 `export_columns`，权限通过后 `workbook` 生成必 500「未配置导出列」；前端已接导出按钮，用户可触达。

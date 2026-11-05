@@ -10863,6 +10863,28 @@ CI 直证补取完成：run `41470492279`（HEAD ae66c51）16 job 全绿 + run `
 
 *登记人：mimo ｜ 状态：【已关闭】（2026-11-04，vue 86fb829 + 根 3893be1/d630bbf 推送完毕，CI run 41823276338 全绿回填）*
 
+## BF-179【已关闭】批次 9 M-13 写端点缓存失效时序收敛（前端）——cache.ts 代际 epoch + setIfFresh 竞态安全写入 / request.ts writeCache 代际守卫 / assetCache.ts writeThenInvalidate 内核 + invalidateAssetListCache 薄壳 / 18 处 A 类必修 + asset.ts 5 处（3B+2C）+ 14 处 D 类收敛（37 端点 / 43 次失效调用）｜来源：`docs/Review/merge-codegraph-audit-20261101.md:90` M-13（显式锚定消歧，防与后端 M-13 账本编号混淆）
+### 一、问题定义
+- **M-13（A③F-07）**：缓存失效两套时序并存——14 处删除后失效（await 写成功再失效）vs 18 处状态变更先失效（fire-and-forget：不等写完成即同步发起失效）。「已失效、写未完成」窗口内并发详情 GET 以「写前状态」回填缓存；而写响应拦截器只按写 URL 清缓存（够不到详情/列表 key），脏数据残留至 TTL 5min，诱发重复提交。
+- **第二竞态（本批发现，同根因）**：响应拦截器 writeCache 在 await 之后才取代际——请求内一次失效发生后，在途旧快照回填缓存（epoch 代际守卫）。
+### 二、修复内容（两层机制，缺一不可）
+- **时序内核** `assetCache.ts::writeThenInvalidate<T>(write, invalidate)`：await 写成功 → 失效 → 返回 data；写失败（code!==0 / 网络错误）不失效。37 个写端点 / 43 次失效调用全量接入（rg 四连达标）。
+- **代际守卫**：`cache.ts` 新增 `epoch`（clear/clearByPattern 内自增）+ `setIfFresh(epoch, snapshot, key, ttl)` 竞态安全写入；`request.ts::writeCache` 在 await **前**快照 `getEpoch()/Date.now()`，写入时校验代际未变。
+- **范围分类**：18 A 类必修（7 模块 fire-and-forget → 内核）；asset.ts 5 处（update/delete：详情 pattern 显式化 + 失效移入写完成后——详情 key 生产中此前由拦截器按写 URL 清，行为等价；batchCreateAssets：列表薄壳 `invalidateAssetListCache()`，P0-3 同构、禁止宽失效；markBroken/batchDelete：纯收敛，产出 pattern 含顺序不变）；14 D 类收敛（既有 await 形态 → 内核，零行为变更）。
+- 附带：`invalidateAssetListCache()` 薄壳（仅列表）；damagedAsset 匿名审批类型抽具名 `DamagedApproveResult`；assetCache.ts 头注释行号锚改方法名锚（行号漂移修复）+ 接入清单 37/43 计数同步。
+### 三、测试证据（先红后绿，CT-4）
+- **红锚**：asset.ts 3 条时序用例（updateAsset/deleteAsset/batchCreateAssets）在改造前代码上红 → 改造后绿；失败分支 8 条（网络 reject ×7 + 业务失败 code!==0 ×1，代表性端点限 A 类必修——存量已 await 端点分支先天绿、失去先红锚意义）。
+- 新增 `src/api/__tests__/assetCacheTiming.spec.ts`：37 时序主用例（形态 A/B/D/E/F/G 全序全等；#4/10/13/24 批删全失败变体 success_ids: [] → P0-3 仅列表、禁止宽清）+ 8 失败分支；`cache.spec.ts` +5（epoch 自增 / setIfFresh 代际反转·时间反转三路 / 薄壳 P0-3 同构）；`request.responseHandler.spec.ts` +2（writeCache 代际守卫：代际变化旧快照不回填 / 同代正常写入）。
+- **零改写验证**：8 件既有 spec（asset + 7 生命周期模块 + subResourceCache 契约）原样全绿。
+### 四、全量门禁（CT-5）
+- `npm run test:coverage` 权威复跑 **exit 0**：192 files / 2521 tests 全绿（首跑 2 条 batchB M-25 用例 5s 超时 → 隔离复跑 9/9 绿，定性负载性 flake；权威复跑全绿）+ 覆盖率 src ≥80 / stores ≥90 达标；`vue-tsc --noEmit` 零输出；`lint:ci` 绿；`format:check` 绿（9 文件 prettier 归一，均在本批改动面）。
+- rg 四连：`writeThenInvalidate\(` 合计 **37** / 调用侧失效（排除 assetCache.ts 定义文件）**43** / `const result = unwrapResponse` **0** / asset.ts `clearCacheByPattern\(` **0**。
+### 五、提交与账本
+- 前端 `0a9a399`（14 文件：8 api 模块 + asset.ts + assetCache.ts + cache.ts + request.ts + 3 spec，+873/−331）。
+- 账本：**A-55**（complete-patterns 双时序收敛模式）；审计 `merge-codegraph-audit-20261101.md:90` M-13 ✅。
+
+*登记人：mimo ｜ 状态：【已关闭】（2026-11-05，前端 0a9a399 提交完毕，全量门禁 exit 0 + rg 四连达标）*
+
 ## BF-178【已关闭】批次 8 OpenAPI 信封全包建模 + 幽灵 CRUD 退场（OP-09）——提交 1 幽灵 8 条清理（dashboard 404 / permissions 405）+ 提交 2 envelope 后处理器（四零收编 + 19 destroy 信封化 + 基线重建）｜来源：`docs/Review/merge-codegraph-audit-20261101.md` OP-09 + 批次 8 拍板意见与意见 4 冻结
 ### 一、问题与定义
 - **OP-09**：基线 273 operation 振动响应 38% 形态实体（27 envelope / 189 bare / 15 非 JSON / 无 body 42），底盘严重不匹配：运行时全量响应 `success_response` 但 189 条以裸 JSON 声明（生成客户端拿到错误契约，§4.8 OS-5 同类失真）。
