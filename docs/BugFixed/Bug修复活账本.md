@@ -10863,7 +10863,7 @@ CI 直证补取完成：run `41470492279`（HEAD ae66c51）16 job 全绿 + run `
 
 *登记人：mimo ｜ 状态：【已关闭】（2026-11-04，vue 86fb829 + 根 3893be1/d630bbf 推送完毕，CI run 41823276338 全绿回填）*
 
-## BF-178【已修复·待 CI】批次 8 OpenAPI 信封全包建模 + 幽灵 CRUD 退场（OP-09）——提交 1 幽灵 8 条清理（dashboard 404 / permissions 405）+ 提交 2 envelope 后处理器（四零收编 + 19 destroy 信封化 + 基线重建）｜来源：`docs/Review/merge-codegraph-audit-20261101.md` OP-09 + 批次 8 拍板意见与意见 4 冻结
+## BF-178【已关闭】批次 8 OpenAPI 信封全包建模 + 幽灵 CRUD 退场（OP-09）——提交 1 幽灵 8 条清理（dashboard 404 / permissions 405）+ 提交 2 envelope 后处理器（四零收编 + 19 destroy 信封化 + 基线重建）｜来源：`docs/Review/merge-codegraph-audit-20261101.md` OP-09 + 批次 8 拍板意见与意见 4 冻结
 ### 一、问题与定义
 - **OP-09**：基线 273 operation 振动响应 38% 形态实体（27 envelope / 189 bare / 15 非 JSON / 无 body 42），底盘严重不匹配：运行时全量响应 `success_response` 但 189 条以裸 JSON 声明（生成客户端拿到错误契约，§4.8 OS-5 同类失真）。
 - **幽灵 CRUD 8 条**：dashboard×5（去 mixin 前 ResponseWrapperMixin 默认 CRUD 方法在 GET-only `viewsets.ViewSet` 上引发 `perform_create/perform_destroy` 500 死路）+ permissions×3（同 mixin 缺 fallback 兜底）。基线 operationId：`v1_dashboard_{list,create,retrieve,update,destroy}` / `v1_users_permissions_{create,update,destroy}`。
@@ -10877,6 +10877,6 @@ CI 直证补取完成：run `41470492279`（HEAD ae66c51）16 job 全绿 + run `
 - 护栏 8 条（core/tests/test_openapi_envelope_contract.py）全绿：phantom 反向锁 / bare 2xx 全信封 / no_nested / non_json 零污染 / no-body 名单保持 / D1 destroy 反向 204 / x-envelope 单点标记 / 名单计数（15/21/265 精确对账）；工程域回归：test_employee_openapi_contract（T2.7 改写）/ test_openapi_security_schema / test_employee_search_contract 全绿，conftest 上提后相关域 4 passed + 8 passed。
 - 静态门禁：ruff check（核心域 9 文件 0 errors）/ format check 9 文件("~/ Green") / mypy CI 口径 232 source files ✓ / 三护栏（BR-4 / BR-6 / duplicate invariants G-1~G-3, G-5~G-8）PASS exit 0。物理 pytest/wsl 后端全量由 CI 担保（本地 Windows 环境未开 WSL+postgres 三件套）。
 ### 四、转关闭条件
-推送根仓 backend 子模块 + 批次 8 CI 全绿回填转【已关闭】（含 api-schema-check / backend-lint / 后端测试/覆盖率 job 直证）。
+已达成：CI 全绿直证——根仓 CI Pipeline run **41944228502** success（`@88637b2`，mypy/ruff/C90/api-schema-diff/前端五面/后端测试覆盖率全 job success；前两轮失败链：run 41845268470 root CI 暴露批 6 隐债 → 批 6 收端提交 `49a3096` 闭合 AUDIT_WRITE_FAILED 引用环；run 41853701286 暴露 M-3 配套 4 处信封结构失配 → `88637b2` 补 api_field_reference response 信封下钻）；Dependency Security Scan + Duplicate Guard 双绿；CD Pipeline run **41948745557** success（部署前置安全门禁闭合）。
 
-*登记人：mimo ｜ 状态：【已修复·待 CI】（2026-11-04，后端原子提交 e3b8f50 + 30085f6 + be47667 已推送，等根仓指针 CI 全绿转关闭）*
+*登记人：mimo ｜ 状态：【已关闭】（2026-11-05，根仓 6ab5df0/d665aa7/88637b2 + backend e3b8f50/30085f6/be47667/49a3096 推送完毕，CI run 41944228502 + CD run 41948745557 全绿回填）*

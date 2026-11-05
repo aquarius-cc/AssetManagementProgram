@@ -207,6 +207,10 @@
   基线重导 --validate 双跑 identical，8 条护栏 core/tests/test_openapi_envelope_contract.py
   全绿、员工域 test_employee_openapi_contract / security / search_contract 回归绿；
   护栏（BR-4/BR-6/duplicate invariants）PASS。
+  CI 直证双轮：run 41845268470 暴露批 6 隐债（审计代码先落、metrics.py 未提交）→ 批 6 收端
+  `49a3096` 闭合 AUDIT_WRITE_FAILED 四引用方环；run 41853701286 暴露 M-3 配套 4 处信封结构失配
+  （statistics×3 + dashboard/overview）→ `88637b2` api_field_reference response 下钻补齐；
+  **终线 run 41944228502 success @ 88637b2（16 job 全绿）+ CD run 41948745557 success。**
 
 批次 9【前端缓存时序，大回归面单独成批】 M-13
   → 18 处 M-RC-08 改 await 后失效
