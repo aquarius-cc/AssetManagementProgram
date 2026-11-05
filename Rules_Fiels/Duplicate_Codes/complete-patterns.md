@@ -1032,6 +1032,20 @@
 - **防回归**：`usePermission.spec.ts` 三层——四判据 × 5 角色矩阵 / 3 条「有码低角色 → false」锁定 / `?raw` 源码守卫（AsideMenu 禁 `PERMISSION_CODES` 与 `hasPermission(` 两形态，先例 GroupedAssetTable.spec.ts:25）。
 - **验证**：全量 vitest **179 files / 2337 passed** exit 0（基线 2328 + 9）、vue-tsc --build 零输出、eslint / prettier / FR 护栏全过。**连带登记**：活账本 BF-163；merge-audit §3.1.8。
 
+### D-9. 【新发现 2026-11-05】D 区编号重号 + `.section-title` 非 B-26 家族待核查
+- **发现来源**：merge-audit-20261101 批次 10（M-15/M-16 销项核验触发），现场取号。
+- **重号事实**（本文件历史登记存在两套编号碰撞；处理＝加后缀消歧，不重排历史，避免跨报告引用断链）：
+  - D-4a（:922）repair/broken/lost/found 四端点无导出列 必 500　↔　D-4b（:965）API 详细文档双份维护；
+  - D-5a（:930）out 跨部门指定使用人/保管人写侧拦截　↔　D-5b（:987）getassetbyrecordcode 路径/query 双入口。
+- **`.section-title` 变体家族（待核查，非 B-26 范围——B-26 仅指 `@include form-container` 复用面内 5 文件的 18px 段）**：
+  - B 家族：20px / bold / border-bottom ×3（StorageForm / AssetTypeForm / DepartmentForm）；
+  - C 家族：16px / border-bottom 批量导入预览 ×6；
+  - D 家族：card-header + margin-left ×6；
+  - E 家族：dashboard mixin（`_dashboard-sections.scss:20`）×2。
+  - 全仓无 18px 变体（仅 form-container 复用面 3 处，即 B-26）。**验证命令**：`rg -n "font-size: 18px" src`（期望 0）；`rg -c 'class="section-title"' src`（30 文件）；`rg -n "@mixin section-title" src`（期望仅 1，dashboard）。
+- **命名冲突警示**：`@mixin section-title` 已被 dashboard 占用 → B-26 新 mixin 必须命名 `section-title-block`（同 `@use ... as *` 时两文件同名 mixin 静默覆盖且编译不报错）。
+- **B-26 事实订正**：原「亮色两值同值 / 暗色不跟随」两条观感结论均不成立——`common-forms.scss:80-84` 实为 `var(--color-primary-lighter)` 双 stop（同值恒生效 → 亮色平涂 `#ecf5ff`，fallback `#f0f7ff`/`#e8f4ff` 永不生效）；暗色 `variables.css:131` 重定义该变量为 rgba(.1)（会跟随，只是平涂）。B-26-② 改 `var(--gradient-card-highlight)` 后：双主题均由平涂→渐变，验收=5 页双主题目视（影响面=`@include form-container` 恰 5 文件，scoped 不穿透子组件）。
+
 ---
 
 ## B-19. 【执行顺序清单】Bug 修复优先级排序（按复杂度分级）
@@ -1114,6 +1128,7 @@
 > 故同表登记；但实现与 CI 归属不同（`ci.yml` 而非 `duplicate-guard.yml`），不可混为一谈。
 
 ## 变更记录
+- **v2.9.60 (2026-11-05)**：批次 10 状态复核（M-14~M-17 销项/立项前置）——对 D-2/D-5/B 区做状态复核（复核结论与证据直附 merge-audit-20261101 M-15/M-16/M-17 行，非新修复），新增 **D-9**（D 区编号重号消歧 D-4a/D-4b/D-5a/D-5b + `.section-title` 非 B-26 家族待核查 + `@mixin section-title` 命名冲突警示 + B-26 事实订正「亮色平涂恒生效 / 暗色跟随」，B-26-② 改 `var(--gradient-card-highlight)` 验收口径改为 5 页双主题目视），无其他新增条目。
 - **v2.9.59 (2026-10-29)**：关闭 **D-8**（DR-4 判据来源分叉，发现来源 merge-audit M-RC-17 待确认项转正）——`AsideMenu.vue` 四菜单判据权限码双实现（`hasPermission(PERMISSION_CODES.*)` 读种子态）与 `usePermission.ts:105-117` 同名层级判据并存，菜单（码口径）与路由守卫（roleWhitelist 层级口径）分叉：有码无级→可见被拦、有级无级→隐藏可直达（auditlog:read 全角色有码为最宽分叉）。**收敛**：AsideMenu 解构复用层级判据删本地实现（DR-4），菜单/守卫/后端 permission_classes 三方同口径；**方向订正**——原「权限码为唯一事实来源」反转（后端无码校验，层级为唯一可达同口径，merge-audit §3.1.8 留痕①）；**行为变更锁定**：canViewAuditLog 对持码 regular_user 由可见转隐藏。防回归三层（角色矩阵 / 有码低角色 false 锁定 ×3 / ?raw 源码守卫）。验证：全量 vitest **179 files / 2337 passed**（+9）、vue-tsc / eslint / prettier / FR 护栏全 0；活账本 BF-163、merge-audit §3.1.8 同步。
 - **v2.9.58 (2026-10-08)**：关闭 **A-49**（DR-1 测试侧，§1.8 新发现义务）——分组两 spec 同名 `expandGroup` helper 双份实现且共载与真实 element-plus@2.13.7 不符的载荷 `true`（真实载荷为 `[row]`），随 **BF-078** 需求2（`onExpandChange` 归一化，用户裁定「不应连带展开」为 Bug）同批统一为 `[row]` 并注释实证留痕。BF-078 整批登记（四需求：汇总列序勾选前置 / 不连带展开 / 返回状态恢复 AC-67j / 单条组取消自动展开 AC-67e 反向修订），活账本 BF-078 条目、方案书 §3.12.12 落地证据、验收标准 AC-67e/AC-67j 同步。验证：全量 vitest **152 files / 2075 passed** exit 0（较 BF-077 同日基线 2052 净增 23）、覆盖率 statements 93.01% / stores 97.84%（双阈值过）、type-check / lint / format:check 全 0、双护栏 PASS。
 - **v2.9.57 (2026-10-08)**：关闭 **A-48**（DR-2 样式值级重复，§1.8 新发现义务）——详情页本地样式块冗余覆写 `detail-container` mixin `min-height` 同值 ×7 + 无 mixin 复刻块 ×1 收敛为 mixin 单源（`common-forms.scss:127 → min-height:100%`，8 处 include 统一生效），修复后 detils/ 下 `100vh` 残留 0；同步登记 **BF-075**（四模块同批：16 列表页 el-table 横向滚动条埋底 / 分组汇总与子表同型 / 详情页双滚动条 / RoleManage+AuthUserManage 视口 100vh）与 `style-optimization-proposal.md` §4.7 新增 + §6.3 重写 + 优先级表标注。计划偏差两处已留痕（M4 `height:100%` → flex 等价形、孤儿 spec 方案 A 修复）。验证：全量 vitest 150 files / **2049 passed** exit 0、覆盖率四指标 ≥80、build（SCSS 真编译）成功、type-check / lint / format 全 0；变异测试经用户拍板豁免（改动仅 template/styles/specs，与 stryker 范围零交集）。
