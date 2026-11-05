@@ -1047,6 +1047,12 @@
 - **命名冲突警示**：`@mixin section-title` 已被 dashboard 占用 → B-26 新 mixin 必须命名 `section-title-block`（同 `@use ... as *` 时两文件同名 mixin 静默覆盖且编译不报错）。
 - **B-26 事实订正**：原「亮色两值同值 / 暗色不跟随」两条观感结论均不成立——`common-forms.scss:80-84` 实为 `var(--color-primary-lighter)` 双 stop（同值恒生效 → 亮色平涂 `#ecf5ff`，fallback `#f0f7ff`/`#e8f4ff` 永不生效）；暗色 `variables.css:131` 重定义该变量为 rgba(.1)（会跟随，只是平涂）。B-26-② 改 `var(--gradient-card-highlight)` 后：双主题均由平涂→渐变，验收=5 页双主题目视（影响面=`@include form-container` 恰 5 文件，scoped 不穿透子组件）。
 
+### D-10. 【批次 11 登记 2026-11-05】合同付款局部映射领域归属判定（待核查区，不动手）
+- **位置**：`vue-assetmanagement/src/components/componentsdetails/detils/ContractPaymentRecord.vue:180-191`（局部映射两枚：statusMap 3 键 pending/approved/deleted / paymentMethodMap 4 键 bank_transfer/cash/check/other）。
+- **领域归属判定**：合同付款子域自身枚举（付款状态 / 付款方式），非跨域复用面——前端当前无合同域共享 constants 落点，组件内单消费方，不构成重复。
+- **迁移触发条件**：出现第 2 个消费方 → 落点 `src/constants/contract.ts`（同 A-54 域常量收敛口径）。
+- **本批不动手**：仅登记待核查区，留待触发条件满足时按上条迁移。
+
 ---
 
 ## B-19. 【执行顺序清单】Bug 修复优先级排序（按复杂度分级）

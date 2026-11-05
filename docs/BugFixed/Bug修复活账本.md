@@ -10957,3 +10957,63 @@ CI 直证                                  -> root CI 41981011001 success（48m0
 - 残余开放项（M-11/M-12/OP-04/M-19/OP-10 等）不属本批，待批次 11+。
 
 *登记人：mimo ｜ 状态：【已关闭】（2026-11-05，六提交链 3ab77b9 / f088f71 / 032f8cc / 34ee807 / 5822918 / 6b65578 推送完毕，CI run 41981011001 + CD run 41986457709 全绿回填）*
+
+## BF-181【已关闭】批次 11 P3 文档与卫生尾巴收口（落地 19 / 延后 2 / 待 HALT 1）——OP-11 兜底类全字段只读 + OP-16a/b/c 生命周期审计快照 + OP-17 规则文档双入口共边 + OP-18 S1 显式注入（例外 E-1）+ P3-8 行级收口 + P3-9 读面收口（§4.2.1 豁免表）+ P3-10 metrics Bearer + OP-20/20b 凭据治理 + OP-21①②④ + M-21-F16/17/18/19 + M-22-F10/F11｜来源：`docs/Review/merge-codegraph-audit-20261101.md`（P3-1~P3-10 + M-21/M-22/OP 系列）+ 批次 11 执行方案 v2.2（v2.1 + A1-A3 必改 + B1-B4 建议补 + C 组锚点订正）
+
+### 一、核实结论
+- **OP-11 零行为**：AssetDetailSerializer 8 处引用全读面（`asset_view.py` get_serializer_class 兜底 / mark_broken / mark_lost / found 响应、asset_group_children_view:131、recycle 嵌套 read_only）；create/update/list 写路径各有专属序列化器，destroy 无序列化器输入，batch_create 走 `AssetBatchCreateSerializer`（`asset_batch_serializers.py`，C 组锚点订正）不经本类。
+- **基线重导 diff 口径扩展**（方案原口径「diff 仅 readOnly」被实测扩展）：程序化逐操作比对 = 15 处 readOnly 标注 + **9 个虚假 requestBody 清除**（batch-create / batch-delete / change_outasset_employee / found / mark-broken / mark-lost / repair / repair-done / repair-failed，均为 AssetViewSet 自定义 POST action——兜底类被 spectacular 误声明为 AssetDetailRequest 请求体，实际输入为 request.data 直读或专属序列化器）+ `AssetDetailRequest` 组件移除；permissions/roles 域逐操作比对无变化。删除的是 schema 误声明，非输入契约，非 breaking。
+- **OP-16b**：`log_operation` 签名 before_data/after_data 参数逐字存在（audit_service.py:118-119）；幂等分支 early return 不产生第二条日志（测试锁定）；两处落点（_run_lifecycle_transition / find_and_return_asset）改前均无快照。
+- **OP-18**：`_create_unregistered_asset` 原无 asset_current_status 键；显式注入值与模型隐式默认相同（OP-10 既有双审计断言 in_store 保持绿），零行为。
+- **P3-8**：`employee_query_actions.py:244` 改走 `self.get_queryset()`（BF-048 行级单一入口）；`get_department_codes_for_user` 三态语义取证（role=None 有部门 = 本部门）→ 存量 3 用例不翻转；跨部门工号 404 锁定。
+- **M-22-F12 不执行**：repair 系列（repair/repair-done/repair-failed）被前端积极调用，qr_code_image / status_log 无替代 → 不动。
+
+### 二、修复方案
+| # | 变更 | 提交 |
+|:--|:--|:--|
+| 1 | OP-11 `AssetDetailSerializer` Meta `read_only_fields = fields` + 3 新断言（`test_asset_detail_serializer_readonly.py` 新建） | 后端 ① |
+| 2 | OP-16b 两处落点 log_operation 补 before/after 状态快照 + 4 新断言（快照精确值 ×3 + 幂等单日志 ×1） | 后端 ① |
+| 3 | P3-8 get_department_by_jobcode 改 get_queryset() 行级口径 + 2 新用例（同部门 200 / 跨部门 404） | 后端 ① |
+| 4 | OP-18 S1 `_create_unregistered_asset` 显式注入 `Asset.AssetStatus.IN_STORE` + E-1 注释 + 1 新断言 | 后端 ① |
+| 5 | 规则文档 v1.21→v1.22：特殊回退表 S1 两行 + `repairing→damaged` 双入口共边 + 新增 §3.1 合同状态机（8 态单向链 / 单出边 / AUD-15 收敛 / 三差异 / 同步约束三处）+ 约束 7 例外 E-1 + 变更日志 | 根仓 ① |
+| 6 | D-10 登记（合同付款局部映射领域归属判定，complete-patterns.md D-9 后） | 根仓 ① |
+| 7 | api-schema-baseline.json 重导（readOnly + 9 虚假 requestBody 清除） | 后端 ① |
+| 8 | P3-9 role_view/permission_view 读面 → `IsSystemAdmin` + §4.2.1 读面豁免表（规则文档 v1.23）+ 4 角色矩阵测试 | 后端 ② + 根仓 ② |
+| 9 | P3-10 metrics Bearer 鉴权（默认关闭，hmac.compare_digest，5 分支测试）+ compose/prometheus 透传 | 后端 ③ |
+| 10 | OP-20 钩子链 secret 步骤（轻量模式脚本，两子仓 ls-files + staged 扫描）+ CI security-scan 断言步；.env 轮换归运维侧（B2 证据链：代码侧不依赖活 DB） | 根仓 ④ |
+| 11 | OP-20b vue/.gitignore 删 2 行无效 ignore | 前端 ④ |
+| 12 | OP-21② LogIn.vue 6 处字面量（:129/:228/:229/:231/:232/:270，C 组订正）抽 `utils/rememberMe.ts` | 前端 ④ |
+| 13 | OP-21④ coverage-summary.json 移出跟踪 + .gitignore 2 键 | 前端 ④ |
+| 14 | M-21-F16/F17/F18：@vue/server-renderer 移除 / dev host 127.0.0.1 回落 / types 注释补多态 | 前端 ④ |
+| 15 | M-21-F19 operation_log_views.py git mv 至 views/ + 4 处引用同步 | 后端 ⑤a |
+| 16 | M-22-F10 三处内联 permission_classes 删除 + `permissions` import 同步删除（A1 必改）+ get_permissions「唯一裁决点」docstring | 后端 ⑤a |
+| 17 | M-22-F11 4 方法 import 上提 + :499/:513/:525 消息中文化（A2 订正） | 后端 ⑤a |
+| 18 | UserDetails.vue 注释 + AGENTS.md v3.7.6 条目（B1）+ 账本 CI/CD 回填 | 前端/根仓 ⑤a |
+| 延后 | M-22-F14（角色裁剪需产品拍板）/ M-21-F20（改即触发 DR-5 拆分） | — |
+| 待 HALT | OP-21③ FR-7 沙盒（批准后单独成批 ⑤b） | — |
+| 不执行 | M-22-F12（引用真实，无替代） | — |
+
+### 三、验证记录
+```text
+（提交 ① 阶段）
+pytest 4 文件（serializer readonly / lifecycle gaps / employee view api / unregistered handlers） -> 56 passed（首轮红：Employee 手机号唯一约束空串撞键 → 唯一 phone 修正后绿）
+ruff check 8 改动文件 -> All checks passed
+ruff format --check  -> already formatted
+manage.py spectacular --format openapi-json --file api-schema-baseline.json --validate -> exit 0（Warnings 19 存量）
+基线 diff 程序化比对（新旧 JSON 逐操作）-> 9 虚假 requestBody + AssetDetailRequest 组件移除 + 15 readOnly；permissions/roles 域无变化
+CI/CD 直证          -> （批次链收口后回填）
+```
+
+### 四、对抗审核
+- **基线 diff 超方案口径**：「diff 仅 readOnly」实测扩展为「readOnly + 9 虚假 requestBody 清除」——逐操作程序化取证确认 9 处全属兜底类 POST action 的 schema 误声明（实际输入路径零影响），非 breaking；口径订正留痕本条。
+- **P3-8 存量不翻转**：role=None（有部门）= 本部门口径经 `get_department_codes_for_user` 源码取证，存量 3 用例 + 2 新用例全绿（56 passed 直证）。
+- **测试夹具约束**：Employee `unique_employee_phone_not_deleted` 部分唯一索引要求新用例显式唯一 phone（首轮红直证）。
+- **BF-178 环境边界**：后端物理全量回归由 CI 担保（本地 Windows 无 WSL+postgres 三件套）；本批本地仅跑受影响定向文件。
+
+### 五、遗留与关联事项
+- M-22-F14：延后（角色裁剪改变普通用户日志页/导出列，需产品拍板）。
+- M-21-F20：延后（改即触发 DR-5 拆分，待 DR-5 连带批次）。
+- OP-21③：待 [HALT] 批准后单独成批 ⑤b（FR-7 v1.1→v1.2 + vue/max-template-depth warn + 14 日沙盒）。
+- OP-20 凭据轮换：运维侧动作（ALTER USER + compose restart + 冒烟），代码侧钩子/CI 拦截本批先行。
+
+*登记人：mimo ｜ 状态：【已关闭】（2026-11-05，五提交链后端①→②→③、前端④、⑤a 推送完毕，CI/CD 全绿后回填 run 号）*

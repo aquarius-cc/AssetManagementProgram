@@ -1,7 +1,7 @@
 
 ---
 
-### 📄 文档 4：后端业务规范 `/Rules_Fiels/backend-business-rules.md` (v1.21)
+### 📄 文档 4：后端业务规范 `/Rules_Fiels/backend-business-rules.md` (v1.22)
 
 # 后端业务规范与设计思路 (Backend Business Rules)
 > 版本：v1.20 | 最后更新：2026-10-24
@@ -83,7 +83,7 @@ repairing ──repair_done──┘    │               │                  �
 | `broken` | `repairing` | 送修（必须创建维修记录） |
 | `broken` | `damaged` | 申请报废（损坏状态） |
 | `repairing` | `recycled_pending` | 维修完成（更新physical_grade，重新进入发放池） |
-| `repairing` | `damaged` | 维修失败，申请报废 |
+| `repairing` | `damaged` | 双入口共边：维修失败确认（`repair_failed`）与报废申请（`to_damaged`）同落此迁移（transitions.py M-30 注释） |
 | `lost` | `recycled_pending` | 找回（重新进入发放池） |
 | `lost` | `damaged` | 申请报废 |
 | `damaged` | `scrapped` | 审批通过 |
@@ -105,6 +105,8 @@ repairing ──repair_done──┘    │               │                  �
 | 取消回收 | `cancel_recycle()` | 恢复到在用 |
 | 取消报废 | `cancel_damaged(original_status)` | **根据申请前状态回退（与 reject 一致）**，original_status 为空/非法时兜底 recycled_pending |
 | 强制回收 | `force_recycle_from_any()` | 管理员特殊操作，跳过常规校验 |
+| S1-创建即回收 | `_handle_s1_create_and_recycle()` | 未登记资产 S1：裸 `Asset.objects.create`（初始态由 OP-18/例外 E-1 显式注入，非依赖模型默认值）+ 回收直写 `in_store→recycled_pending`，不经 FSM `recycle()`；create + state_change 双审计补痕（OP-10） |
+| S1-创建即报废 | `_handle_s1_create_and_damaged()` | 未登记资产 S1：同上 + 报废直写 `in_store→damaged`，不经 FSM `to_damaged` |
 
 **业务约束**：
 
@@ -114,7 +116,31 @@ repairing ──repair_done──┘    │               │                  �
 4. 维修完成时必须更新资产的 `physical_grade` 字段。
 5. 审批拒绝报废时，资产必须回退到申请前的状态（由 `original_status` 字段决定），而非一律回到 `recycled_pending`。即使原员工已离职或调岗，也应先回退到 `in_use`，然后再通过正常回收流程处理。
 6. 用户取消报废申请时，资产同样必须回退到申请前的状态（由 `original_status` 字段决定），与审批拒绝行为保持一致。`original_status` 缺失或非法时兜底回退 `recycled_pending`。
-7. 资产创建时初始状态**必须**为 `in_store`，且**必须**由 `AssetService.create_asset` 统一注入（引用 `Asset.AssetStatus.IN_STORE` 枚举，非字符串）。创建类 Serializer（如 `AssetCreateSerializer`）**禁止**暴露 `asset_current_status` 写字段(P0-1 回归约束，防止客户端绕过 FSM 直接创建终态资产)。
+7. 资产创建时初始状态**必须**为 `in_store`，且**必须**由 `AssetService.create_asset` 统一注入（引用 `Asset.AssetStatus.IN_STORE` 枚举，非字符串）。创建类 Serializer（如 `AssetCreateSerializer`）**禁止**暴露 `asset_current_status` 写字段(P0-1 回归约束，防止客户端绕过 FSM 直接创建终态资产)。**例外 E-1**：未登记资产 S1 裸 create 绕过 `create_asset`，由 `unregisteredasset/handlers._create_unregistered_asset` 显式注入 `Asset.AssetStatus.IN_STORE` 枚举（见「特殊回退操作」S1 两行）；M-01 落地后重评 S1 是否改走 `create_asset`。
+
+### 3.1 合同状态机（业务流转路径）
+
+合同域独立于资产状态机，由 `state_machine/contract_fsm.py` 管理（单一事实来源 `_CONTRACT_TRANSITIONS`，DR-1）。
+
+**8 态单向链**（每态单出边，终态 `project_finished` 为空集）：
+
+| 当前状态 | 允许的目标状态 | 转换 |
+|---------|---------------|------|
+| `purchasing` | `purchase_finished` | purchase_finished |
+| `purchase_finished` | `receive_check` | receive_check |
+| `receive_check` | `initial_check` | initial_check |
+| `initial_check` | `project_settlement` | project_settlement |
+| `project_settlement` | `settlement_done` | settlement_done |
+| `settlement_done` | `final_check` | final_check |
+| `final_check` | `project_finished` | project_finished |
+| `project_finished` | *无* | 终态，不可转出 |
+
+**与资产状态机三点差异**：
+1. **单向链、无回退**：不存在回滚/撤销边（资产状态机存在取消出库/取消回收/取消报废等旁路，见上文「特殊回退操作」）；
+2. **单出边**：每个非终态恰有一个合法下一状态（资产状态机为多出边，如 `in_store` 三分支）；
+3. **非法态收敛（AUD-15）**：非法状态值与非法迁移均收敛为 `ContractInvalidTransitionError`（不裸抛 500）；读路径 `allowed_next_states` 对脏数据防御性返回 `[]`（前端据此禁用状态下拉）。
+
+**同步约束**：状态迁移表变更必须三处同步：`_CONTRACT_TRANSITIONS`（事实源）+ `test_contract_fsm.py`（回归锚）+ 本小节（文档）。
 
 ## 四、RBAC 权限与行级数据隔离（B11-B14）
 
@@ -300,6 +326,7 @@ repairing ──repair_done──┘    │               │                  �
 | BR-7	| **调用链验证** |	视图（View）→ 服务（Service）→ 选择器（Selector）的纵深不得超过 3 层（View→Service→Selector 为标准深度）。若出现 View→Service→Service→Selector 等 4 层+，必须扁平化或使用事件驱动解耦。|	合并中间层或引入事件 |
 
 ## 六、变更日志
+- v1.22 (2026-11-05): **批次 11 P3 文档缺口三补 + OP-18 例外 E-1**——① 「特殊回退操作」增 S1 两行（未登记资产 S1 创建即回收/创建即报废旁路，初始态由 E-1 显式注入非依赖模型默认值）；② `repairing→damaged` 改标双入口共边（维修失败确认 `repair_failed` / 报废申请 `to_damaged`，transitions.py M-30 注释同边）；③ 新增 §3.1 合同状态机小节（8 态单向链 / 单出边 / `ContractInvalidTransitionError`（AUD-15）/ `allowed_next_states` 脏数据返 `[]`；与资产状态机三点差异；同步约束三处 `_CONTRACT_TRANSITIONS` + `test_contract_fsm.py` + 小节）。约束 7 追加例外 E-1（S1 裸 create 显式注入 `IN_STORE` 枚举，`handlers._create_unregistered_asset`，M-01 落地后重评）。登记：BF-181；merge-audit P3-2/3/4/6/7。
 - v1.21 (2026-11-04): **新增 §4.8 OS-8（信封全包后处理器，OP-09 / 批次 8 落地）**——基线 265 operation 直证（op9 机械分类）：裸 JSON 信封包装 0 残留、信封内嵌 0、非 JSON 0 违约、no-body 0 违约 + 真实 DELETE 19/19 修正为信封 200（204 无 body 全退场）+ 幽灵 CRUD 8 条（dashboard×5 经去 ResponseWrapperMixin 运行时 404 / permissions×3 经 `http_method_names` 过滤运行时 405）退场；`core/envelope_schema.py`（ENVELOPE_EXT_NAME `x-envelope` 单点）经 base.py `POSTPROCESSING_HOOKS` 接线；qr-code-image `(200, image/png)` 精确媒体声明；G-1 security 注释 7 处 / 3 文件 267→265 同步；`api_schema` fixture 上提根 conftest（DR-1，跨域共享）。基线重导 `--validate` 双跑一致；8 条护栏（core/tests/test_openapi_envelope_contract.py）全绿。登记：BF-178；融合报告 OP-09 批次 8 收口。
 - v1.20 (2026-10-24): **B4 豁免条款落地（M-28 方案 A，[PATCH-BE] 经用户拍板放行）**——① B4 约束内容追加「非分页列表豁免」：仪表盘 `limit`（top-N，运行时上限 100）与 `days`（时间窗，上限 365）为聚合/截断类 action 参数，不适用 `page`/`page_size` 分页契约；② 配套代码去重：`dashboard_view.py` 两处 `limit` 解析与两处 `days` 同形 `try/except`（各 4 行 ×4 处）收敛为唯一 helper `_parse_int_param(query_params, key, default, upper)`（DR-1），行为逐字等价（缺省/空值/非法回退 default，超上限钳位）；③ 新增测试 10 例（`TestParseIntParam` 8 例单元 + 2 例端点集成，落在 `test_dashboard_view_api.py`）。回归：全量 pytest + cov / `mypy --strict` / ruff check+C90+format / 五护栏 / `makemigrations --dry-run` / OpenAPI 基线零漂移（门禁数字见 BF-140 登记）。登记：BF-140，融合报告 M-28 已修复。
 - v1.19 (2026-10-21): **§4.7 三态表条文订正（AUD-21 授权可见性缺口 / 融合审计 M-01，[PATCH-BE] 经用户「执行，并同步相关文档」放行）**——① 「无 Employee 记录」从 `None` 行移入「空列表」行：`core/department_scope.py:56-57` 修复为最严兜底 `[]`（`if not employee: return []`），superuser 分支（`:50-51`）与 system_admin/auditor 全局角色分支（`:62-63`）语义不变；② 配套注册开关 `AUTH_SELF_REGISTRATION_ENABLED`：`base.py:248` 缺省 True（dev/test 存量行为），`production.py:69` fail-closed 缺省 False（未显式置 true 即关闭），注册双入口 `views.py:116-117`（AuthUserViewSet.create）与 `:237-238`（RegisterAPIView.post）非 system_admin 一律 403，`extend_schema` 同步声明 403；③ 新增只读核查命令 `python manage.py audit_orphan_accounts`（Exists 子查询、`--json`/`--active-only`，只读）。回归：全量 2029 passed / cov 88.93%（≥80）/ Service 98%（≥90）/ `mypy --strict` 0 errors（228 files）/ ruff check+C90+format 绿 / 四护栏 PASS / `makemigrations --dry-run` 无变更 / mutmut 83.2925% ≥ 基线 83.25676365492598（T7 双门禁 PASS）/ OpenAPI 基线 `--lang en` 重导 diff 精确（2×403 + 1×description）。残留：dev/test 开关下 `AuthUserViewSet.create` 匿名建号存量保留（拍板①，单列后续项）；生产注册入口暴露 `[待确认]` 不变。登记：BF-125，融合报告 M-01 已修复。
