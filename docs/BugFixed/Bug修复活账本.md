@@ -11016,7 +11016,7 @@ CI/CD 直证          -> 中间链 CI 42050447009 success(49m06s) → 其 CD 420
 - **BF-178 环境边界**：后端物理全量回归由 CI 担保（本地 Windows 无 WSL+postgres 三件套）；本批本地仅跑受影响定向文件。
 
 ### 五、遗留与关联事项
-- M-22-F14：**2026-11-06 拍板 A（ip_address 仅系统管理员可见）→ 归批次 12**（方案已留痕于审计报告 §三 批次 12 条目；经用户拍板代码执行暂缓，待后续单独指示）。实现要点：运行时角色剔除字段（不用子类序列化器，保 schema 基线零 diff）+ 前端 4 点条件渲染 + CT-4 双角色先红后绿。
+- M-22-F14：**2026-11-06 拍板 A（ip_address 仅系统管理员可见）→ 归批次 12**（方案已留痕于审计报告 §三 批次 12 条目；经用户拍板代码执行暂缓，待后续单独指示）。实现要点：运行时角色剔除字段（不用子类序列化器，保 schema 基线零 diff）+ 前端 4 点条件渲染 + CT-4 双角色先红后绿。**2026-11-06 批次 12 执行完毕：BF-182**（后端 `051d714` 运行时剔除 + 前端 `acffadb` 6 点条件渲染；实际改动面 = 后端 11+10 调用点注入 + 前端 4 文件 6 点，详见 BF-182）。
 - M-21-F20：**已证据闭合（2026-11-06）**——陈旧发现：53/52 反弹（210cfa7 格式化重排）早已由 `4cc80b8`（2026-09-26）拆分修复（抽 `_create_broken_or_lost_record` + 塌缩 broken/lost 双分支）；`check_function_length_guard.py` 权威复测 `[PASS] 0 超长/0 未登记`；「改即触发 DR-5」顾虑随拆分消失；仅文档订正（complete-patterns.md:408 A-42「遗留」注记 + 审计报告 2026-11-06 续记）。
 - OP-21③：**2026-11-06 复核暂缓**——[HALT] 未批，14 日沙盒时钟未起算，FR-7 规则文档不动；批准后单独成批：`vue/max-template-depth` warn（初值 20，首日实测分布校准）+ 规则文档 v1.6（[HALT] 批准 + [PATCH-FE] 留痕）+ BF 登记 + §5.4 沙盒流程（14 日警告期 → 复核 → 投票 → 升 error）。
 - OP-20 凭据轮换：**2026-11-06 拍板：运行手册归账本，运维侧自执行**（代码侧钩子/CI 拦截已落地 ④，收口 `97c5b48`）：
@@ -11027,3 +11027,61 @@ CI/CD 直证          -> 中间链 CI 42050447009 success(49m06s) → 其 CD 420
 - CD Prune 空 body 崩溃（收口直证）：GHCR 孤儿/无 tag 版本删除返回空 body 2xx, `gh api` 默认 JSON 美化解析崩溃误判失败；收口提交以 `--jq 'empty'` 修复（仅以 HTTP 状态判成败）；终链 CD 重跑失败步后 HEAD=4ebdab2 部署成功。
 
 *登记人：mimo ｜ 状态：【已关闭】（2026-11-06 回填完毕：提交链后端①→②→③→⑤a→⑤a补 + 前端④/⑤a + 收口修复; 终链 CI 42052167666 + CD 42062026255 全绿, 部署 HEAD=4ebdab2）*
+
+## BF-182【进行中】批次 12 M-22-F14-A ip_address 仅系统管理员可见（拍板 A）——后端运行时角色剔除（操作日志/审计日志双暴露面）+ 前端 4 文件 6 点角色条件渲染（isAdmin）+ 双面双角色测试先红后绿｜来源：`docs/Review/merge-codegraph-audit-20261101.md` M-22-F14 + 2026-11-06 用户拍板 A（BF-181 §五 移交）+ 批次 12 执行方案（终版）
+
+### 一、核实结论
+- **拍板范围**：ip_address 仅系统管理员可见。两暴露面独立：① 资产操作日志面（`IsAuthenticated`，全部认证角色可达，含部门经理/资产管理员）——`AssetOperationLogSerializer`（列表/详情/资产 logs action/资产列表嵌套共用此序列化器）；② 通用审计日志面（`IsAuditorOrAdmin`，auditor 为主要受影响角色）——`AuditLogSerializer`（列表/详情）+ `AuditLogExportView.export_columns`（服务端导出含 IP 列）。
+- **操作日志导出面零改动**：`AssetOperationLogExportView.export_columns` 本就不含 IP 列（首日实证），不属本契约；审计面服务端导出含 IP 列 → 须动态剔除，与前端客户端导出双保险。
+- **角色判定单源**（DR-1）：后端 = `core.permissions.is_system_admin(user)`（is_superuser 或 role=system_admin，经 get_user_role 映射）；前端 = `usePermission().isAdmin`（isSuperuser || role === ROLE_CODES.SYSTEM_ADMIN），与后端严格对称。
+- **剔除方式选型**：运行时剔除（序列化器 `__init__` 按 `context["request"]` 角色 pop `ip_address`）而非子类序列化器——静态声明不变，spectacular 生成期无 request → 字段保留 → OpenAPI 基线零 diff（BASELINE-IDENTICAL 直证）。对非管理员，OpenAPI 字段属「过声明」（声明存在、运行时响应无此字段），本条留痕为已知权衡。
+- **调用点枚举（实测）**：操作日志面 11 处（`operation_log_views.py` ×10：分页列表 4 + 非分页列表 4 + 详情 2；`asset_view.py` 资产 logs action ×1）；审计面 10 处（分页列表 4 + 非分页列表 4 + 详情 2）。
+- **前端 6 点**：操作日志列表表格 IP 列（computed 角色 getter）/ 审计列表表格 IP 列（v-if）/ 审计列表导出列（迁出 + getter）/ 审计详情 IP 字段（v-if）/ 操作日志详情 IP 字段（v-if）/ 操作日志详情导出列（迁出 + getter）。
+
+### 二、修复方案
+| # | 变更 | 文件/提交 |
+|:--|:--|:--|
+| 1 | `AssetOperationLogSerializer.__init__` 运行时角色剔除（非管理员 pop `ip_address`）+ import `is_system_admin` | 后端 ① |
+| 2 | 11 处调用点注入 `context={"request": request}`（operation_log_views ×10 + asset_view 资产 logs action ×1） | 后端 ① |
+| 3 | `AuditLogSerializer` 接 request 按角色剔除（`_serialize` staticmethod → 实例方法）+ 10 处调用点注入 request | 后端 ① |
+| 4 | `AuditLogExportView.export` 非管理员动态剔 IP 列（类级 `export_columns` 声明保留：schema 与导出列契约护栏读类属性，零扰动） | 后端 ① |
+| 5 | 新测试 `core/tests/test_ip_address_visibility.py`：双面 × 双角色 12 用例（CT-4 先红后绿） | 后端 ① |
+| 6 | `operationLog.columns.ts` 基础列集（8 列）拆出 IP 列 + `getOperationLogColumns(isAdmin)`（DR-1 列集组装唯一入口）；`OperationLogDetails.vue` columns 改 computed 角色 getter | 前端 ② |
+| 7 | `AuditLogDetails.vue` 表格 IP 列 `v-if="isAdmin"`；导出列迁出 `auditLogExportColumns.ts` 经 `getAuditLogExportColumns` 角色条件 | 前端 ② |
+| 8 | `AuditLogDetail.vue` 详情 IP 字段 `v-if="isAdmin"` | 前端 ② |
+| 9 | `OperationLogDetail.vue` 详情 IP 字段 `v-if="isAdmin"`；导出列迁出 `detils/operationLogDetailExport.ts` 经 `getOperationLogDetailExportColumns` 角色条件 | 前端 ② |
+| 10 | 前端 3 个新 spec 13 用例（双面导出列 + 操作日志列集双角色断言，含【A-3】秒级精度与「未知」回退回归） | 前端 ② |
+| 11 | 根仓：子模块指针 ×2 + 本条账本 + BF-181 §五 F14 行移交标记 | 根仓 ③ |
+| [HALT] | 未触发（无状态机 / API 契约 / 迁移变更；OpenAPI 字段过声明为已知权衡非契约变更） | — |
+
+### 三、验证记录
+```text
+（后端 ① 阶段）
+pytest core/tests/test_ip_address_visibility.py（CT-4 红证）-> stash 4 源文件后 7 红/5 绿
+  （6 条非管理员遮蔽断言红 + 1 资产 action 404 装置问题：AssetViewSet lookup_field=recordcode
+   非 asset_code，测试夹具 URL 段修正后直证）→ pop 后 12/12 绿
+pytest 9 文件定向域回归（操作日志 ×4 / 审计 ×3 / 导出列契约 / RBAC ×2）-> 161 passed
+ruff check + ruff format --check + C90 + mypy . --strict -> 全绿（230 source files）
+BR-4/BR-6 护栏 -> PASS（asset_view.py 484 行 / 上限 500）
+spectacular 基线零 diff（JSON 口径三重比对：基线 vs 纯净 HEAD vs 改动后 = 0/0，BASELINE-IDENTICAL）
+（前端 ② 阶段）
+npx vitest run 3 新 spec -> 13 passed
+npx vitest run（全量）-> 197 files / 2542 tests passed（基线 194/2529 + 新增 3 文件/13 用例精确对账）
+vue-tsc --build -> 通过
+eslint --max-warnings=0（lint:ci）-> 通过
+prettier --check -> 全绿（6 新文件 --write 后复检）
+```
+
+### 四、对抗审核
+- **spectacular `--format` 口径陷阱**：`--format openapi` 输出 **YAML**（非 JSON），`--format openapi-json` 才是 JSON。首轮 `diff` 报 differ 实为格式错位假警报；改 JSON 口径三重比对后直证零 diff。CI oasdiff 步可同时解析 YAML/JSON，不受影响（CI 生成步用 `--format openapi`）。
+- **recordcode lookup 陷阱**：`AssetViewSet` `lookup_field="recordcode"`（非 asset_code），资产 logs action 测试首轮 404 即此因；测试夹具改 recordcode 后绿。
+- **过声明权衡**：OpenAPI 静态声明保留 IP 字段（生成期无 request）——非管理员客户端可见该字段声明但运行时响应无此字段；为「运行时剔除 + 基线零 diff」方案的已知权衡（子类序列化器或 context 相关 schema 生成均会改变基线，代价更大）。
+- **审计面 regular_user 403 不构成对照**：审计面 `IsAuditorOrAdmin`，regular_user 不可达；该面双角色对照取 admin vs auditor（auditor 为主要受影响角色）；操作日志面 regular_user 可达，403 无关。
+- **进程坑**：`| tail` 掩盖真实退出码（format:check 失败但管道 exit 0），凭输出文本捕获 6 文件格式问题后 `--write` 修复复检全绿。
+
+### 五、遗留与关联事项
+- BF-181 §五 M-22-F14 移交行由本条闭合。
+- 操作日志导出面无 IP 列（零改动留痕）；若产品后续要求管理员导出含 IP，需另立条目（涉导出列契约护栏 `test_export_columns_contract.py` 口径）。
+- CI/CD run 号待回填（根仓 ③ 推送后）。
+
+*登记人：mimo ｜ 状态：【进行中】（2026-11-06 登记：后端 `051d714` + 前端 `acffadb` 已提交，CI/CD run 号待回填）*
