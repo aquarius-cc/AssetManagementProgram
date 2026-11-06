@@ -268,7 +268,9 @@ jobs:
             vid=$(printf '%s\n' "${LINES[$i]}" | cut -f2)
             tg=$(printf '%s\n' "${LINES[$i]}" | cut -f3)
             echo "删除过期版本: id=${vid} tags=${tg}"
-            if ! gh api -X DELETE "/users/${PKG_OWNER}/packages/container/asset-management-backend/versions/${vid}"; then
+            # [BF-181 收口] 删除成功可能返回空 body(孤儿/无 tag 版本), gh api 默认 JSON 美化
+            # 解析空 body 崩溃(exit 1 误判失败); 显式 --jq 'empty' 仅以 HTTP 状态判成败
+            if ! gh api -X DELETE "/users/${PKG_OWNER}/packages/container/asset-management-backend/versions/${vid}" --jq 'empty'; then
               echo "⚠️ 删除版本 ${vid} 失败(可能已被删或权限不足)"
               FAILED=1
             fi

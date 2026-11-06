@@ -10958,7 +10958,7 @@ CI 直证                                  -> root CI 41981011001 success（48m0
 
 *登记人：mimo ｜ 状态：【已关闭】（2026-11-05，六提交链 3ab77b9 / f088f71 / 032f8cc / 34ee807 / 5822918 / 6b65578 推送完毕，CI run 41981011001 + CD run 41986457709 全绿回填）*
 
-## BF-181【已关闭】批次 11 P3 文档与卫生尾巴收口（落地 19 / 延后 2 / 待 HALT 1）——OP-11 兜底类全字段只读 + OP-16a/b/c 生命周期审计快照 + OP-17 规则文档双入口共边 + OP-18 S1 显式注入（例外 E-1）+ P3-8 行级收口 + P3-9 读面收口（§4.2.1 豁免表）+ P3-10 metrics Bearer + OP-20/20b 凭据治理 + OP-21①②④ + M-21-F16/17/18/19 + M-22-F10/F11｜来源：`docs/Review/merge-codegraph-audit-20261101.md`（P3-1~P3-10 + M-21/M-22/OP 系列）+ 批次 11 执行方案 v2.2（v2.1 + A1-A3 必改 + B1-B4 建议补 + C 组锚点订正）
+## BF-181【已关闭】批次 11 P3 文档与卫生尾巴收口（落地 20 / 延后 2 / 待 HALT 1）——OP-11 兜底类全字段只读 + OP-16a/b/c 生命周期审计快照 + OP-17 规则文档双入口共边 + OP-18 S1 显式注入（例外 E-1）+ P3-8 行级收口 + P3-9 读面收口（§4.2.1 豁免表）+ P3-10 metrics Bearer + OP-20/20b 凭据治理 + OP-21①②④ + M-21-F16/17/18/19 + M-22-F10/F11｜来源：`docs/Review/merge-codegraph-audit-20261101.md`（P3-1~P3-10 + M-21/M-22/OP 系列）+ 批次 11 执行方案 v2.2（v2.1 + A1-A3 必改 + B1-B4 建议补 + C 组锚点订正）
 
 ### 一、核实结论
 - **OP-11 零行为**：AssetDetailSerializer 8 处引用全读面（`asset_view.py` get_serializer_class 兜底 / mark_broken / mark_lost / found 响应、asset_group_children_view:131、recycle 嵌套 read_only）；create/update/list 写路径各有专属序列化器，destroy 无序列化器输入，batch_create 走 `AssetBatchCreateSerializer`（`asset_batch_serializers.py`，C 组锚点订正）不经本类。
@@ -10989,6 +10989,7 @@ CI 直证                                  -> root CI 41981011001 success（48m0
 | 16 | M-22-F10 三处内联 permission_classes 删除 + `permissions` import 同步删除（A1 必改）+ get_permissions「唯一裁决点」docstring | 后端 ⑤a |
 | 17 | M-22-F11 4 方法 import 上提 + :499/:513/:525 消息中文化（A2 订正） | 后端 ⑤a |
 | 18 | UserDetails.vue 注释 + AGENTS.md v3.7.6 条目（B1）+ 账本 CI/CD 回填 | 前端/根仓 ⑤a |
+| 19 | 收口修复：CD Prune 步 `gh api -X DELETE` 空 body 崩溃（孤儿版本删除被误判失败, 改 `--jq 'empty'` 仅以 HTTP 状态判成败, ci-cd.yml）+ 本条 CI/CD 回填 | 根仓 收口 |
 | 延后 | M-22-F14（角色裁剪需产品拍板）/ M-21-F20（改即触发 DR-5 拆分） | — |
 | 待 HALT | OP-21③ FR-7 沙盒（批准后单独成批 ⑤b） | — |
 | 不执行 | M-22-F12（引用真实，无替代） | — |
@@ -11001,7 +11002,11 @@ ruff check 8 改动文件 -> All checks passed
 ruff format --check  -> already formatted
 manage.py spectacular --format openapi-json --file api-schema-baseline.json --validate -> exit 0（Warnings 19 存量）
 基线 diff 程序化比对（新旧 JSON 逐操作）-> 9 虚假 requestBody + AssetDetailRequest 组件移除 + 15 readOnly；permissions/roles 域无变化
-CI/CD 直证          -> （批次链收口后回填）
+（提交 ⑤a/⑤a补 阶段）
+pytest 3 文件（asset_view_api / repair gaps / operation log export）-> 89 passed（⑤a 与 ⑤a补 两轮同口径全绿）
+ruff check + ruff format --check（asset_view.py / urls.py / 移仓文件）-> 全过
+manage.py spectacular 基线比对（⑤a / ⑤a补 各一次）-> BASELINE-IDENTICAL（F10 内联删除与 F11 import 上提 schema 零影响直证）
+CI/CD 直证          -> 中间链 CI 42050447009 success(49m06s) → 其 CD 42058796028 被一致性门禁 7s 拒绝（CI 提交 69b5d2c ≠ master 4ebdab2, fail-closed 设计行为非缺陷）; 终链 CI 42052167666 success(61m48s) → 其 CD 42062026255 首跑 1m52s 红于 Prune 步（空 body 崩溃误判, 部署本体门禁+Build&Push 均绿）→ 重跑失败步 success, 部署收口 HEAD=4ebdab2
 ```
 
 ### 四、对抗审核
@@ -11015,5 +11020,6 @@ CI/CD 直证          -> （批次链收口后回填）
 - M-21-F20：延后（改即触发 DR-5 拆分，待 DR-5 连带批次）。
 - OP-21③：待 [HALT] 批准后单独成批 ⑤b（FR-7 v1.1→v1.2 + vue/max-template-depth warn + 14 日沙盒）。
 - OP-20 凭据轮换：运维侧动作（ALTER USER + compose restart + 冒烟），代码侧钩子/CI 拦截本批先行。
+- CD Prune 空 body 崩溃（收口直证）：GHCR 孤儿/无 tag 版本删除返回空 body 2xx, `gh api` 默认 JSON 美化解析崩溃误判失败；收口提交以 `--jq 'empty'` 修复（仅以 HTTP 状态判成败）；终链 CD 重跑失败步后 HEAD=4ebdab2 部署成功。
 
-*登记人：mimo ｜ 状态：【已关闭】（2026-11-05，五提交链后端①→②→③、前端④、⑤a 推送完毕，CI/CD 全绿后回填 run 号）*
+*登记人：mimo ｜ 状态：【已关闭】（2026-11-06 回填完毕：提交链后端①→②→③→⑤a→⑤a补 + 前端④/⑤a + 收口修复; 终链 CI 42052167666 + CD 42062026255 全绿, 部署 HEAD=4ebdab2）*
