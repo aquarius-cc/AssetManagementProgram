@@ -11070,6 +11070,8 @@ npx vitest run（全量）-> 197 files / 2542 tests passed（基线 194/2529 + �
 vue-tsc --build -> 通过
 eslint --max-warnings=0（lint:ci）-> 通过
 prettier --check -> 全绿（6 新文件 --write 后复检）
+CI/CD 直证          -> CI 42237271531 success（快速门禁含 oasdiff schema 零 diff 全绿 + 前端/后端 测试+覆盖率 + 前端/后端 变异测试全 success）
+                       + Security Scan 42237271557 / DupGuard 42237271600 success + CD 42246602503 success（部署门禁校验 / Docker Build&Push / Prune 全绿，部署收口）
 ```
 
 ### 四、对抗审核
@@ -11082,6 +11084,6 @@ prettier --check -> 全绿（6 新文件 --write 后复检）
 ### 五、遗留与关联事项
 - BF-181 §五 M-22-F14 移交行由本条闭合。
 - 操作日志导出面无 IP 列（零改动留痕）；若产品后续要求管理员导出含 IP，需另立条目（涉导出列契约护栏 `test_export_columns_contract.py` 口径）。
-- CI/CD run 号待回填（根仓 ③ 推送后）。
+- CI/CD run 号已回填（见 §三 CI/CD 直证行）。
 
-*登记人：mimo ｜ 状态：【进行中】（2026-11-06 登记：后端 `051d714` + 前端 `acffadb` 已提交，CI/CD run 号待回填）*
+*登记人：mimo ｜ 状态：【已关闭】（2026-11-06 回填完毕：提交链后端 `051d714` → 前端 `acffadb` → 根仓 `ddaca3f`；CI run 42237271531 + Security Scan 42237271557 / DupGuard 42237271600 / CD run 42246602503 全绿，部署收口）*
