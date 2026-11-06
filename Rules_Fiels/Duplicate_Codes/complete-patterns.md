@@ -406,6 +406,7 @@
 - **契约影响**：纯增量（新增请求参数 `department_code` ×3 端点，components 与响应体零变化），未触发 §1.3。**不删除** `employee_department__department_code` 别名（删参数须人工审批），已登记技术债与退场条件。
 - **OpenAPI 手工声明覆盖机制（收尾复查新增教训）**：`@extend_schema(parameters=…)` / `responses=…` 与 drf-spectacular 自动注入是**同名覆盖、非互补合并**——手工声明不补全也不校正。本次三处同源：①`global_search` 手工写 `employee_status` 削平了 FilterSet 自动注入的 enum/title（**已修**：删手工声明，声明权交回 `employee_filters.py`，即 DR-1 在文档层的延伸）；②`ExportExcelMixin` 共享参数覆盖掉导出端点的筛选参数（**BF-049** 待修）；③`statistics` 手工 `responses=EmployeeDetailSerializer(many=True)` + `name` path 参数未被校正（**BF-050** 待修）。**可推广结论：凡 FilterSet / 分页器 / 认证类已能自动产出的声明，不要手工再写一遍。**
 - **遗留**：`scripts/check_function_length_guard.py` FAIL，但为**存量且与本次改动零交集**（`apps/assetmanagement/services/recycle_asset_service.py` `_finalize_broken_or_lost()` 53 行 / `create_recycle_asset()` 52 行未登记台账；该文件本次未改动，工作树 == HEAD）——留待 BR-4 批次拆分，非本条射程。导出行级 RBAC 缺失见 B-24。
+  - **2026-11-06 订正（批次 12 F20 证据闭合）**：上述「遗留」为**陈旧信息**——53/52 反弹（210cfa7 格式化重排）早已由 `4cc80b8`（2026-09-26）拆分修复（抽 `_create_broken_or_lost_record` + 塌缩 broken/lost 双分支，见 BR-4 台账头「规模化回归事故」段），2026-11-06 `check_function_length_guard.py` 权威复测 `[PASS] 0 超长/0 未登记`；「留待 BR-4 批次拆分」不再成立（以 BF-181 §五与审计报告 2026-11-06 续记为准）。
 - **回滚风险**：低—中——筛选语义为纯增量，回滚只需还原 4 个源文件；但 `ChoiceFilter` 的 enum 契约须随 `api-schema-baseline.json` 一并还原。
 
 ### A-43. 【关闭 2026-09-26】员工域「行集合授权口径」缺失 + 三个旁路绕开取行口径（B12 未落地 / DR-3；BF-048，闭合 B-24）

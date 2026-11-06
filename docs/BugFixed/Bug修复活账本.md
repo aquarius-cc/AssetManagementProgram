@@ -11016,10 +11016,14 @@ CI/CD 直证          -> 中间链 CI 42050447009 success(49m06s) → 其 CD 420
 - **BF-178 环境边界**：后端物理全量回归由 CI 担保（本地 Windows 无 WSL+postgres 三件套）；本批本地仅跑受影响定向文件。
 
 ### 五、遗留与关联事项
-- M-22-F14：延后（角色裁剪改变普通用户日志页/导出列，需产品拍板）。
-- M-21-F20：延后（改即触发 DR-5 拆分，待 DR-5 连带批次）。
-- OP-21③：待 [HALT] 批准后单独成批 ⑤b（FR-7 v1.1→v1.2 + vue/max-template-depth warn + 14 日沙盒）。
-- OP-20 凭据轮换：运维侧动作（ALTER USER + compose restart + 冒烟），代码侧钩子/CI 拦截本批先行。
+- M-22-F14：**2026-11-06 拍板 A（ip_address 仅系统管理员可见）→ 归批次 12**（方案已留痕于审计报告 §三 批次 12 条目；经用户拍板代码执行暂缓，待后续单独指示）。实现要点：运行时角色剔除字段（不用子类序列化器，保 schema 基线零 diff）+ 前端 4 点条件渲染 + CT-4 双角色先红后绿。
+- M-21-F20：**已证据闭合（2026-11-06）**——陈旧发现：53/52 反弹（210cfa7 格式化重排）早已由 `4cc80b8`（2026-09-26）拆分修复（抽 `_create_broken_or_lost_record` + 塌缩 broken/lost 双分支）；`check_function_length_guard.py` 权威复测 `[PASS] 0 超长/0 未登记`；「改即触发 DR-5」顾虑随拆分消失；仅文档订正（complete-patterns.md:408 A-42「遗留」注记 + 审计报告 2026-11-06 续记）。
+- OP-21③：**2026-11-06 复核暂缓**——[HALT] 未批，14 日沙盒时钟未起算，FR-7 规则文档不动；批准后单独成批：`vue/max-template-depth` warn（初值 20，首日实测分布校准）+ 规则文档 v1.6（[HALT] 批准 + [PATCH-FE] 留痕）+ BF 登记 + §5.4 沙盒流程（14 日警告期 → 复核 → 投票 → 升 error）。
+- OP-20 凭据轮换：**2026-11-06 拍板：运行手册归账本，运维侧自执行**（代码侧钩子/CI 拦截已落地 ④，收口 `97c5b48`）：
+  - **本地**：① 生成新密码（≥16 位随机，勿复用，勿入聊天/日志）→ ② 更新 `asset_management_backend/.env` 的 `DB_PASSWORD`（:9）/ `REDIS_PASSWORD`（:14）→ ③ `docker compose up -d --force-recreate` → ④ 冒烟：后端 health + 登录 + 一读一写 API。
+  - **生产（如部署）**：① Postgres 会话内执行 `ALTER USER <db_user> WITH PASSWORD '<new>'`（密码不落任何文件/日志）→ ② 生产 env/秘密管理更新 → ③ `docker compose -f docker-compose.prod.yml up -d` → ④ 同冒烟清单。
+  - **顺带**：生产 env 设真实 `METRICS_TOKEN`（批次 ③ 机制已就绪，空=不鉴权）。
+  - **验证**：pre-commit `check_secret_tracking` + CI security-scan `.env` 跟踪断言保持绿（键模式扫描不依赖具体值，轮换零影响）。
 - CD Prune 空 body 崩溃（收口直证）：GHCR 孤儿/无 tag 版本删除返回空 body 2xx, `gh api` 默认 JSON 美化解析崩溃误判失败；收口提交以 `--jq 'empty'` 修复（仅以 HTTP 状态判成败）；终链 CD 重跑失败步后 HEAD=4ebdab2 部署成功。
 
 *登记人：mimo ｜ 状态：【已关闭】（2026-11-06 回填完毕：提交链后端①→②→③→⑤a→⑤a补 + 前端④/⑤a + 收口修复; 终链 CI 42052167666 + CD 42062026255 全绿, 部署 HEAD=4ebdab2）*

@@ -114,9 +114,9 @@
 | **OP-14 / OP-15** | B P3-14/15 | `types/outasset.ts:126`、`types/asset.ts:321,364` | 类型裸 `string` + 注释只列 4 态 → 改枚举类型 / 注释改 8 态全集 | ✅（工作树 · 批次 4；OP-14 采纳**别名化**拍板：`export { AssetCurrentStatus as OutAssetCurrentStatus }`，非补宽方案） |
 | **OP-16/17/18 群** | B P3-2/3/4/6/7 | `backend-business-rules.md` §三 / `state_machine/unregistered.py` / `asset_lifecycle_mixin.py:82-90` | 规则文档三处缺口（特殊回退表缺 S1 两路径、`repairing→damaged` 双边、**合同状态机零文档**）+ lifecycle 审计缺 before/after + S1 裸 create 字面违约 | ⛔（文档批次） |
 | **OP-19 群** | B P3-8/9/10 | `employee_query_actions.py:234` / `role_view.py:80` 等 / `config/urls.py:155` | 工号探测存在性、系统配置读面、`/metrics/` 无鉴权 → 前者改 `get_queryset()`，后两者 **[待确认]** 需业务/运维拍板 | 🔵 |
-| **OP-20** | B P3-11 | `backend/.env:9,14` | 疑似真实凭据，已核实**从未入库**（`git log --full-history` 空）→ 确认轮换 + pre-commit 强拦截 | ⛔ |
-| **OP-21 群** | B P3-16/17/18 | `ContractPaymentRecord.vue:180` / `LogIn.vue:228` / `eslint.config.ts:37` / `coverage-summary.json` | ①组件内局部映射 → **按 §1.8 登记账本待核查区**；②rememberMe 键散落 → 抽 utils；③**FR-7 无 `vue/max-depth` 门禁** → 新规按 §5.4 走 14 日沙盒；④陈旧覆盖率工件含已删文件条目 → 移出仓库根 | ⛔ / 🔵 |
-| M-21 / M-22 | A③ | 各处 | 零引用依赖 / dev host 0.0.0.0 / 类型注释漂移 / @action 死配置 / 双端点冗余 / ip_address 可见性 | 低优先迭代 |
+| **OP-20** | B P3-11 | `backend/.env:9,14` | 疑似真实凭据，已核实**从未入库**（`git log --full-history` 空）→ 确认轮换 + pre-commit 强拦截 | ✅ **已落地 · 批次 11 ④（2026-11-05，BF-181）**：`check_secret_tracking` 护栏（.env 跟踪零容忍 + staged 键模式扫描）进 5 护栏钩子链 + CI security-scan 断言步（根仓 `89074d7`）；运维侧轮换 runbook 归账本 BF-181 §五（2026-11-06 用户拍板：手册自执行） |
+| **OP-21 群** | B P3-16/17/18 | `ContractPaymentRecord.vue:180` / `LogIn.vue:228` / `eslint.config.ts:37` / `coverage-summary.json` | ①组件内局部映射 → **按 §1.8 登记账本待核查区**；②rememberMe 键散落 → 抽 utils；③**FR-7 无 `vue/max-depth` 门禁** → 新规按 §5.4 走 14 日沙盒；④陈旧覆盖率工件含已删文件条目 → 移出仓库根 | ✅ **①②④ 已落地 · 批次 11 ④（2026-11-05，BF-181）**：①组件映射登记账本 + ②rememberMe 单点 + ④coverage 移跟踪 + OP-20b 死行删除（前端 `bacd7f8`）；⏸ **③ 2026-11-06 复核暂缓**（[HALT] 未批，14 日沙盒时钟未起算，FR-7 规则文档不动；批准后单独成批：`vue/max-template-depth` warn + 规则文档 v1.6 + BF 登记） |
+| M-21 / M-22 | A③ | 各处 | 零引用依赖 / dev host 0.0.0.0 / 类型注释漂移 / @action 死配置 / 双端点冗余 / ip_address 可见性 | ✅ **批次 11 已落地（2026-11-05，BF-181）**：F16/F17/F18（前端 `bacd7f8`）+ F19 views/ 移入 + F10/F11（后端 `44a0c42`/`1e01b5a`）；F12 不执行（repair 端点被前端积极调用，撤项留痕）；**F14（ip_address 可见性）2026-11-06 拍板 A 仅系统管理员 → 批次 12**（方案见 §三，代码暂缓）；**F20 证据闭合 2026-11-06**：陈旧发现（`4cc80b8` 已修 + guard 复测 `[PASS] 0/0`），仅文档订正 |
 | M-23 | A | — | pip-audit 本地未装，后端依赖以 CI `security-scan.yml` 为权威 | ✅ 留痕 |
 
 ### 已修区（源A 批次 1，已提交）
@@ -239,6 +239,49 @@
 批次 11【P3 文档与卫生尾巴】 OP-11 + OP-16~OP-21 + M-21 + M-22 + OP-19（[待确认] 拍板）
   → 规则文档三处补（含合同状态机章节）/ read_only_fields 一行 / .env 轮换 /
      组件映射登记账本 / FR-7 门禁按 §5.4 走沙盒 / [待确认] 两项拍板
+
+  ✅ **已执行（2026-11-05~06，BF-181【已关闭】，落地 20 / 延后 2 / 待 HALT 1）**：
+  五提交链——后端 `46088e8`（① OP-11 兜底类只读 / OP-16b 生命周期快照 / P3-8 行级收口 /
+  OP-18 S1 显式注入 E-1 + 基线重导 9 虚假 requestBody 清除）→ `188b512`（② P3-9 读面
+  IsSystemAdmin 收口 + 4 角色矩阵）→ `d4f1e09`（③ P3-10 metrics Bearer 鉴权，METRICS_TOKEN
+  空=不鉴权兼容内部抓取）→ `44a0c42`（⑤a F19 views/ 移入 / F10 内联删除 / F11 文案中文化）
+  → `1e01b5a`（⑤a 补 F10 唯一裁决点 docstring + F11 import 上提）；前端 `bacd7f8`（④ rememberMe
+  单点 + OP-20b 死行 + coverage 移跟踪 + F16/17/18）→ `48d7971`（⑤a UserDetails 注释）；根仓
+  `af57c49`（① 规则文档 v1.22 + D-10 + BF-181）→ `d917513`（② v1.23 + §4.2.1 读面豁免 3 行）
+  → `89074d7`（④ check_secret_tracking 护栏 + CI 断言 + 前端④指针）→ `69b5d2c`（⑤a）
+  → `4ebdab2`（⑤a 补）→ `97c5b48`（收口修复 + CI/CD 回填）。
+  验证：分阶段 56 → 66 → 89 passed 全绿 + schema BASELINE-IDENTICAL（多轮）+ 前端
+  194 files / 2529 tests + 5 护栏（含 check_secret_tracking）。
+  CI/CD 直证三链：中间链 CI 42050447009 success(49m06s) → 其 CD 42058796028 被一致性门禁
+  7s 拒绝（CI 提交 69b5d2c ≠ master 4ebdab2，fail-closed 设计行为）；终链 CI 42052167666
+  success(61m48s) → 其 CD 42062026255 首跑 1m52s 红于 Prune 步（gh api 空 body 崩溃误判，
+  部署本体门禁+Build&Push 均绿）→ 重跑失败步 success，部署收口 HEAD=4ebdab2（修复
+  `--jq 'empty'` 随 `97c5b48`）；收口链 CI 42139618765 + CD 42146567723 双绿。
+  延后转批次 12：M-22-F14（ip_address 可见性，产品拍板）/ M-21-F20（BR-4 台账存量）；
+  待 HALT：OP-21③（FR-7 14 日沙盒）。
+
+批次 12【审计尾巴收口】 M-22-F14（拍板 A：ip_address 仅系统管理员可见）+ M-21-F20（证据闭合，零代码改动）
+  → 后端：AssetOperationLogSerializer（asset_crud_serializers.py:378-398）+ core/audit_log_views.py
+     （:71 及同文件其余 ip_address dict 构造点）运行时按角色剔除——__init__ 读
+     context["request"] 非系统管理员即 pop 字段；**运行时剔除而非子类序列化器** → OpenAPI
+     静态声明不变 → schema 基线预期 BASELINE-IDENTICAL（零契约变更；对非管理员属过声明，
+     账本留痕）；导出列源首日确认（自动跟随序列化器则零改动，显式清单则同步剔）
+  → 前端：operationLog.columns.ts:33 IP 列拆出（基础列 + admin 追加）/ AuditLogDetails.vue
+     表格列 + 导出列 / AuditLogDetail.vue + OperationLogDetail.vue 详情 IP 字段——均按
+     当前用户角色（JWT payload，与路由菜单角色过滤同源）条件渲染
+  → 根仓：BF-183 新建 + BF-181 §五（F20 闭合 / OP-20 runbook）+ complete-patterns.md:408
+     A-42「遗留」注记订正（防陈旧信息再沿袭）
+  拍板记录（2026-11-06 用户）：F14 = A 仅系统管理员；⑤b FR-7 沙盒 = 暂缓（14 日时钟未
+  起算，规则文档不动）；OP-20 = 运行手册归账本，运维侧自执行。
+  F20 定性（2026-11-06 复核）：陈旧发现——53/52 反弹（210cfa7 格式化重排）早已由
+  `4cc80b8`（2026-09-26）拆分修复（抽 `_create_broken_or_lost_record` + 塌缩双分支），
+  check_function_length_guard.py 权威复测 `[PASS] 0 超长/0 未登记`；「改即触发 DR-5」
+  顾虑随拆分消失 → 仅文档闭合（guard 复跑留痕）。
+  验证：CT-4 双角色（admin/普通用户）× 操作日志列表/详情/导出/审计日志 × ip 存在性
+        6-8 用例先红后绿 + 操作日志域回归 + spectacular 基线比对 + vitest 全量 + vue-tsc + lint。
+  推送序：后端 → vue → 根仓（子模块先推）；CI/CD 盯绿后 BF-183 回填 run 号。
+  状态（2026-11-06）：方案已留痕（本条目 + 账本 + 相关文档合并提交）；代码执行经用户拍板
+        暂缓，待后续单独指示。
 ```
 
 **关键判断（融合方）**
@@ -278,6 +321,8 @@
 - [可验证] M-18 dev 高危 4 项与生产 0 high — 依据：本次 `npm audit --omit=dev`（7 moderate / 0 high）与全量输出（37 / 4 high，均 dev）。
 - [推测] M-01 属遗漏而非设计 — 原因：主资产域无代录白名单，与未登记资产域对照，缺产品口径文档。
 - [推测] 工作区 3 处未提交修复来自源A「批次 2」 — 原因：改动内容与批次 2 清单（M-03/M-04）精确吻合，但无提交信息可证；合同导出列字段属额外发现。
+- [可验证]（2026-11-06 续记）批次 11 已全链闭环（BF-181【已关闭】，落地 20）— 依据：三仓五提交链（后端 `46088e8`→`188b512`→`d4f1e09`→`44a0c42`→`1e01b5a`；前端 `bacd7f8`→`48d7971`；根仓 `af57c49`→`d917513`→`89074d7`→`69b5d2c`→`4ebdab2`→`97c5b48` 收口修复）+ 分阶段 56→66→89 passed + schema BASELINE-IDENTICAL + 前端 194 files / 2529 tests + CI/CD 三链直证（终链 CI 42052167666 + CD 42062026255 success，部署 HEAD=4ebdab2；中间链 CD 42058796028 一致性门禁 fail-closed 拒绝；收口链 42139618765 / 42146567723 双绿）。
+- [可验证]（2026-11-06 续记）M-21-F20 属陈旧发现（无需修复）— 依据：`check_function_length_guard.py` 权威复测 `[PASS] 0 处超长/0 文件` + BR-4 台账头「规模化回归事故」段（53/52 反弹由 `4cc80b8` 2026-09-26 拆分修复）+ complete-patterns.md:408 A-42「遗留」注记 2026-11-06 订正。
 
 ---
 
@@ -305,3 +350,5 @@
 - 专项结论：状态机旁路 0 处 | 跨端契约 4/4 通过 | SC 分流 SC-1/SC-3 合规·SC-5/6 N/A·SC-7 生产 0 high·SC-8 CI 权威
 - 合并完备性：源A 24 条 + 源B 27 条 → 去重后 4 P1 / 19 P2 / 12 P3 / 5 已修 / 5 不采纳，无遗漏 P0-P1
 ```
+
+> **2026-11-06 续注**：本票为 2026-11-01 融合时点快照，不回溯；批次 11 执行闭环（BF-181）与批次 12 规划（M-22-F14 拍板 A + M-21-F20 证据闭合，代码执行暂缓）见 §三 批次 11 已执行块 / 批次 12 条目、P3 区三行续记与 §五续记。
