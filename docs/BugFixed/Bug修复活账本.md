@@ -11146,8 +11146,19 @@ migration-check 首次真实 push 运行 42432138344 = failure（步骤③ `MIGR
   本地直证：GITHUB_ENV heredoc 解析模拟（空值 = 已定义 '' / 多文件 = 完整值）+ set -u 空面早退路径绿
     （变量未定义下 `${MIGRATION_FILES-}` 不炸）；套件 91 passed、ruff 零新增（初版括号化隐式拼接
     触发 ISC004/UP034 规则冲突，改单串字面量解）、编排护栏真仓七面 PASS。
-Commit 2（3a+3b+3c+4）push 验收（migration-check 首次真实 push 运行 + gate 双名单命中）：CI/CD 绿后回填
-Commit 3（首跑红修复）push 复验（migration-check 绿 + gate 双名单命中 + CD 部署）：CI/CD 绿后回填
+Commit 2（3a+3b+3c+4，head b7299c6）push 验收：
+  CI 42432138301 success（15 jobs）+ Dependency Security Scan 42432138300 success +
+  migration-check 42432138344 = failure（首跑红，见上）+
+  CD 42435021151 failure（gate ③ SHA 一致性拒绝：该 CI 完成时 master 已前进到 8aa51b0，
+    防两次推送间隔构建未验证新提交——fail-closed 另一面直证）
+Commit 3（首跑红修复，head 8aa51b0）push 复验：
+  CI 42432981495 success（15 jobs，含护栏自测真仓绿锚）+ Security 42432981528 success +
+  migration-check 42432981551 success（变更面解析输出「无迁移文件变更（本面）」+ ③/④
+    「未发现变更/未发现危险操作」——空面路径 CI 直证）+
+  CD 42435483855 success（gate ③ SHA 一致 + 双名单回查命中双对象 → 部署门禁校验 /
+    Docker Build & Push / Prune 全绿，部署收口）
+  双名单「拒绝」面：gate_recheck.py evaluate() 单测证红（Migration Safety Check=failure 输入
+    即拒）；真实环境直证的是命中（部署）与 gate ③ SHA 拒绝
 ```
 
 ### 四、对抗审核
@@ -11168,4 +11179,4 @@ Commit 3（首跑红修复）push 复验（migration-check 绿 + gate 双名单�
 - **O-2 推测备案**：若未来启用 required checks 且引用旧 guard job 名，删 workflow 会使 required check 悬空（当前未启用分支保护，仅记历史快照）。
 - **§5.4 定性记录**：本批 3a 删重复 workflow = 阻断面搬运（coverage 不减）不触发沙盒；3b migration-check 增 push 触发 = 首次真实生效的实质阻断面，裁定延后至 3b 上线时（不落地 14 天灰度，用 3b 证红/证绿矩阵 + 一次真实 push 的 gate 日志）。
 
-*登记人：AtomCode ｜ 状态：【进行中】（2026-11-07 开项，执行后回填提交链与 CI/CD run 号）*
+*登记人：AtomCode ｜ 状态：【已关闭】（2026-11-08 回填完毕：提交链 bc4d585 → b7299c6 → 8aa51b0；Commit 1 CI 42428517509 / Security 42428517588 / DupGuard 42428517549 / CD 42430875160 全绿；Commit 2 migration-check 首跑红 42432138344 + CD gate ③ SHA 拒绝 42435021151（fail-closed）；Commit 3 复验 CI 42432981495 / Security 42432981528 / migration-check 42432981551 / CD 42435483855 全绿，部署收口）*
