@@ -67,6 +67,10 @@ GUARD_REAL_REPO_ANCHORS = (
     "scripts/tests/test_file_length_guard.py",
     "scripts/tests/test_function_length_guard.py",
 )
+# 断言六（BF-183 首跑 42432138344 修复）：变更面 GITHUB_ENV 写入必须走 heredoc
+# 形式（多行兼容、空值必定义变量），③/④ 读取必须走 set -u 安全形式
+MIG_ENV_HEREDOC_MARKER = "MIGRATION_FILES<<MIG_DELIM"
+MIG_SETU_SAFE_MARKER = "${MIGRATION_FILES-}"
 
 
 def _jobs_section(lines):
@@ -213,18 +217,37 @@ def audit_migration_trigger(workflow_path):
     events = _on_events(workflow_path)
     if "push" not in events:
         return [
-            (f"migration-check.yml: on 段缺 push 触发（当前 {events}）——直推模式下"
-             "迁移检查永久休眠，CT-6 红线不进部署链（M-01）")
+            f"migration-check.yml: on 段缺 push 触发（当前 {events}）——直推模式下迁移检查永久休眠，CT-6 红线不进部署链（M-01）"
         ]
     return []
+
+
+def audit_migration_env_safety(workflow_path):
+    """断言六（BF-183 首跑 42432138344）：变更面 GITHUB_ENV 写入与 ③/④ 读取的 fail-safe 形态。
+
+    首跑直证两种失效：空变更面时 `printf '%s' ""` 向 GITHUB_ENV 写零字节、变量未
+    定义 → ③ `set -u` unbound 判红；≥2 文件时裸多行写入使 GITHUB_ENV 解析错位、
+    文件静默丢失（fail-open）。修复口径：写入走 heredoc 形式，读取走
+    `${MIGRATION_FILES-}` 形式。
+    """
+    text = Path(workflow_path).read_text(encoding="utf-8")
+    problems = []
+    if MIG_ENV_HEREDOC_MARKER not in text:
+        problems.append(
+            "migration-check.yml: 变更面 GITHUB_ENV 写入非 heredoc 形式（MIGRATION_FILES<<MIG_DELIM）——空面变量未定义（set -u unbound）、多文件面解析错位静默丢文件（42432138344 首跑红直证）"
+        )
+    if MIG_SETU_SAFE_MARKER not in text:
+        problems.append(
+            "migration-check.yml: ③/④ MIGRATION_FILES 读取非 ${MIGRATION_FILES-} set -u 安全形式（unbound 变量风险）"
+        )
+    return problems
 
 
 def audit_gate_recheck(cd_path):
     """断言四（M-01）：门禁回查 step 必须走 gate_recheck.py（双名单唯一真源）。"""
     if GATE_RECHECK_MARKER not in Path(cd_path).read_text(encoding="utf-8"):
         return [
-            (f"ci-cd.yml: 门禁回查 step 未走 `{GATE_RECHECK_MARKER}`"
-             "（双名单唯一真源失效，迁移红线将被静默移出回查面，M-01）")
+            f"ci-cd.yml: 门禁回查 step 未走 `{GATE_RECHECK_MARKER}`（双名单唯一真源失效，迁移红线将被静默移出回查面，M-01）"
         ]
     return []
 
@@ -255,7 +278,7 @@ def audit_guard_push_surface(root):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="CI 编排护栏（needs 覆盖率 + CD 监听名 + security-summary 窄断言 + 迁移触发形态 + 双名单生效性 + push 面三点）"
+        description="CI 编排护栏（needs 覆盖率 + CD 监听名 + security-summary 窄断言 + 迁移触发形态 + 双名单生效性 + push 面三点 + 变更面 env 安全）"
     )
     parser.add_argument("--root", default=None, help="仓库根目录（默认按 __file__ 推导）")
     args = parser.parse_args(argv)
@@ -285,6 +308,7 @@ def main(argv=None):
     mig_path = root / MIGRATION_CHECK_PATH
     if mig_path.exists():
         problems.extend(audit_migration_trigger(mig_path))
+        problems.extend(audit_migration_env_safety(mig_path))
     else:
         problems.append(f"{MIGRATION_CHECK_PATH.as_posix()}: 文件不存在")
 
@@ -303,8 +327,9 @@ def main(argv=None):
         print("→ 迁移触发形态：migration-check on 段必须含 push（M-01 防休眠）。")
         print("→ 双名单生效性：门禁回查 step 必须走 scripts/gate_recheck.py（M-01）。")
         print("→ push 面三点：ci.yml 自测 step + 4 真仓绿锚 + BR-4/BR-6 直跑文本（S-1/P-3）。")
+        print("→ 变更面 env 安全：GITHUB_ENV heredoc 写入 + ③/④ set -u 安全读取（42432138344 首跑红直证）。")
         return 1
-    print("[PASS] CI 编排护栏全绿：needs 覆盖 / CD 监听名 / security-summary 窄断言 / 迁移触发形态 / 双名单生效性 / push 面三点")
+    print("[PASS] CI 编排护栏全绿：needs 覆盖 / CD 监听名 / security-summary 窄断言 / 迁移触发形态 / 双名单生效性 / push 面三点 / 变更面 env 安全")
     return 0
 
 

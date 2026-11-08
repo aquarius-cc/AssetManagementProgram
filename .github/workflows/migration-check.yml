@@ -126,19 +126,31 @@ jobs:
             echo "变更迁移文件："
             echo "$MIGRATION_FILES"
           fi
-          printf '%s' "$MIGRATION_FILES" >> "$GITHUB_ENV"
+          # GITHUB_ENV 写入（BF-183 首跑 42432138344 修复）：heredoc 形式兼容多行值
+          #（裸 printf '%s' 在 ≥2 文件时会写错 GITHUB_ENV 解析，文件静默丢失 = fail-open）；
+          # 空值也必须定义变量（裸 printf '%s' "" 写零字节，③/④ set -u 直接 unbound）。
+          {
+            echo "MIGRATION_FILES<<MIG_DELIM"
+            if [ -n "$MIGRATION_FILES" ]; then
+              printf '%s\n' "$MIGRATION_FILES"
+            fi
+            echo "MIG_DELIM"
+          } >> "$GITHUB_ENV"
 
       - name: "步骤③ 检查危险操作"
         working-directory: .
         run: |
           set -euo pipefail
           echo "=== 扫描变更迁移文件中的危险操作 ==="
-          if [ -z "$MIGRATION_FILES" ]; then
+          # set -u 安全读（BF-183 首跑 42432138344）：变量未定义（如 GITHUB_ENV
+          # 空值边缘）时按空面处理，不得 unbound 判红。
+          MIG_FILES="${MIGRATION_FILES-}"
+          if [ -z "$MIG_FILES" ]; then
             echo "✅ 未发现迁移文件变更"
             exit 0
           fi
           FOUND_DANGER=0
-          for file in $MIGRATION_FILES; do
+          for file in $MIG_FILES; do
             # 子模块内 diff 出的路径相对 backend；根仓 diff 出的路径已含前缀
             case "$file" in
               asset_management_backend/*) real="$file" ;;
@@ -167,12 +179,13 @@ jobs:
         working-directory: .
         run: |
           set -euo pipefail
-          if [ -z "$MIGRATION_FILES" ]; then
+          MIG_FILES="${MIGRATION_FILES-}"
+          if [ -z "$MIG_FILES" ]; then
             echo "✅ 未发现迁移文件变更"
             exit 0
           fi
           FOUND_NOOP=0
-          for file in $MIGRATION_FILES; do
+          for file in $MIG_FILES; do
             case "$file" in
               asset_management_backend/*) real="$file" ;;
               *) real="asset_management_backend/$file" ;;

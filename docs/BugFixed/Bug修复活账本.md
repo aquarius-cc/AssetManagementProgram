@@ -11134,7 +11134,20 @@ CI/CD 直证（Commit 1：阶段 0+1+2，head bc4d585）：
   + Duplicate Code Regression Guard 42428517549 success（原 workflow 最后一次运行；
     workflow 文件于 Commit 2 删除，此后消失出 push 面）
   + CD 42430875160 success（部署门禁校验 / Docker Build & Push / Prune Old Images 全绿，部署收口）
+（首跑红 → 修复，2026-11-08）
+migration-check 首次真实 push 运行 42432138344 = failure（步骤③ `MIGRATION_FILES: unbound variable`；
+  ①makemigrations --dry-run / ②migrate --plan / 变更面解析 均绿）：
+  根因 A：变更面为空时 `printf '%s' ""` 向 GITHUB_ENV 写零字节，变量从未定义 → ③ `set -u` 直接红
+    （零迁移变更 = 每次 push 必红）；
+  根因 B：≥2 文件时裸多行写入使 GITHUB_ENV 解析错位，文件静默丢失（fail-open 洞）。
+  修复：变更面写入改 heredoc 形式（MIGRATION_FILES<<MIG_DELIM，多行兼容 + 空值必定义变量），
+    ③/④ 读取改 `MIG_FILES="${MIGRATION_FILES-}"`；check_ci_orchestration 增断言六
+    （变更面 env 安全窄断言）+ 3 测试（正样本 + 2 证红）。
+  本地直证：GITHUB_ENV heredoc 解析模拟（空值 = 已定义 '' / 多文件 = 完整值）+ set -u 空面早退路径绿
+    （变量未定义下 `${MIGRATION_FILES-}` 不炸）；套件 91 passed、ruff 零新增（初版括号化隐式拼接
+    触发 ISC004/UP034 规则冲突，改单串字面量解）、编排护栏真仓七面 PASS。
 Commit 2（3a+3b+3c+4）push 验收（migration-check 首次真实 push 运行 + gate 双名单命中）：CI/CD 绿后回填
+Commit 3（首跑红修复）push 复验（migration-check 绿 + gate 双名单命中 + CD 部署）：CI/CD 绿后回填
 ```
 
 ### 四、对抗审核
@@ -11143,6 +11156,8 @@ Commit 2（3a+3b+3c+4）push 验收（migration-check 首次真实 push 运行 +
 - **ruff 有效配置来源**：根仓无 ruff.toml，UP/ISC/PLW 规则来自上级目录有效配置；check_ci_orchestration.py 存量 7 条（UP009×2+UP031×5）为历史技术债，本批不修。零新增口径：与原始基线逐条对比，仅允许行号漂移。
 - **CI「queued」瞬时态**：CI 42428517509 曾显示 queued（分派瞬时态），实际全程 in_progress（含变异测试的全量 CI，35m40s 属正常），终态 success；不以单点状态查询充当终态。
 - **gitlink OLD 对象在场**：CI 由 `submodule-fetch-depth: 0`（全历史）保证两端旧指针在场；若旧指针为孤儿对象（force-push 历史）→ 解析步在 `set -e` 下红（fail-closed 方向，与 S-2 一致），不静默降级。
+- **GITHUB_ENV 空值/多行双陷阱（首跑真实 push 捕获）**：`printf '%s' "$VAR" >> "$GITHUB_ENV"` 空值写零字节（变量未定义 → set -u unbound 红）、多行值裸写入解析错位（文件静默丢失 = fail-open）。YAML 语法检查与本地 shell 语法检查均捕获不了（step 体是字符串，GITHUB_ENV 写入语义只在 runner 运行时显现）——3b「用一次真实 push 验收」设计（不落地 14 天灰度）的价值直证。断言六现只锁 migration-check（窄断言原则）；他处 GITHUB_ENV 多行值若引入，同改 heredoc 形式。
+- **ISC004/UP034 规则冲突**：集合内隐式字符串拼接加括号解 ISC004 会触发 UP034（extraneous parentheses），本有效配置两规则同开；口径 = 单串字面量（不拼接）。
 
 ### 五、遗留与关联事项
 - **security-scan.yml 两处改动先后约束**（M-11 批次遵守）：M-18（本批，security-summary step 改外部脚本）必须先于 M-11（yaml 覆盖率断言）落地——同文件两处改动，次序颠倒则证红矩阵无法干净归因。

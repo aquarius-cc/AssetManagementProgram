@@ -242,6 +242,62 @@ def test_guard_push_surface_missing_selftest_red(tmp_path):
     assert any("pytest ../scripts/tests -q" in item for item in problems)
 
 
+MIG_ENV_HEREDOC_TEXT = """      - name: 变更面解析
+        run: |
+          set -euo pipefail
+          {
+            echo "MIGRATION_FILES<<MIG_DELIM"
+            if [ -n "$MIGRATION_FILES" ]; then
+              printf '%s\\n' "$MIGRATION_FILES"
+            fi
+            echo "MIG_DELIM"
+          } >> "$GITHUB_ENV"
+      - name: 步骤③ 检查危险操作
+        run: |
+          set -euo pipefail
+          MIG_FILES="${MIGRATION_FILES-}"
+          if [ -z "$MIG_FILES" ]; then exit 0; fi
+"""
+
+MIG_ENV_BARE_WRITE = MIG_ENV_HEREDOC_TEXT.replace(
+    """          {
+            echo "MIGRATION_FILES<<MIG_DELIM"
+            if [ -n "$MIGRATION_FILES" ]; then
+              printf '%s\\n' "$MIGRATION_FILES"
+            fi
+            echo "MIG_DELIM"
+          } >> "$GITHUB_ENV"
+""",
+    """          printf '%s' "$MIGRATION_FILES" >> "$GITHUB_ENV"
+""",
+)
+
+MIG_ENV_UNSAFE_READ = MIG_ENV_HEREDOC_TEXT.replace(
+    'MIG_FILES="${MIGRATION_FILES-}"',
+    'if [ -z "$MIGRATION_FILES" ]; then exit 0; fi',
+)
+
+
+def test_migration_env_safety_green(tmp_path):
+    """正样本（42432138344 修复形态）：heredoc 写入 + set -u 安全读取 → 断言六绿。"""
+    p = write(tmp_path / ".github" / "workflows" / "migration-check.yml", MIG_ENV_HEREDOC_TEXT)
+    assert guard.audit_migration_env_safety(p) == []
+
+
+def test_migration_env_safety_bare_write_red(tmp_path):
+    """证红（42432138344 根因 A）：裸 printf GITHUB_ENV 写入（空值变量未定义 / 多行解析错位）→ 红。"""
+    p = write(tmp_path / ".github" / "workflows" / "migration-check.yml", MIG_ENV_BARE_WRITE)
+    problems = guard.audit_migration_env_safety(p)
+    assert any("heredoc" in item for item in problems)
+
+
+def test_migration_env_safety_unsafe_read_red(tmp_path):
+    """证红（42432138344 根因 B）：③/④ 读取非 ${MIGRATION_FILES-} 形式（set -u unbound）→ 红。"""
+    p = write(tmp_path / ".github" / "workflows" / "migration-check.yml", MIG_ENV_UNSAFE_READ)
+    problems = guard.audit_migration_env_safety(p)
+    assert any("${MIGRATION_FILES-}" in item for item in problems)
+
+
 def test_real_repo_workflows_green(capsys):
     assert guard.main([]) == 0
     assert "[PASS]" in capsys.readouterr().out
