@@ -98,7 +98,7 @@ AI 应在任务完成后，以"**SKILL 建议**"的形式向用户提出，格�
 > 本契约的引入依据 §5.2 流程，已通过人工审批（2026-08-13）。依据 §5.4，本规则进入 14 个自然日沙盒缓冲期，期满人工复核后转为强制执行。
 
 - **活账本**：重复代码模式的唯一事实来源为 `Rules_Fiels/Duplicate_Codes/complete-patterns.md`（四区：已关闭/待修复/降级/待核查）。AI 新增或关闭条目**必须**同步登记，并附证据与验证命令。
-- **回归护栏**：`scripts/check_duplicate_invariants.py` 守护不变量 G-1~G-3、G-5~G-8（已关闭模式不复现、操作日志查询唯一实现、前端状态映射单一来源、影子死文件禁止与包并存、G-6 批量删除服务必须携带用户参数、G-7 视图批量删除必须接线 passes_user、G-8 枚举字面量回潮拦截——role/employee_status 的 kwargs/赋值形态字面量 {dept_manager, active, left, retirement}，migrations/tests 范围外），由 CI job `duplicate-guard.yml` 在 push/PR 执行，G-1~G-3、G-5~G-8 阻断。**G-4（error_code 注册）已定案无需注册**——服务层 `error_code` 仅供批量 `fail_items` 日志、前端零消费（账本 `:1700` 留痕），属语义级定性检查，护栏不实现自动化（2026-10-13 订正：原文「G-4 仅报告」与实现不符，实为无 G-4 实现函数）。
+- **回归护栏**：`scripts/check_duplicate_invariants.py` 守护不变量 G-0、G-1~G-3、G-5~G-8（G-0 fail-closed：非空文件解码/解析失败判红、禁止静默跳过——B-31 缺陷族收口 2026-11-08；已关闭模式不复现、操作日志查询唯一实现、前端状态映射单一来源、影子死文件禁止与包并存、G-6 批量删除服务必须携带用户参数、G-7 视图批量删除必须接线 passes_user、G-8 枚举字面量回潮拦截——role/employee_status 的 kwargs/赋值形态字面量 {dept_manager, active, left, retirement}，migrations/tests 范围外），由 `ci.yml:backend-lint` 护栏自测 step（pytest ../scripts/tests，含真仓绿锚）与 BR-4/BR-6 直跑 step 在 push/PR 执行，G-0、G-1~G-3、G-5~G-8 阻断。原载体 `duplicate-guard.yml` 已于 2026-11-08 删除（BF-183 方案 C：其三 job 与 backend-lint 护栏自测同覆盖重复；push 面消失由 `check_ci_orchestration.py`「push 面三点断言」S-1/P-3 锁死）。**G-4（error_code 注册）已定案无需注册**——服务层 `error_code` 仅供批量 `fail_items` 日志、前端零消费（账本 `:1700` 留痕），属语义级定性检查，护栏不实现自动化（2026-10-13 订正：原文「G-4 仅报告」与实现不符，实为无 G-4 实现函数）。
 - **新发现义务**：AI 在代码审查或生成过程中发现新的重复实现，**必须**登记入账本，禁止仅口头提及而不留痕。
 
 ### 1.9 行数口径红线（全端通用）
@@ -256,6 +256,13 @@ AI 在任务完成后，必须输出以下审计票：
 >    `Dependency Security Scan` 结论，未完成则短轮询兜底（`CD_SCAN_WAIT_SECONDS`/`CD_SCAN_POLL_SECONDS`
 >    经 repo vars 配置，超时/未完成/非 success/API 异常一律 fail-closed 拒绝部署）。监听名与
 >    ci.yml 顶层 `name` 的一致性由 `scripts/check_ci_orchestration.py` 断言，防改名致 gate 静默停摆）。
+>    **【2026-11-08，BF-183/M-01 v3.1】**第二步回查名单由单名单升级为**双名单**：
+>    `Dependency Security Scan` + `Migration Safety Check`（判定逻辑外部化至 `scripts/gate_recheck.py`，
+>    双名单唯一真源 `RECHECK_NAMES`，生效性由 `check_ci_orchestration.py` 断言四锁死；run 缺失不解释
+>    为「不需要」——静默休眠正是 M-01 的洞，一律 fail-closed）。配套唤醒：`migration-check.yml` 的
+>    `on` 增 `push`（原仅 `pull_request`，直推模式下从未被触发、永久休眠），③/④ 变更面解析改根仓
+>    gitlink 指针 diff 单源（S-2：BASE 空/全零 → 全量扫描，真实 git 故障 → 红），步骤①全量跑并计入
+>    gate 600s 轮询预算（O-1）。
 >    **GitHub 分支保护（required checks + 强制 PR）列为独立后续项**，待团队改用 PR 流程后落地。
 >
 > **§5.4 适用性判定**：不适用沙盒期。audit 的 exit 条件与阻断阈值**一字未改**，本次仅将既有结论汇入
@@ -319,6 +326,7 @@ AI 在任务完成后，必须输出以下审计票：
 > **执行监督**：审计票自检项中必须包含 `Fact-1[√]` 和 `Style-1~Style-3[√]`。
 
 ## §10 变更日志
+- **v3.7.6 (2026-11-08)**：**BF-183 批次 1——护栏/门禁自洽（M-01/M-02/M-18 + P-1~P-4，零业务代码）**——① G-0 fail-closed：`check_duplicate_invariants.py` 复用 `line_metrics.read_text`（utf-8-sig 打头），非空文件解码/解析失败判红（B-31 缺陷族第四实例收口，complete-patterns.md 登记），§1.8 守护枚举更新为 G-0、G-1~G-3、G-5~G-8；② M-17 收窄：前端护栏 read_text 收编 line_metrics 单源（计数口径收编留独立批次）；③ M-18：`security-scan.yml` 的 `security-summary` needs 纳入 `weekly-report`（schedule 分支 always() + 按 event 分流），判定外部化 `scripts/security_summary.py` 六态纯函数；④ 删 `duplicate-guard.yml`（方案 C：三 job 与 backend-lint 护栏自测同覆盖重复；push 面由「三点断言」S-1/P-3 锁死——ci.yml 自测 step + 4 真仓绿锚 + BR-4/BR-6 直跑文本）；⑤ `migration-check.yml` 唤醒：on 增 push、删触发级 paths，③/④ 变更面解析改根仓 gitlink 指针 diff 单源（S-2：BASE 空/全零 → 全量扫描、fail_closed 仅留运行中真实 git 故障），步骤①全量跑计入 gate 600s 轮询预算（O-1，3b 为 3c 硬前置）；⑥ `ci-cd.yml` gate 第二步升级双名单回查（Dependency Security Scan + Migration Safety Check，`scripts/gate_recheck.py` 双名单唯一真源，缺失/超时/非 success 一律 fail-closed）。**§5.4 适用性判定：不触发沙盒期**——依 v3.7.2/v3.7.3 先例：G-0、双名单回查落地即 0 违规（现实仓文件全部可解码、双名单对象均为既有必跑链），属护栏覆盖面扩展 + 门禁稀释面闭合（去伪存真）；migration-check push 唤醒是既有红线（CT-6）的激活而非新设阈值。
 - **v3.7.5 (2026-11-03)**：**FR-8 口径收编（批次 7 OP-06，§2 子域条文同步）**——前端 `frontend-business-rules.md` FR-8 版本 v1.4→v1.5：废除「非 `use*.ts`」前缀排除，改**目录全量（`__tests__` 除外）**。原口径以 `startswith("use")` 排除致 `userStore.ts`（"userStore" 以 "use" 开头）落在 FR-8 扫描外（护栏 31 / 实际 32 假绿盲区），护栏 `is_store_target`（`scripts/check_frontend_invariants.py:74-78`）与条文同步收编；护栏自测 +5 用例（先证红 3 failed→证绿 49 passed）。经 §5.2 流程人工批准（FR-8 条文改写 [HALT] 已确认，2026-11-03）后应用；历史台账「31 文件」记载不回溯改写。子域索引（§1.3/§2）无变化，仅条文文本与本条日志。
 - **v3.7.4 (2026-11-02)**：**§1.8 回归护栏清单扩展——新增 G-8（M-08 枚举收编自动化断言）**——G-8：role/employee_status 的 kwargs/赋值形态字面量 {dept_manager, active, left, retirement} 回潮即红（口径经批次 5 v1.1 拍板：AST 收窄仅 kwargs/赋值两类节点，docstring/help_text/错误文案噪音不误红；范围 = apps/**.py，migrations/（CT-6 禁改）与 tests/（夹具）在范围外），由 `check_g8_enum_literals_absent()` 落地，守护枚举由 G-1~G-3、G-5~G-7 更新为 **G-1~G-3、G-5~G-8**，阻断范围同步；配套自测 `scripts/tests/test_duplicate_invariants.py` +6 用例 + `ci.yml` 护栏自测注释 G-5~G-7→G-5~G-8。**§5.4 适用性判定：不触发沙盒期**——依 v3.5.1（G-5）/v3.7.3（G-6/G-7）先例：本项不新增规范内容，仅对既有规范 M-08 收编（七处字面量已改枚举，rg 三组生产零命中已取证）加自动化断言，落地即 0 违规，属护栏覆盖面扩展而非红线收紧。
 - **v3.7.3 (2026-11-01)**：**§1.8 回归护栏清单扩展——新增 G-6/G-7（BF-170 批次 2，P1 行级隔离三连）**——G-6：service 层 `def batch_delete_*` 必须携带 user 参数（范围谓词＝父目录 `services` 或文件名 `services.py`）；G-7：含 `batch_delete_service =` 赋值的 view 类必须 `batch_delete_passes_user = True`（赋值尾段标识符查共享豁免名单，5 项 system_admin-only 域）。守护枚举由 G-1~G-3、G-5 更新为 G-1~G-3、G-5~G-7，阻断范围同步。账本登记 A-51；配套自测 `scripts/tests/test_duplicate_invariants.py` +9 用例（先红后绿，G-7 初版 ast.Attribute 误判由红夹具捕获后修正）。**§5.4 适用性判定：不触发沙盒期**——依 v3.5.1（G-5）先例：本项不新增规范内容，仅对既有强制规范（B14 逐条校验、B12 行级隔离）加自动化断言，落地即 0 违规，属护栏覆盖面扩展而非红线收紧（提交信息与 BF-170 条目已显式声明该理由）。

@@ -1,11 +1,30 @@
+# =============================================================================
+# Migration Safety Check (CT-6) —— M-01 v3.1 唤醒版（BF-183 批次 1，3b）
+# =============================================================================
+# 【M-01 v3.1，2026-11-08】原 on: pull_request only + 触发级 paths 过滤 →
+# 本仓直推模式（历史 0 PR）下本 workflow 从未被触发，CT-6 迁移红线从未进
+# 部署链回查面（M-01 根因：gate 单名单只回查安全扫描）。唤醒改造：
+#   1. on 增 push（master）、删触发级 paths——子模块指针变更永不命中 paths，
+#      过滤会把触发面再收窄到空（PR 面保留，零成本）；
+#   2. fetch-depth: 0 + submodule-fetch-depth: 0——gitlink 指针 diff 需要
+#      两端旧指针本地可解析（浅克隆则只能降级全扫或 fail-closed）；
+#   3. ③④ 由「backend 子模块 WD 内 origin/base_ref...HEAD」（push 下
+#      base_ref 空 → || true → 空列表 → exit 0 静默放行 = fail-open）改为
+#      根仓「变更面解析」step 单源（③④ 共用）：push → 父提交为 BASE；
+#      PR → base 分支；BASE 空/全零 → 全量扫描（S-2 边界：fail_closed
+#      仅留给运行中真实 git 故障，本步 set -e 下真实故障即红）；
+#      子模块 gitlink 指针 diff（复刻 security-scan B 分支）：迁移文件在
+#      backend 子模块内，根仓 diff 只能看到指针变更 → 两端解析 backend
+#      gitlink，子模块内做文件级 diff；
+#   4. 步骤① makemigrations --dry-run 全量跑，不受变更集合短路（O-1：
+#      计入 gate 600s 轮询预算——3b 是 3c 的硬前置，否则 gate 必超时拒部署）。
 name: Migration Safety Check
 
 on:
+  push:
+    branches: [master]
   pull_request:
     branches: [master]
-    paths:
-      - "**/migrations/**"
-      - "**/models/**"
 
 jobs:
   migration-safety:
@@ -34,9 +53,13 @@ jobs:
       DB_USER: postgres
       DB_PASSWORD: ci-dummy-not-real
     steps:
+      # 【M-01 v3.1】fetch-depth: 0 + submodule-fetch-depth: 0：gitlink 指针 diff
+      # 需本地解析两端旧指针（见头部注释 2）。
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: true
+          submodule-fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -61,21 +84,70 @@ jobs:
           echo "=== 待执行迁移列表 ==="
           python manage.py migrate --plan
 
-      - name: "步骤③ 检查危险操作"
+      # 【M-01 v3.1】变更面解析（③④ 共用单源，根仓执行——覆盖 job 级
+      # working-directory）。BASE 解析（S-2 边界）：push → 父提交；PR → base 分支；
+      # BASE 空/全零（首提交/浅）→ 全量扫描，绝不静默放行。
+      - name: "变更面解析（③④ 共用，M-01 v3.1）"
+        working-directory: .
+        env:
+          # 【注入防护】事件上下文值经 env 传入再以 $VAR 引用，禁止 ${{ }} 直接
+          # 插进 run（同 ci-cd.yml 口径：base_ref 可被 fork PR 控制）。
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
-          echo "=== 扫描新增迁移文件中的危险操作 ==="
-          # 获取本次 PR 修改的迁移文件
-          MIGRATION_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -- "*/migrations/*.py" || true)
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ] && [ -n "$BASE_REF" ]; then
+            git fetch origin "$BASE_REF" --depth=1
+            BASE="origin/$BASE_REF"
+          else
+            BASE=$(git rev-parse --verify -q "$HEAD_SHA^" || true)
+          fi
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            # S-2 边界：BASE 空/全零 → 全量扫描（fail-closed 方向：多扫不漏扫）
+            echo "ℹ️ BASE 不可用（首提交或浅克隆），降级为全量扫描全部迁移文件"
+            MIGRATION_FILES=$(cd asset_management_backend && git ls-files -r -- "*/migrations/*.py")
+          else
+            MIGRATION_FILES=$(git diff --name-only "$BASE" "$HEAD_SHA" -- "*/migrations/*.py")
+            # 子模块 gitlink 指针 diff（复刻 security-scan B 分支）：迁移文件在
+            # backend 子模块内，根仓 diff 只见指针变更 → 两端解析 gitlink，
+            # 子模块内做文件级 diff（旧指针对象由 submodule-fetch-depth: 0 保证在场）。
+            OLD_BE=$(git rev-parse -q --verify "$BASE:asset_management_backend" || true)
+            NEW_BE=$(git rev-parse -q --verify "$HEAD_SHA:asset_management_backend" || true)
+            if [ -n "$OLD_BE" ] && [ -n "$NEW_BE" ] && [ "$OLD_BE" != "$NEW_BE" ]; then
+              echo "ℹ️ backend 子模块指针变更: ${OLD_BE:0:7} → ${NEW_BE:0:7}"
+              SUB_FILES=$(cd asset_management_backend && git diff --name-only "$OLD_BE" "$NEW_BE" -- "*/migrations/*.py")
+              MIGRATION_FILES=$(printf '%s\n%s' "$MIGRATION_FILES" "$SUB_FILES" | sed '/^$/d')
+            fi
+          fi
+          if [ -z "$MIGRATION_FILES" ]; then
+            echo "✅ 无迁移文件变更（本面）"
+          else
+            echo "变更迁移文件："
+            echo "$MIGRATION_FILES"
+          fi
+          printf '%s' "$MIGRATION_FILES" >> "$GITHUB_ENV"
+
+      - name: "步骤③ 检查危险操作"
+        working-directory: .
+        run: |
+          set -euo pipefail
+          echo "=== 扫描变更迁移文件中的危险操作 ==="
           if [ -z "$MIGRATION_FILES" ]; then
             echo "✅ 未发现迁移文件变更"
             exit 0
           fi
           FOUND_DANGER=0
           for file in $MIGRATION_FILES; do
-            if [ -f "$file" ]; then
-              echo "检查: $file"
-              if grep -n "RemoveIndex\|RemoveField\|RenameField\|RenameModel" "$file"; then
-                echo "⚠️ 文件 $file 包含危险操作（Remove/Rename）"
+            # 子模块内 diff 出的路径相对 backend；根仓 diff 出的路径已含前缀
+            case "$file" in
+              asset_management_backend/*) real="$file" ;;
+              *) real="asset_management_backend/$file" ;;
+            esac
+            if [ -f "$real" ]; then
+              echo "检查: $real"
+              if grep -n "RemoveIndex\|RemoveField\|RenameField\|RenameModel" "$real"; then
+                echo "⚠️ 文件 $real 包含危险操作（Remove/Rename）"
                 FOUND_DANGER=1
               fi
             fi
@@ -83,8 +155,8 @@ jobs:
           if [ "$FOUND_DANGER" -eq 1 ]; then
             echo ""
             echo "⚠️ 检测到危险迁移操作，请确认："
-            echo "  1. 已在 PR 描述中注明'已人工确认数据无损'"
-            echo "  2. Code Review 阶段已重点审查"
+            echo "  1. 已在 push/PR 描述中注明'已人工确认数据无损'"
+            echo "  2. 已重点审查"
             echo "  3. 已备份数据库"
             # 不直接阻止，但发出警告（由 Code Review 人工把关）
           else
@@ -92,17 +164,22 @@ jobs:
           fi
 
       - name: "步骤④ 不可逆数据迁移硬门禁 (BF-005)"
+        working-directory: .
         run: |
-          MIGRATION_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -- "*/migrations/*.py" || true)
+          set -euo pipefail
           if [ -z "$MIGRATION_FILES" ]; then
             echo "✅ 未发现迁移文件变更"
             exit 0
           fi
           FOUND_NOOP=0
           for file in $MIGRATION_FILES; do
-            [ -f "$file" ] || continue
-            if grep -q "RunPython.noop" "$file" && ! grep -q "ROLLBACK_NOOP_REASON:" "$file"; then
-              echo "❌ $file 含不可逆数据迁移(RunPython.noop 反向)但未标注 ROLLBACK_NOOP_REASON"
+            case "$file" in
+              asset_management_backend/*) real="$file" ;;
+              *) real="asset_management_backend/$file" ;;
+            esac
+            [ -f "$real" ] || continue
+            if grep -q "RunPython.noop" "$real" && ! grep -q "ROLLBACK_NOOP_REASON:" "$real"; then
+              echo "❌ $real 含不可逆数据迁移(RunPython.noop 反向)但未标注 ROLLBACK_NOOP_REASON"
               FOUND_NOOP=1
             fi
           done
@@ -112,4 +189,4 @@ jobs:
             echo "  # ROLLBACK_NOOP_REASON: <为何反向为 noop 的业务理由>"
             exit 1
           fi
-          echo "✅ 新增迁移的不可逆点均已登记理由"
+          echo "✅ 变更迁移的不可逆点均已登记理由"

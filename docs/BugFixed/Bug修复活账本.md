@@ -11106,10 +11106,43 @@ CI/CD 直证          -> CI 42237271531 success（快速门禁含 oasdiff schema
 | 4 | AGENTS §1.8:101/§6③/§10 + ci.yml:38 注释 + merge 报告状态列 + 本条回填 |
 
 ### 三、验证记录
-（执行后回填）
+```text
+（阶段 1：M-02 / M-17 收窄 / P-2）
+pytest scripts/tests -q -> 66 passed（G +6 / FR +2 / test_scripts_length_guard.py 新建）
+证红（先证红后证绿）：BOM 批量删除缺 user / BOM 枚举字面量 / SyntaxError / 不可解码非空 / P-2 超长夹具
+  → 5 红在旧实现下全红，修复后全绿
+check_duplicate_invariants.py 真仓 -> PASS；check_frontend_invariants.py 真仓 -> PASS
+ruff check（本批新增/改动文件）-> 零新增（基线 7 条为历史技术债 UP009×2+UP031×5，未动）
+（阶段 2：M-18）
+pytest scripts/tests -q -> 75 passed（+9：security_summary 六态 7 + 窄断言 2）
+security-scan.yml YAML 合法 + 冒烟（通过/拒绝）+ 变异证红（needs 缺 weekly-report → 红）
+ruff check scripts/security_summary.py -> 0 违规
+（阶段 3：3a+3b+3c）
+pytest scripts/tests -q -> 88 passed（+13：gate_recheck 7 + 编排 6）
+check_ci_orchestration.py 真仓 -> PASS（六面：needs 覆盖 / CD 监听名 / security-summary 窄断言 /
+  迁移触发形态 / 双名单生效性 / push 面三点）
+migration-check.yml / ci-cd.yml / security-scan.yml -> YAML 合法 ×3
+gitlink diff 本地 dry-run：HEAD 提交（bc4d585）无指针变更（零业务代码，符合预期）；
+  历史指针变更提交（ddaca3f：1e01b5a→051d714）OLD 对象本地在场 + 子模块内 migrations diff = 空（符合预期）
+  → 两端解析 / 对象在场 / 文件级 diff 三段直证
+ruff check（gate_recheck/test_gate_recheck/check_ci_orchestration/test_ci_orchestration）-> 零新增
+  （本批 2×ISC004+1×PLW1510 已修）
+CI/CD 直证（Commit 1：阶段 0+1+2，head bc4d585）：
+  CI Pipeline 42428517509 success（15 jobs 全绿，含护栏自测 step 真仓绿锚）
+  + Dependency Security Scan 42428517588 success（6 jobs：Security 汇总 success =
+    `python scripts/security_summary.py` 调用在 runner 上可用的直证）
+  + Duplicate Code Regression Guard 42428517549 success（原 workflow 最后一次运行；
+    workflow 文件于 Commit 2 删除，此后消失出 push 面）
+  + CD 42430875160 success（部署门禁校验 / Docker Build & Push / Prune Old Images 全绿，部署收口）
+Commit 2（3a+3b+3c+4）push 验收（migration-check 首次真实 push 运行 + gate 双名单命中）：CI/CD 绿后回填
+```
 
 ### 四、对抗审核
-（执行后回填）
+- **G-2 语义裁决（方案文本唯一语义级偏差）**：v3.1 文本「缺文件判红」会误伤 9 个绿 fixture（现实仓存在 11 个空 `.py`，正常占位）；裁决后：**缺文件 → 跳过（维持原语义），存在但为空/不可解码 → 判红**；文件删除面由 CI import error 兜底（模块缺失 = 测试红），护栏不双重判定。本项为本批对 v3.1 文本的唯一偏差，已固化进护栏注释与测试用例。
+- **`python` vs `python3` 调用**：security-scan 汇总 step 用 `python`（直证 runner 可用：Security 汇总 success）；gate_recheck 与 prune 用 `python3`（既有口径）。两者并存无碍，不改。
+- **ruff 有效配置来源**：根仓无 ruff.toml，UP/ISC/PLW 规则来自上级目录有效配置；check_ci_orchestration.py 存量 7 条（UP009×2+UP031×5）为历史技术债，本批不修。零新增口径：与原始基线逐条对比，仅允许行号漂移。
+- **CI「queued」瞬时态**：CI 42428517509 曾显示 queued（分派瞬时态），实际全程 in_progress（含变异测试的全量 CI，35m40s 属正常），终态 success；不以单点状态查询充当终态。
+- **gitlink OLD 对象在场**：CI 由 `submodule-fetch-depth: 0`（全历史）保证两端旧指针在场；若旧指针为孤儿对象（force-push 历史）→ 解析步在 `set -e` 下红（fail-closed 方向，与 S-2 一致），不静默降级。
 
 ### 五、遗留与关联事项
 - **security-scan.yml 两处改动先后约束**（M-11 批次遵守）：M-18（本批，security-summary step 改外部脚本）必须先于 M-11（yaml 覆盖率断言）落地——同文件两处改动，次序颠倒则证红矩阵无法干净归因。

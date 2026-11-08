@@ -58,7 +58,10 @@ jobs:
   # ==================== 部署前置门禁 ====================
   # 【设计 2026-10-01，M-02 真闭合 2026-10-31 更新】本仓库历史 0 PR、直推 master，
   # GitHub required status checks 在此模式下空转，故把 CI 汇总与安全扫描结论前移
-  # 到部署链路：任一不通过则镜像不推送（CI 触发 + 扫描回查）。
+  # 到部署链路：任一不通过则镜像不推送（CI 触发 + 回查）。
+  # 【M-01 v3.1，2026-11-08】回查面由单名单（安全扫描）升级为双名单（安全扫描 +
+  # 迁移检查，gate_recheck.py RECHECK_NAMES）——迁移检查原仅 PR 触发，直推模式下
+  # 从未进部署链（M-01 根因）。
   # 三项校验缺一不可：
   # ① event / head_branch —— workflow_run 对 fork PR 的 pull_request 运行同样会
   #    触发，且它可访问 secrets 与写权限 token（pwn-request 风险）。只认 master 推送。
@@ -73,6 +76,11 @@ jobs:
     name: "部署门禁校验"
     runs-on: ubuntu-latest
     steps:
+      # 【M-01 v3.1，BF-183 3c】门禁需执行 scripts/gate_recheck.py（双名单回查），
+      # 故检出根仓（脚本在根仓，无需子模块）。
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
       - name: 校验 CI 结论与提交一致性
         # 【注入防护 2026-10-01】值必须经 env: 传入再以 $VAR 引用，禁止直接
         # ${{ }} 插进 run:。head_branch 可被 fork PR 的分支名影响，而 git ref
@@ -104,57 +112,26 @@ jobs:
           fi
           echo "✅ CI 汇总通过，审计提交 = master: $MASTER_SHA"
 
-      # 【M-02 真闭合】CI 通过后回查同一 SHA 的安全扫描结论。
+      # 【M-02 真闭合 → M-01 v3.1 双名单升级】CI 通过后回查同一 SHA 的结论。
       # 【为何要 poll 而非直接判】workflow_run 只看得到被监听 workflow 的结论，
-      # 安全扫描是另一条链，其 run 可能尚未完成；未完成按 fail-closed 处理，
-      # 但若「CI 先完成、安全扫描稍后」则短等待可避免误拒部署。
-      # 【fail-closed】查询异常（403/网络）、超时未完成、conclusion 非 success 一律 exit 1。
-      - name: 校验安全扫描结论（按 SHA 回查）
+      # 回查对象是另一条链，其 run 可能尚未完成；未完成按 fail-closed 处理，
+      # 但若「CI 先完成、回查对象稍后」则短等待可避免误拒部署。
+      # 【fail-closed】查询异常（403/网络）、超时未完成、conclusion 终态非 success、
+      # run 缺失（deadline 后仍无）一律 exit 1——「缺失」永不得解释为「不需要」
+      # （静默休眠正是 M-01 的洞；原内联 shell 的 null→"none||" 轮询语义已移入脚本）。
+      # 【M-01 v3.1】单名单（仅安全扫描）→ 双名单（Dependency Security Scan +
+      # Migration Safety Check），判定逻辑外部化到 scripts/gate_recheck.py
+      # （双名单唯一真源 RECHECK_NAMES，生效性断言见 check_ci_orchestration 断言四；
+      # evaluate 三态纯函数单测 test_gate_recheck.py）。env/轮询/fail-closed 口径
+      # 与原内联 shell 一致（AR-4：等待上限与轮询间隔由配置管理，不硬编码在逻辑里）。
+      - name: 校验安全扫描与迁移检查结论（双名单按 SHA 回查）
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
-          SCAN_NAME: "Dependency Security Scan"
-          # AR-4：等待上限与轮询间隔由配置管理，不硬编码在逻辑里
           WAIT_SECONDS: ${{ vars.CD_SCAN_WAIT_SECONDS || 600 }}
           POLL_SECONDS: ${{ vars.CD_SCAN_POLL_SECONDS || 20 }}
-        run: |
-          set -euo pipefail
-          deadline=$(( $(date +%s) + WAIT_SECONDS ))
-          while :; do
-            # 同一 SHA 可能有多个 workflow 的 run，必须按 name 过滤（head_sha 已由 API 过滤）。
-            # 【null 安全】扫描 run 尚未产生时 last 返回 null，直接 .status 会让 jq 报错
-            # （Cannot index null）→ gh 非零退出 → 被下方 || 误判为 API 异常立即拒绝，
-            # poll 循环失去意义。故显式判空：无 run 输出 "none||" 走「未完成」轮询路径。
-            raw=$(timeout 30 gh api \
-              "repos/$REPO/actions/runs?head_sha=$SHA&event=push&per_page=100" \
-              --jq "[.workflow_runs[] | select(.name == \"$SCAN_NAME\")]
-                    | sort_by(.created_at)
-                    | if length == 0 then \"none||\"
-                      else (last | \"\(.status // \"\")|\(.conclusion // \"\")|\(.html_url // \"\")\")
-                      end") || {
-              echo "❌ 查询安全扫描 run 失败（API 异常），按 fail-closed 拒绝部署"
-              exit 1
-            }
-            status=${raw%%|*}
-            rest=${raw#*|}
-            conclusion=${rest%%|*}
-            url=${rest#*|}
-            echo "安全扫描 status=$status conclusion=${conclusion:-<空>} $url"
-            if [ "$conclusion" = "success" ]; then
-              echo "✅ 安全扫描通过，允许部署"
-              break
-            fi
-            if [ -n "$conclusion" ]; then
-              echo "❌ 安全扫描未通过（$conclusion），拒绝部署"
-              exit 1
-            fi
-            if [ "$(date +%s)" -ge "$deadline" ]; then
-              echo "❌ 等待 ${WAIT_SECONDS}s 后安全扫描仍未完成（status=$status），按 fail-closed 拒绝部署"
-              exit 1
-            fi
-            sleep "$POLL_SECONDS"
-          done
+        run: python3 scripts/gate_recheck.py
 
   docker:
     name: Docker Build & Push
