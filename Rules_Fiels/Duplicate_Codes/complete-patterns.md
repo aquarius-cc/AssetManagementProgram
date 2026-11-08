@@ -709,6 +709,18 @@
 - **验证命令**：`rg -n "response\?\.data\?\.message" vue-assetmanagement/src`（预期 0 命中）；`rg -n "ElMessage\.error" vue-assetmanagement/src/views/system/RoleManage.vue`（预期仅手写校验等业务分支）；`npx vitest run src/utils/__tests__/errorHandler.spec.ts`（双轨契约锚）。
 - **关联**：**B-29**（同型收编前批，形态差异 = 无 logError）；**M-05**（双 toast 家族首例）；RC-09 行续记见 `docs/Review/ExpiredAuditReport/20261027/opencode-codegraph-audit-2026-10-27.md`
 
+### B-31. 【新发现 2026-11-07】缺陷族「解码序/静默跳过」：护栏自实现 read_text 解码序缺失 + except/空文本 continue 静默跳过（DR-1 + fail-closed；merge-audit-20261107 M-02/M-17）
+- **编号**：顺延登记（B-30 后最大号 +1）。**状态**：☐ 待修复（BF-183 批次 1 关闭 ②③，④ 留尾）| 登记日期：2026-11-07 | 登记来源：批次 1 修复方案评审（2026-11-07）15/15 锚点直证，§1.8 新发现义务
+- **家族定义**：护栏类脚本自实现文本读取/AST 解析，解码或解析失败后**静默跳过**（skip/continue），使目标文件绕过全部不变量——「解码序缺 utf-8-sig + except/空文本跳过」双缺陷，属 DR-1（计数与读取单源）+ fail-closed（向失败而非向跳过）同型。
+- **四实例**：
+  ① `scripts/line_metrics.py::read_text`（:44-57，utf-8-sig 打头）——**已关闭基线**（v3.6.1，2026-09-30）：解码序唯一正确实现，全家族单源；
+  ② `scripts/check_duplicate_invariants.py` :40-52 自实现 read_text（utf-8→gbk，**缺 utf-8-sig**）+ :116-123 `_iter_ast_trees` 的 `except SyntaxError: continue`（continue 实位 :122）——**M-02 本体，本批关闭**：带 BOM 的 .py 使 `ast.parse` 抛 SyntaxError 被静默跳过 → G-1~G-8 全可绕过（假绿）；
+  ③ `scripts/check_frontend_invariants.py` :60-66 read_text（utf-8 先行）——**M-17 收窄项，本批关闭**：BOM 文件经 utf-8 解码保留首字符 U+FEFF，:119 `^<template` 正则 `strip()` 不剔 U+FEFF → 失配 → template 段整段不计（501 算 500，假绿）；
+  ④ 留尾面（**另批**，本批不关）：`check_function_length_guard.py` :58/:62（空文本 / SyntaxError continue）、`check_file_length_guard.py` :82-83/:86-88（空文本 / SyntaxError WARN+skip）——两者已走 line_metrics 单源 read_text（BOM 面已随 ① 关闭），残余为**不可解码面**（非空文件三种编码均失败 → 跳过），留尾登记。
+- **修复方案**（BF-183 批次 1，方案 v3.1）：②③ 删自实现改 line_metrics 单源导入；G 护栏新增 `_source()`（零字节 → 合法跳过；非空解不出 → BLOCKING「G-0 解码失败」）+ `_iter_ast_trees` SyntaxError → BLOCKING「G-0 解析失败」（删 continue）；FR 护栏仅 read_text 单源，TS 计数/台账分区不动；G 侧 +6 证红用例（BOM×2/无 BOM 对照/SyntaxError/零字节恒绿锚/不可解码）、FR 侧 +2 用例（BOM-on-template 证红 + composable 漂移绿-绿锚点）；新增护栏不变量 **G-0**（见附：回归护栏表）。
+- **关联**：merge-audit-20261107 **M-02**（P1）/**M-17**（P2，收窄）；**P-2** scripts/ 规模零护栏兜底（本批轻量断言 + 另立 M 项）；BF-183。
+- **验证命令**：`python -m pytest scripts/tests/test_duplicate_invariants.py scripts/tests/test_frontend_invariants.py -q`（证红用例先红后绿）+ `python scripts/check_duplicate_invariants.py` + `python scripts/check_frontend_invariants.py`（现实仓 PASS）。
+
 ---
 
 ## C — 降级/待决策（Downgraded / Decision Gate）
@@ -1122,6 +1134,7 @@
 
 | ID | 不变量 | 守护方式 |
 |:--|:--|:--|
+| G-0 | 护栏自身不得静默跳过（解码失败/语法错误 fail-closed） | `check_duplicate_invariants.py` `_source()`/`_iter_ast_trees()`：零字节文件跳过（合法空文件），非空解码失败或 `ast.parse` SyntaxError → BLOCKING（G-0）；BOM/不可解码文件不得绕过 G-1~G-8（B-31 缺陷族，2026-11-07） |
 | G-1 | 已关闭模式的函数名不得复现 | 关键词黑名单（validate_asset_status、filter_assets、AssetQueryManager 等）全仓 grep |
 | G-2 | 操作日志查询唯一实现 | `operation_log_service.py` 必须 import `OperationLogSelector`，且 `AssetOperationLogManager` 不得重新出现 |
 | G-3 | 前端资产状态映射单一来源 | `Format.ts` 不得包含资产状态标签字面量表（已改为派生）；`statusMapping.ts` 为唯一字面量来源 |
@@ -1129,6 +1142,7 @@
 | G-5 | 影子死文件不得复现 | 包（含 `__init__.py`）与同级同名 `.py` 不得并存（包优先解析使 `.py` 成死代码），`apps/` 全递归扫描 |
 | G-6 | 手写端点表/端点路径不得与 schema 基线分叉 | `scripts/check_api_doc_consistency.py`（**独立脚本**，CI job `ci.yml::api-doc-guard`）：V-1 路径须带 `/api/v1`、V-2 路径须逐字命中 `api-schema-baseline.json`、V-3 禁止「方法\|URL」端点清单表回归、V-4 请求参数表不得重复 schema 列；先跑 `--self-test` 证明规则自身会红 |
 | G-7 | 字段/枚举层不得手写漂移 | `scripts/generate_api_field_reference.py --check`（CI job `ci.yml::api-doc-generate`）：枚举表须逐字等于 Django `choices`（值+中文标签）、表头字段名须命中真实 choices 字段、参数表字段集须与 `api-schema-baseline.json` 对账（`文档缺字段`/`文档多字段`）；**不校验说明列**（人工维护）；`--write` 为写作工具只写可解析部分，`--check` 才 fail-closed |
+| G-8 | role/employee_status 枚举字面量不得回潮 | `check_g8_enum_literals_absent()`：AST 收窄仅两类节点（关键字实参 `role=<str>`/`employee_status=<str>` + 赋值/注解赋值右值为字面量），白名单 = {dept_manager, active, left, retirement}；范围 = apps/**.py，migrations/（CT-6）与 tests/ 范围外（v3.7.4 登记，M-08 收编；本行补录系表内遗漏，AGENTS §1.8 早已收录 G-8） |
 
 > G-4 为提示型检查：`error_code` 字符串仅用于 `fail_items` 日志，前端不消费，无需与 `BusinessCode` 对齐。
 > **2026-10-13 订正**：G-4 为**定性结论而非可执行检查**——护栏 `check_duplicate_invariants.py` 无 G-4 实现函数（语义级检查不可自动化，账本 `:1700` 已留痕）；根级 AGENTS.md §1.8 同步由「G-4 仅报告」订正为「已定案无需注册，护栏不实现自动化」（v3.7.1）。
@@ -1136,6 +1150,7 @@
 > 故同表登记；但实现与 CI 归属不同（`ci.yml` 而非 `duplicate-guard.yml`），不可混为一谈。
 
 ## 变更记录
+- **v2.9.62 (2026-11-07)**：登记 **B-31**（缺陷族「解码序/静默跳过」，§1.8 新发现义务）——护栏自实现 read_text 解码序缺失 + except/空文本 continue 静默跳过双缺陷四实例（① line_metrics 已关闭基线 ② G 护栏 M-02 本批关 ③ FR 护栏 M-17 收窄本批关 ④ BR-4/BR-6 不可解码面留尾另批）；附：回归护栏表新增 **G-0**（护栏自身不得静默跳过，fail-closed）并补录 **G-8** 行（v3.7.4 表内遗漏，与 AGENTS §1.8 对齐）。②③ 关闭与 G-0 实现属 BF-183 批次 1（执行方案 v3.1，4+2 补丁闭环）。
 - **v2.9.61 (2026-11-05)**：关闭 **B-26**（批次 10 Stage 3，前端 `34ee807`）——`common-forms.scss` 新增 `@mixin section-title-block`（依 D-9 命名警示异名）+ form-container `.section-title` 改 include + 4 组件 `@use`/`@include` 收敛；B-26-①（SelectedRecordsTable `margin: 0` 显式保留）、B-26-②（背景改 `var(--gradient-card-highlight)` 恢复暗色跟随）均落地；验证矩阵（5 include / 旧 margin .vue 0 / mixin 定义仅 dashboard）+ build/tc/lint/fmt 全 0 见条目内。B 区 9 项自此全关。
 - **v2.9.60 (2026-11-05)**：批次 10 状态复核（M-14~M-17 销项/立项前置）——对 D-2/D-5/B 区做状态复核（复核结论与证据直附 merge-audit-20261101 M-15/M-16/M-17 行，非新修复），新增 **D-9**（D 区编号重号消歧 D-4a/D-4b/D-5a/D-5b + `.section-title` 非 B-26 家族待核查 + `@mixin section-title` 命名冲突警示 + B-26 事实订正「亮色平涂恒生效 / 暗色跟随」，B-26-② 改 `var(--gradient-card-highlight)` 验收口径改为 5 页双主题目视），无其他新增条目。
 - **v2.9.59 (2026-10-29)**：关闭 **D-8**（DR-4 判据来源分叉，发现来源 merge-audit M-RC-17 待确认项转正）——`AsideMenu.vue` 四菜单判据权限码双实现（`hasPermission(PERMISSION_CODES.*)` 读种子态）与 `usePermission.ts:105-117` 同名层级判据并存，菜单（码口径）与路由守卫（roleWhitelist 层级口径）分叉：有码无级→可见被拦、有级无级→隐藏可直达（auditlog:read 全角色有码为最宽分叉）。**收敛**：AsideMenu 解构复用层级判据删本地实现（DR-4），菜单/守卫/后端 permission_classes 三方同口径；**方向订正**——原「权限码为唯一事实来源」反转（后端无码校验，层级为唯一可达同口径，merge-audit §3.1.8 留痕①）；**行为变更锁定**：canViewAuditLog 对持码 regular_user 由可见转隐藏。防回归三层（角色矩阵 / 有码低角色 false 锁定 ×3 / ?raw 源码守卫）。验证：全量 vitest **179 files / 2337 passed**（+9）、vue-tsc / eslint / prettier / FR 护栏全 0；活账本 BF-163、merge-audit §3.1.8 同步。

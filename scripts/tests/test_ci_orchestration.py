@@ -11,6 +11,8 @@
   7. 真实仓库两个 workflow + 监听链 → 绿
 """
 
+from pathlib import Path
+
 import check_ci_orchestration as guard
 from helpers import write
 
@@ -125,6 +127,60 @@ def test_listener_match_green(tmp_path):
     ci = write(tmp_path / "ci.yml", CI_NAME)
     cd = write(tmp_path / "ci-cd.yml", CD_MATCH)
     assert guard.audit_listener(ci, cd) == []
+
+
+SECURITY_SCAN_FORM = """name: Dependency Security Scan
+
+on:
+  push:
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      deps-changed: "true"
+  python-audit:
+    runs-on: ubuntu-latest
+  node-audit:
+    runs-on: ubuntu-latest
+  secret-scan:
+    runs-on: ubuntu-latest
+  weekly-report:
+    runs-on: ubuntu-latest
+    needs: [python-audit, node-audit]
+    if: always() && github.event_name == 'schedule'
+  security-summary:
+    runs-on: ubuntu-latest
+    needs: [changes, python-audit, node-audit, secret-scan]
+    if: always()
+    steps:
+      - name: 汇总
+        run: echo inline-shell
+"""
+
+
+def test_security_summary_missing_weekly_needs_red(tmp_path):
+    """证红（M-18）：needs 缺 weekly-report → 窄断言红。"""
+    p = write(tmp_path / ".github" / "workflows" / "security-scan.yml", SECURITY_SCAN_FORM)
+    problems = guard.audit_security_summary(p)
+    assert any("weekly-report" in item for item in problems)
+
+
+def test_security_summary_inline_step_red(tmp_path):
+    """证红（S-3）：汇总 step 内联（未走外部脚本）→ 窄断言红。"""
+    text = SECURITY_SCAN_FORM.replace(
+        "needs: [changes, python-audit, node-audit, secret-scan]",
+        "needs: [changes, python-audit, node-audit, secret-scan, weekly-report]",
+    )
+    p = write(tmp_path / ".github" / "workflows" / "security-scan.yml", text)
+    problems = guard.audit_security_summary(p)
+    assert any("security_summary.py" in item for item in problems)
+
+
+def test_real_repo_security_summary_green():
+    """真仓正样本：现行 security-scan.yml 通过窄断言。"""
+    root = Path(guard.__file__).resolve().parent.parent
+    assert guard.audit_security_summary(root / ".github" / "workflows" / "security-scan.yml") == []
 
 
 def test_real_repo_workflows_green(capsys):

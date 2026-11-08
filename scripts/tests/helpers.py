@@ -15,6 +15,13 @@ def write(path: Path, text: str) -> Path:
     return path
 
 
+def write_bom(path: Path, text: str) -> Path:
+    """以 UTF-8 **带 BOM**（EF BB BF）写入文件——B-31 解码序证红用例夹具。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\xef\xbb\xbf" + text.encode("utf-8"))
+    return path
+
+
 def assign_lines(n: int) -> str:
     """生成 n 行缩进赋值语句（每行计 1 逻辑行；用于函数体内）。"""
     return "".join(f"        v{i} = {i}\n" for i in range(n))

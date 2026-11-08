@@ -3,7 +3,7 @@
 护栏：scripts/check_duplicate_invariants.py（进程内调用 main()，--root 注入夹具根）。
 """
 import check_duplicate_invariants as g
-from helpers import write
+from helpers import write, write_bom
 
 SVCS = "asset_management_backend/apps/assetmanagement/services/operation_log_service.py"
 FORMAT = "vue-assetmanagement/src/utils/Format.ts"
@@ -204,3 +204,61 @@ def test_g8_docstring_noise_green(tmp_path, capsys):
 def test_real_repo_default_root_green(capsys):
     assert g.main([]) == 0
     assert "[RESULT] PASS" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# B-31 缺陷族「解码序/静默跳过」证红用例（M-02，G-0 fail-closed）
+# ---------------------------------------------------------------------------
+
+def test_bom_batch_delete_service_missing_user_red(tmp_path, capsys):
+    """证红：BOM .py 不得绕过 G-6（修复前 ast.parse 抛 SyntaxError → 静默跳过 → 假绿）。"""
+    write_bom(tmp_path / SVCS,
+              "from .selectors import OperationLogSelector\n"
+              "def batch_delete_assets(items):\n    pass\n")
+    assert g.main(["--root", str(tmp_path)]) == 1
+    assert "G-6" in capsys.readouterr().out
+
+
+def test_bom_enum_literal_red(tmp_path, capsys):
+    """证红：BOM .py 不得绕过 G-8（合规 SVCS 随行写入，隔离 G-2 面）。"""
+    write(tmp_path / SVCS, "from .selectors import OperationLogSelector\n")
+    write_bom(tmp_path / "asset_management_backend" / "apps" / "assetmanagement" / "foo.py",
+              "role = 'dept_manager'\n")
+    assert g.main(["--root", str(tmp_path)]) == 1
+    assert "G-8" in capsys.readouterr().out
+
+
+def test_no_bom_batch_delete_control_red(tmp_path, capsys):
+    """对照组：无 BOM 同型 G-6 夹具亦红（修的是堵绕过，不是变全红）。"""
+    write(tmp_path / SVCS,
+          "from .selectors import OperationLogSelector\n"
+          "def batch_delete_warehouses(items):\n    pass\n")
+    assert g.main(["--root", str(tmp_path)]) == 1
+    assert "G-6" in capsys.readouterr().out
+
+
+def test_syntax_error_is_red(tmp_path, capsys):
+    """证红：语法破损非空 .py → G-0 阻断项（修复前静默跳过 → 假绿）。"""
+    write(tmp_path / SVCS, "from .selectors import OperationLogSelector\n")
+    write(tmp_path / "asset_management_backend" / "apps" / "broken.py",
+          "def f(:\n    pass\n")
+    assert g.main(["--root", str(tmp_path)]) == 1
+    assert "G-0" in capsys.readouterr().out
+
+
+def test_zero_byte_py_stays_green(tmp_path, capsys):
+    """回归锚：零字节文件（现实仓 11 个 __init__.py 实例）合法跳过，不得 G-0 误红。"""
+    write(tmp_path / SVCS, "from .selectors import OperationLogSelector\n")
+    write(tmp_path / "asset_management_backend" / "apps" / "assetmanagement" / "__init__.py", "")
+    write(tmp_path / "asset_management_backend" / "apps" / "assetmanagement" / "services" / "__init__.py", "")
+    assert g.main(["--root", str(tmp_path)]) == 0
+    assert "[RESULT] PASS" in capsys.readouterr().out
+
+
+def test_undecodable_nonempty_is_red(tmp_path, capsys, monkeypatch):
+    """证红（AR-1：不赌 gbk 字节行为，直接注入解码失败）：非空文件不可解码 → G-0。"""
+    write(tmp_path / SVCS, "from .selectors import OperationLogSelector\n")
+    write(tmp_path / "asset_management_backend" / "apps" / "weird.py", "x = 1\n")
+    monkeypatch.setattr(g, "read_text", lambda path: "")
+    assert g.main(["--root", str(tmp_path)]) == 1
+    assert "G-0" in capsys.readouterr().out

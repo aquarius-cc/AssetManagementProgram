@@ -13,6 +13,7 @@
 from pathlib import Path
 
 import check_frontend_invariants as fr
+from helpers import assign_module_lines
 
 VUE_RELPATH = "views/Huge.vue"
 
@@ -126,3 +127,34 @@ def test_real_repo_default_root_green(capsys):
     """默认根真仓全量 → rc=0（防旧实现回潮误伤）"""
     assert fr.main([]) == 0
     assert "[PASS]" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# B-31 缺陷族用例（M-17 收窄：FR read_text 单源）
+# ---------------------------------------------------------------------------
+
+def test_bom_on_template_is_red(tmp_path, capsys):
+    """证红：BOM .vue 不得因 ^<template 失配丢 template 段（501 算 500 假绿）。"""
+    rc = _run(tmp_path, "\ufeff" + _vue_source(500), "")
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "未登记超限 .vue 文件" in out and VUE_RELPATH in out
+
+
+def test_bom_composable_count_no_drift(tmp_path, capsys):
+    """绿-绿锚点：BOM .ts 首行仍计 1 行（有/无 BOM 计数一致，不假红、不丢行）。"""
+
+    def _count(bom: bool) -> int:
+        comp = tmp_path / "vue-assetmanagement" / "src" / "composables"
+        comp.mkdir(parents=True, exist_ok=True)
+        text = assign_module_lines(201)
+        (comp / "useDrift.ts").write_bytes(
+            (b"\xef\xbb\xbf" if bom else b"") + text.encode("utf-8")
+        )
+        assert fr.main(["--root", str(tmp_path), "--print"]) == 0
+        for line in capsys.readouterr().out.splitlines():
+            if "useDrift.ts" in line:
+                return int(line.split()[1])
+        raise AssertionError("useDrift.ts 未出现在 --print 输出")
+
+    assert _count(True) == _count(False) == 201

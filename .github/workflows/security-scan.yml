@@ -327,7 +327,11 @@ jobs:
     name: "每周安全报告"
     runs-on: ubuntu-latest
     needs: [python-audit, node-audit]
-    if: github.event_name == 'schedule'
+    # M-18（BF-183 批次 1）：加 always()——audit 失败时周报仍须生成（记录
+    # needs.*.result 故障现场），否则 audit 红 → 周报 skipped → security-summary
+    # 的 schedule 判项失去观测面。weekly-report=success 的语义是「报告已生成」，
+    # 不是「audit 通过」（audit 失败仍由 security-summary 判红）。
+    if: always() && github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -361,32 +365,21 @@ jobs:
   security-summary:
     name: "Security 汇总"
     runs-on: ubuntu-latest
-    needs: [changes, python-audit, node-audit, secret-scan]
+    # M-18（BF-183 批次 1）：needs 补 weekly-report——原缺项致 schedule 周
+    # 周报失败被漏判（skipped/failure 与「不需要」不可区分）。
+    needs: [changes, python-audit, node-audit, secret-scan, weekly-report]
     if: always()
     steps:
+      - uses: actions/checkout@v4
+      # M-18：判定逻辑外部化到 scripts/security_summary.py（纯函数 evaluate，
+      # 六态注入单测 test_security_summary.py）。此处刻意偏离 ci.yml ci-summary
+      # 的内联 python3 heredoc 口径，理由 = 可单测性（M-18 的修复目标），
+      # 防日后以「一致性」为由内联回去（S-3）。
+      # 既有语义与旧 shell 逐条对齐：deps-changed 分流避免「有意 skipped」误红；
+      # secret-scan 任何情况必查；非 schedule 下 weekly-report 恒 skipped 不判。
       - name: 汇总安全门禁结果
-        run: |
-          echo "=== Security Scan Results ==="
-          echo "依赖变更探测:     ${{ needs.changes.outputs.deps-changed }}"
-          echo "Python 依赖审计:  ${{ needs.python-audit.result }}"
-          echo "Node 依赖审计:    ${{ needs.node-audit.result }}"
-          echo "密钥泄露扫描:     ${{ needs.secret-scan.result }}"
-          echo ""
-          if [ "${{ needs.changes.outputs.deps-changed }}" = "true" ] || \
-             [ "${{ github.event_name }}" = "schedule" ] || \
-             [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            if [ "${{ needs.python-audit.result }}" != "success" ] || \
-               [ "${{ needs.node-audit.result }}" != "success" ]; then
-              echo "❌ 依赖安全审计未通过，阻止合并"
-              exit 1
-            fi
-            echo "✅ 依赖安全审计通过"
-          else
-            echo "ℹ️ 依赖文件未变更，本次跳过依赖审计（schedule 每周全量兜底）"
-          fi
-          if [ "${{ needs.secret-scan.result }}" != "success" ]; then
-            echo "❌ 密钥泄露扫描未通过，阻止合并"
-            exit 1
-          fi
-          echo "✅ 密钥泄露扫描通过"
-          echo "✅ 安全门禁通过"
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          EVENT_NAME: ${{ github.event_name }}
+          DEPS_CHANGED: ${{ needs.changes.outputs.deps-changed }}
+        run: python scripts/security_summary.py

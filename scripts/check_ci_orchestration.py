@@ -6,9 +6,10 @@
   其中 backend-permission-check / api-doc-guard / api-doc-generate 无下游，
   失败不进汇总 → 出现「有 job 红、汇总绿」的假绿。本护栏把该缺口变成可回归
   断言：新增 job 忘记挂 needs 立即红。
-  刻意不覆盖 security-scan.yml：其「Security 汇总」按 deps-changed 分流，
-  audit 被有意跳过时 result=skipped 属正常，需条件判断而非「!= success 即失败」，
-  与本护栏的无条件覆盖口径不同（该分流逻辑由其 workflow 内联实现，另行审查）。
+  不套用 needs 全覆盖口径于 security-scan.yml：其「Security 汇总」按 deps-changed
+  分流，audit 被有意跳过时 result=skipped 属正常（无条件覆盖会误红）。改为窄断言
+  （audit_security_summary，M-18）：needs 必须含 weekly-report + 汇总 step 必须走
+  scripts/security_summary.py（外部化纯函数，六态单测面，防内联回潮 S-3）。
 
 断言二（监听名一致性）：ci-cd.yml 的 workflow_run.workflows 列表必须包含
   ci.yml 的 name 值。workflow_run 按 workflow 名匹配，CI 改名后 CD 永不触发
@@ -38,6 +39,8 @@ TARGETS = (
 )
 CI_PATH = Path(".github") / "workflows" / "ci.yml"
 CD_PATH = Path(".github") / "workflows" / "ci-cd.yml"
+SECURITY_SCAN_PATH = Path(".github") / "workflows" / "security-scan.yml"
+SECURITY_SUMMARY_MARKER = "python scripts/security_summary.py"
 
 
 def _jobs_section(lines):
@@ -136,8 +139,31 @@ def audit_listener(ci_path, cd_path):
     return []
 
 
+def audit_security_summary(workflow_path):
+    """窄断言（M-18/S-3）：① security-summary 的 needs 必须含 weekly-report
+    （M-18 漏项面：schedule 周周报失败被漏判）② 汇总 step 必须走外部脚本
+    （防内联回潮，S-3）。不套 needs 全覆盖口径（weekly-report 按 event 分流，
+    skipped 属正常，见模块 docstring）。"""
+    problems = []
+    text = Path(workflow_path).read_text(encoding="utf-8")
+    blocks = _job_blocks(_jobs_section(text.splitlines()))
+    if "security-summary" not in blocks:
+        return ["security-scan.yml: 未找到 security-summary job"]
+    needs = set(_needs_of(blocks["security-summary"]))
+    if "weekly-report" not in needs:
+        problems.append(
+            "security-scan.yml: security-summary 的 needs 未含 weekly-report"
+            "（schedule 周兜底失败将被漏判，M-18）"
+        )
+    if SECURITY_SUMMARY_MARKER not in "\n".join(blocks["security-summary"]):
+        problems.append(
+            f"security-scan.yml: 汇总 step 未调用 `{SECURITY_SUMMARY_MARKER}`（防内联回潮，S-3）"
+        )
+    return problems
+
+
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="CI 编排护栏（needs 覆盖率 + CD 监听名）")
+    parser = argparse.ArgumentParser(description="CI 编排护栏（needs 覆盖率 + CD 监听名 + security-summary 窄断言）")
     parser.add_argument("--root", default=None, help="仓库根目录（默认按 __file__ 推导）")
     args = parser.parse_args(argv)
     root = Path(args.root).resolve() if args.root else Path(__file__).resolve().parent.parent
@@ -157,12 +183,19 @@ def main(argv=None):
             if not (root / relative).exists():
                 problems.append("%s: 文件不存在" % relative.as_posix())
 
+    sec_path = root / SECURITY_SCAN_PATH
+    if sec_path.exists():
+        problems.extend(audit_security_summary(sec_path))
+    else:
+        problems.append(f"{SECURITY_SCAN_PATH.as_posix()}: 文件不存在")
+
     if problems:
         print("[FAIL] CI 编排护栏未通过：")
         for item in problems:
             print("   - " + item)
         print("→ needs 缺口：新增 job 必须同步加入汇总节点（M-02/M-24）；")
         print("→ 监听名缺口：ci.yml 改名必须同步 ci-cd.yml 的 workflows 列表。")
+        print("→ security-summary 窄断言：needs 须含 weekly-report，汇总 step 须走外部脚本（M-18/S-3）。")
         return 1
     print("[PASS] CI 汇总 needs 已覆盖全部 job，CD 监听名一致")
     return 0

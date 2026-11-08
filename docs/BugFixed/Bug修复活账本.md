@@ -11028,7 +11028,7 @@ CI/CD 直证          -> 中间链 CI 42050447009 success(49m06s) → 其 CD 420
 
 *登记人：mimo ｜ 状态：【已关闭】（2026-11-06 回填完毕：提交链后端①→②→③→⑤a→⑤a补 + 前端④/⑤a + 收口修复; 终链 CI 42052167666 + CD 42062026255 全绿, 部署 HEAD=4ebdab2）*
 
-## BF-182【进行中】批次 12 M-22-F14-A ip_address 仅系统管理员可见（拍板 A）——后端运行时角色剔除（操作日志/审计日志双暴露面）+ 前端 4 文件 6 点角色条件渲染（isAdmin）+ 双面双角色测试先红后绿｜来源：`docs/Review/merge-codegraph-audit-20261101.md` M-22-F14 + 2026-11-06 用户拍板 A（BF-181 §五 移交）+ 批次 12 执行方案（终版）
+## BF-182【已关闭】批次 12 M-22-F14-A ip_address 仅系统管理员可见（拍板 A）——后端运行时角色剔除（操作日志/审计日志双暴露面）+ 前端 4 文件 6 点角色条件渲染（isAdmin）+ 双面双角色测试先红后绿｜来源：`docs/Review/merge-codegraph-audit-20261101.md` M-22-F14 + 2026-11-06 用户拍板 A（BF-181 §五 移交）+ 批次 12 执行方案（终版）
 
 ### 一、核实结论
 - **拍板范围**：ip_address 仅系统管理员可见。两暴露面独立：① 资产操作日志面（`IsAuthenticated`，全部认证角色可达，含部门经理/资产管理员）——`AssetOperationLogSerializer`（列表/详情/资产 logs action/资产列表嵌套共用此序列化器）；② 通用审计日志面（`IsAuditorOrAdmin`，auditor 为主要受影响角色）——`AuditLogSerializer`（列表/详情）+ `AuditLogExportView.export_columns`（服务端导出含 IP 列）。
@@ -11087,3 +11087,37 @@ CI/CD 直证          -> CI 42237271531 success（快速门禁含 oasdiff schema
 - CI/CD run 号已回填（见 §三 CI/CD 直证行）。
 
 *登记人：mimo ｜ 状态：【已关闭】（2026-11-06 回填完毕：提交链后端 `051d714` → 前端 `acffadb` → 根仓 `ddaca3f`；CI run 42237271531 + Security Scan 42237271557 / DupGuard 42237271600 / CD run 42246602503 全绿，部署收口）*
+
+## BF-183【进行中】批次 1 护栏与门禁自身正确性（M-01/M-02/M-17 收窄/M-18 + P-2 scripts/ 兜底，零业务代码）——G 护栏解码 fail-closed（G-0）+ FR read_text 单源 + security-summary Python 化六态 + duplicate-guard 删除与 gate 双名单回查 + migration-check 唤醒｜来源：`docs/Review/merge-codegraph-audit-20261107.md` M-01/M-02/M-17/M-18 + 批次 1 执行方案 v3.1（2026-11-07，三轮复核 15/15 锚点直证 + 4+2 补丁闭环）
+
+### 一、核实结论
+- 三报告融合台账 M-01（P1）/M-02（P1）/M-18（P2）/M-17（P2，收窄）全部经独立直证成立；方案 v3.1 经三轮复核 15/15 锚点收敛（含 BR-6 旁路行号裁决 :82-83/:86-88，复核方撤回乱码直读伪影行号）。
+- 根因链：M-02 = G 护栏 read_text 缺 utf-8-sig + SyntaxError continue 静默跳过（G-1~G-8 可 BOM 绕过）；M-17 收窄 = FR 护栏 utf-8 先行致 U+FEFF 泄漏使 `^<template` 失配；M-18 = security-summary needs 缺 weekly-report 且其 `if` 无 `always()`；M-01 = gate 单监听 + migration-check 仅 PR 触发（直推模式休眠）+ 子模块 WD 致 gitlink 不可达（`|| true` + `[ -z ]` fail-open）。
+
+### 二、修复方案（批次 1 执行方案 v3.1）
+| 阶段 | 内容 |
+|:--|:--|
+| 0 | 账本登记：B-31 缺陷族四实例 + 附表 G-0/G-8 行 + 本条开项 + security-scan 先后约束 + scripts/ 覆盖 M 项 |
+| 1 | M-02（G `_source`/G-0 fail-closed）+ M-17 收窄（FR read_text 单源）+ P-2（scripts/ 轻量长度断言，解析失败显式红）+ 测试（helpers.write_bom + G 6 例 + FR 2 例） |
+| 2 | M-18（security-scan.yml weekly-report `always()` + summary needs/Python 化 + security_summary.py 六态纯函数 + 窄断言） |
+| 3a | 删 duplicate-guard.yml（三 job 已被 ci.yml:backend-lint 覆盖）+ TARGETS 同步 + gate_recheck.py（双名单纯函数 + gh api fail-closed）+ 3a-3 三类断言（名单生效性/迁移触发形态/security-summary 窄断言 + P-3 三断言点 + on 段解析器） |
+| 3b | migration-check 唤醒：on 增 push + 删触发级 paths + fetch-depth: 0 + 子模块 gitlink 指针 diff（复刻 security-scan B 分支）+ BASE 空/全零→全量 + ③④ fail-closed（3c 硬前置） |
+| 3c | ci-cd.yml gate 接线：security-gate 加 checkout + 回查 step 改调 gate_recheck.py（env/poll/fail-closed 口径不变） |
+| 4 | AGENTS §1.8:101/§6③/§10 + ci.yml:38 注释 + merge 报告状态列 + 本条回填 |
+
+### 三、验证记录
+（执行后回填）
+
+### 四、对抗审核
+（执行后回填）
+
+### 五、遗留与关联事项
+- **security-scan.yml 两处改动先后约束**（M-11 批次遵守）：M-18（本批，security-summary step 改外部脚本）必须先于 M-11（yaml 覆盖率断言）落地——同文件两处改动，次序颠倒则证红矩阵无法干净归因。
+- **新 M 项：根仓 scripts/ 无 CI 静态覆盖**（ruff/BR-4/BR-6 均不覆盖根仓 scripts/，CI 全部 ruff 步 working-directory 在后端子仓）：本批以护栏自测轻量断言临时兜底（P-2：scripts/*.py 顶层逐文件逻辑行 ≤500 + 解码/解析失败显式判红，计数走 line_metrics 单源），后续批次另立独立 M 项，**不得默认 BR-6 兜底**。
+- **缺陷族 #4 留尾面**（B-31 实例 ④）：BR-4 `:58/:62`、BR-6 `:82-83/:86-88` 空文本/SyntaxError 跳过（不可解码面），另批处置。
+- **M-17 计数口径/台账分区收编**：本批不含（仅 read_text 单源），另批处置。
+- **M-11 本体**：不并入本批，仅登记先后约束。
+- **O-2 推测备案**：若未来启用 required checks 且引用旧 guard job 名，删 workflow 会使 required check 悬空（当前未启用分支保护，仅记历史快照）。
+- **§5.4 定性记录**：本批 3a 删重复 workflow = 阻断面搬运（coverage 不减）不触发沙盒；3b migration-check 增 push 触发 = 首次真实生效的实质阻断面，裁定延后至 3b 上线时（不落地 14 天灰度，用 3b 证红/证绿矩阵 + 一次真实 push 的 gate 日志）。
+
+*登记人：AtomCode ｜ 状态：【进行中】（2026-11-07 开项，执行后回填提交链与 CI/CD run 号）*

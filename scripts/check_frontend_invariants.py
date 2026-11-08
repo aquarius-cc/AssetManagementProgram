@@ -41,6 +41,8 @@ import re
 import sys
 from pathlib import Path
 
+from line_metrics import read_text  # M-17 收窄（B-31）：解码序单源（utf-8-sig 打头）
+
 DEFAULT_ROOT = Path(__file__).resolve().parent.parent
 ROOT = DEFAULT_ROOT
 SCOPE_DIR = ROOT / "vue-assetmanagement" / "src" / "composables"
@@ -55,15 +57,6 @@ VUE_MAX_LINES = 500
 
 BLOCKING = []
 WARNINGS = []
-
-
-def read_text(path: Path) -> str:
-    for encoding in ("utf-8", "utf-8-sig", "gbk"):
-        try:
-            return path.read_text(encoding=encoding)
-        except UnicodeDecodeError:
-            continue
-    return ""
 
 
 def is_target(path: Path) -> bool:

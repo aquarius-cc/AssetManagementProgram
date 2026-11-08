@@ -5,7 +5,7 @@
 
 退出码：
   0 = 全部通过
-  1 = 阻断项失败（G-1~G-3、G-5~G-8 任一命中）
+  1 = 阻断项失败（G-0、G-1~G-3、G-5~G-8 任一命中）
 
 用法：python scripts/check_duplicate_invariants.py
 """
@@ -15,6 +15,8 @@ import ast
 import re
 import sys
 from pathlib import Path
+
+from line_metrics import iter_py_files, read_text
 
 DEFAULT_ROOT = Path(__file__).resolve().parent.parent
 ROOT = DEFAULT_ROOT
@@ -37,19 +39,27 @@ G6_G7_EXEMPT = frozenset(
 )
 
 
-def read_text(path: Path) -> str:
-    for encoding in ("utf-8", "gbk"):
-        try:
-            return path.read_text(encoding=encoding)
-        except UnicodeDecodeError:
-            continue
-    return ""
+def _source(path: Path):
+    """G-0 统一入口：返回 .py 文件的可解码源码；合法空文件（零字节）返回 None。
 
+    - 文件不存在 → None（由调用方按各自不变量语义判定，如 G-2 缺服务文件 = 不触发，既有语义）
+    - 零字节（如 __init__.py，现实仓 11 个真实实例）→ None（合法空文件，无任何不变量可命中）
+    - 非空但解码失败（三种编码均失败）→ BLOCKING「G-0 解码失败」并返回 None——护栏向失败，
+      不得静默跳过（B-31 缺陷族：BOM/不可解码文件不得绕过 G-1~G-8）。
 
-def iter_py_files(scope_dir: Path):
-    if not scope_dir.exists():
-        return
-    yield from scope_dir.rglob("*.py")
+    read_text/iter_py_files 为 line_metrics 单源（utf-8-sig 打头，DR-1），
+    本地自实现已删（M-02：原解码序 utf-8 先行，BOM 文件 ast.parse 抛
+    SyntaxError 被静默跳过 → G-1~G-8 全可绕过，假绿）。
+    """
+    if not path.exists() or path.stat().st_size == 0:
+        return None
+    source = read_text(path)
+    if not source:
+        BLOCKING.append(
+            f"G-0 解码失败 {path.relative_to(ROOT)}（非空文件不可解码，fail-closed：不跳过）"
+        )
+        return None
+    return source
 
 
 def check_g1_closed_patterns_absent():
@@ -70,7 +80,10 @@ def check_g1_closed_patterns_absent():
         r"def get_asset_recordcode_by_asset_code",
     ]
     for path in iter_py_files(BACKEND / "apps"):
-        for lineno, line in enumerate(read_text(path).splitlines(), start=1):
+        source = _source(path)
+        if source is None:
+            continue
+        for lineno, line in enumerate(source.splitlines(), start=1):
             for pattern in blacklist:
                 if re.search(pattern, line):
                     BLOCKING.append(f"G-1 已关闭模式复发 {path.relative_to(ROOT)}:{lineno} 匹配 {pattern!r}")
@@ -79,10 +92,19 @@ def check_g1_closed_patterns_absent():
 def check_g2_operation_log_single_impl():
     """G-2: 操作日志查询唯一实现（Service 委托 Selector，Manager 不得复现）"""
     svc = BACKEND / "apps" / "assetmanagement" / "services" / "operation_log_service.py"
-    if svc.exists() and "OperationLogSelector" not in read_text(svc):
-        BLOCKING.append("G-2 operation_log_service.py 未 import/委托 OperationLogSelector")
+    if svc.exists():
+        source = _source(svc)
+        if source is None:
+            BLOCKING.append("G-2 operation_log_service.py 为空/不可解码（OperationLogSelector 未委托，fail-closed）")
+        elif "OperationLogSelector" not in source:
+            BLOCKING.append("G-2 operation_log_service.py 未 import/委托 OperationLogSelector")
+    # 文件缺失 → 不触发 G-2（既有语义：夹具多不创建该文件；真仓文件被删的场景
+    # 由 CI import 报错兜底，见 BF-183 §四）
     for path in iter_py_files(BACKEND / "apps"):
-        for lineno, line in enumerate(read_text(path).splitlines(), start=1):
+        source = _source(path)
+        if source is None:
+            continue
+        for lineno, line in enumerate(source.splitlines(), start=1):
             if re.search(r"^\s*class AssetOperationLogManager", line):
                 BLOCKING.append(f"G-2 AssetOperationLogManager 重新出现 {path.relative_to(ROOT)}:{lineno}")
 
@@ -114,11 +136,22 @@ def check_g5_no_shadow_modules():
 
 
 def _iter_ast_trees(apps_dir: Path):
-    """apps/ 下全部 .py 的 (path, ast_tree)（语法错误跳过，由 ruff/mypy 兜底）。"""
+    """apps/ 下全部 .py 的 (path, ast_tree)（G-0 fail-closed：不静默跳过）。
+
+    零字节文件合法跳过；非空文件必须可解码且可解析——解码失败/语法错误 →
+    G-0 阻断项（M-02/B-31：原 SyntaxError 静默 continue，BOM/语法破损文件
+    可绕过 G-6/G-7/G-8；不可解码文件 ast.parse 空串成空模块，同型假绿）。
+    """
     for path in apps_dir.rglob("*.py"):
+        source = _source(path)
+        if source is None:
+            continue
         try:
-            tree = ast.parse(read_text(path))
-        except SyntaxError:
+            tree = ast.parse(source)
+        except SyntaxError as exc:
+            BLOCKING.append(
+                f"G-0 解析失败 {path.relative_to(ROOT)}:{exc.lineno} {exc.msg}（fail-closed：不跳过）"
+            )
             continue
         yield path, tree
 
