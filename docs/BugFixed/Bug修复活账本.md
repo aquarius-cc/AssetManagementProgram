@@ -11231,3 +11231,26 @@ Commit 3（首跑红修复，head 8aa51b0）push 复验：
 - merge 报告 M-05 行（:60）已划线关闭 + 批次 2 表下补执行回执；本条为唯一账本登记（无双登记）。
 
 *登记人：AtomCode ｜ 状态：【已关闭】（2026-11-08 当日收口：先红 4 failed → 后绿 7/7 + 合同域 106 + 全量 2405 passed；覆盖率 89.65%/95%/100% 三线达标；mypy strict 231 files 0、schema diff exit 0、5 护栏全 PASS、BR-4/BR-6 经拆分后双绿；mutmut 留 CI 收口）*
+
+---
+
+## BF-185【已关闭】批次 5——CI 假门禁与安全扫描闭合 + 死代码/死依赖批量清零（M-09/M-10/M-34/M-11/M-12/M-35/M-36/M-45 批A·B·C）｜来源：`docs/Review/merge-audit-20261107.md` M-35/M-36/M-45 行 + M-09/M-10/M-34/M-11 批次 5 工单 + M-12 [HALT]（2026-11-10 用户批准）
+
+- **发现时间**：2026-11-07 融合审计（报告B）+ 2026-11-10 批次 5 执行｜**修复时间**：2026-11-10 批次 5（当日收口）
+- **销项清单（8 commit 直推）**：
+  1. `486c462` docs(root) **M-12 [HALT]**：根 AGENTS.md §6 ④ 审计豁免登记（twisted CVE-2026-106454 --ignore-vuln / braces GHSA-vfj7-8cjw-p6xm --omit=dev 两条例外表格化，批准依据 BF-102/BF-100，失效 2026-12-10，新增例外须登记 + §5.2 审批 + 过期自动失效；报告可见性不豁免）。头部 v3.7.5→v3.7.7 对齐。§5.4 不触发沙盒期（既有 CI 行为登记补录）。
+  2. `e68e719` fix(ci) **M-09/M-10**：`npx vue-tsc --noEmit` 假门禁修复（solution 型 tsconfig 对 0 文件检查，--listFiles 0 行直证）→ `npm run type-check`（2768 行含 718 src）；覆盖率双 step 重复连跑合一（thresholds 分层块单次即强制）。
+  3. `61980dd` feat(security) **M-34/M-11**：bash PATTERNS 循环迁入 `scripts/check_secret_fingerprints.py`（kv 模式逐字移植），三处修复——扩 --type yaml（本文件 PEM 字面量曾自我豁免）、tests 夹具 SHA-256 指纹白名单分流（12 登记值 / 53 处常态误报消除）、解码失败 fail-closed；security-scan 三道改写（quoted 指纹分流 / env 裸赋值 --hidden 纳入 dot 目录 + -g '!.env' / revoked 恒红）+ setup-python pin 3.12（CT-7 对齐）。占位判定收编 `is_placeholder` 单源（DR-1）。
+  4. `f6257e6` chore(guard)：编排断言五第 5 真仓绿锚（指纹护栏自测入 push 面三点断言）+ PR 模板夹具登记流程。
+  5. `c99bf08` docs(ledger)：批次 3/4 规范版本回填（backend v1.25 等）。
+  6. backend `a0e5334`+`ffef02c`：**M-35** core/validators.py 整删（100 行死代码，零引用实证）+ **M-36** requirements 删 requests/urllib3/chardet（全仓零 import）；`13f3a7f` CONTRIBUTING 指纹登记流程。
+  7. frontend `88d206e`+`ef2e975`：**M-36** package.json 删 jsdom（environment=happy-dom）/less/less-loader（零 .less），lock -826 行；**M-45 批B** Image.ts 153→44（仅存 lazyLoadDirective）+ reactiveAccess readStoreValue 坍缩进 readReactive（4 调用点迁移）。
+  8. backend `daa95d3`+`15f6a93`：**M-45 批A** utils 死代码（date_utils 整删 -105、string_utils 139→27 仅存 mask_phone_number 逐字保真；_parse_date 双实现登记账本 C-15 刻意保留，md5 双 hash 一致）；**M-45 批C** providers Mock 三件套删除（零引用，DjangoEmployeeProvider 注册链不动）+ BaseModel.hard_delete/restore 死面删除（含 authusermanagement 同型覆写）+ docstring 清理面。
+- **门禁矩阵（本地实测，2026-11-10）**：
+  - 后端：全量 pytest **2427 passed**（较基线 2454 少 27 = M-35/45 死自测删除面）；ruff check/format 全绿（449 files）；BR-4/BR-6 PASS（0 超长）；G/FR/密钥护栏全 PASS。
+  - 前端：vue-tsc --build 0 错、eslint 0 错、prettier 全合规、全量 vitest **2627 passed**。
+  - 账本：complete-patterns 新增 **C-15**（_parse_date 双实现刻意保留，回查 md5 命令实测可用）。
+- **对抗审核**：① Image.ts mounted 重写曾引入两处语义漂移（rootMargin '50px' + 占位图顺序提前），git diff 逐字比对后还原原始语义，死导出删除保零行为变更；② mask_phone_number 内联化首版星号数固定 4 颗，与原 mask_sensitive_info 链路的 `len-7` 可变长度不等值，已改逐字保真并补 12 位用例锁定；③ M-45 删除面全部 rg 全仓（含测试）实证零引用后才动手，每批独立 commit 可单点 revert。
+- **关联**：merge-audit-20261107 M-35/M-36/M-45 三行销项；根 AGENTS §6 ④（v3.7.7）为唯一豁免台账；M-32/M-13/C-14 前端账本条目不在本批范围（批次 4b 另排）。
+
+*登记人：AtomCode ｜ 状态：【已关闭】（2026-11-10 当日收口：后端 2427 passed + 前端 2627 passed + 五护栏 + BR-4/BR-6 全绿；净删 ~-1500 行死代码/死依赖；变异门禁与 CI 基线按惯例交 CI 收口）*
