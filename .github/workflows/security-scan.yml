@@ -233,34 +233,22 @@ jobs:
         with:
           submodules: true
           fetch-depth: 0
-      - name: 检查硬编码密钥（AK/SK/Token/密码）
-        run: |
-          echo "=== 扫描疑似硬编码密钥 ==="
-          # 扫描常见的密钥模式
-          PATTERNS=(
-            'AKIA[0-9A-Z]{16}'
-            '-----BEGIN.*PRIVATE KEY-----'
-            'password\s*[:=]\s*["\x27][^"\x27]{8,}'
-            'secret\s*[:=]\s*["\x27][^"\x27]{8,}'
-            'token\s*[:=]\s*["\x27][^"\x27]{8,}'
-            'api_key\s*[:=]\s*["\x27][^"\x27]{8,}'
-          )
-          FOUND=0
-          for pattern in "${PATTERNS[@]}"; do
-            MATCHES=$(rg -n "$pattern" --type py --type js --type ts --type json -g '!node_modules' -g '!*.lock' -g '!venv/' -g '!dist/' . 2>/dev/null || true)
-            if [ -n "$MATCHES" ]; then
-              echo "⚠️ 发现疑似密钥匹配: $pattern"
-              echo "$MATCHES"
-              FOUND=1
-            fi
-          done
-          if [ "$FOUND" -eq 1 ]; then
-            echo ""
-            echo "❌ 检测到疑似硬编码密钥，请人工确认并移除"
-            echo "   若为误报，请在 PR 描述中说明"
-            exit 1
-          fi
-          echo "✅ 未发现硬编码密钥"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"  # 扫描器为 stdlib-only，pin 与 ci.yml PYTHON_VERSION 对齐（CT-7）
+      - name: 引号形态密钥扫描（第一道，含 tests 指纹白名单分流）
+        # 【M-34 + M-11，2026-11-10】原 bash PATTERNS 循环整体迁入
+        # scripts/check_secret_fingerprints.py（kv 模式逐字移植，大小写敏感与
+        # 无词边界语义不变），修复三处：
+        # ① 扩 --type yaml：原 rg 无 yaml 类型，本文件自身的 PEM 模式字面量
+        #    曾借此自我豁免存活（:242 原址）；
+        # ② tests 夹具值按 SHA-256 指纹白名单分流（scripts/secret_fingerprints.json，
+        #    12 个登记值；未登记高熵值仍红，SC-2 不稀释）——原实现对仓内 53 处
+        #    测试夹具命中一刀切 exit 1，属常态性误报（逼出的人工确认从未发生）；
+        # ③ 解码失败 fail-closed 判红（G-0 同型，B-31）；git ls-files 失败 exit 2。
+        # 模式与白名单唯一真源 = 扫描器 + 配置；自测: scripts/tests/test_check_secret_fingerprints.py
+        # 新增测试夹具值的登记流程见 .github/PULL_REQUEST_TEMPLATE.md 与 CONTRIBUTING.md。
+        run: python scripts/check_secret_fingerprints.py --quoted
 
       - name: 扫描文档与环境文件中的 env 式裸赋值密钥（2026-08 泄露事故补丁）
         run: |
@@ -271,11 +259,19 @@ jobs:
           # "unexpected EOF while looking for matching '"  (exit 2)。
           # 改用 \x22 / \x27 表示双引号与单引号，语义完全等价，且不与外层引号冲突。
           # 已用 rg 15.1.0 实测：目标形态可命中，仓库内 git 跟踪文件零误报。
+          # 【M-11，2026-11-10】加 --hidden 并删 -g '!.github/**'：dot 目录（含本文件
+          # 所在 .github/、.trae/ 等已跟踪 dot 目录）纳入扫描面（rg 默认跳过隐藏目录
+          # → 这些目录原为扫描盲区）。.git/** 仍排除（对象库非文本面）。
+          # 追加 -g '!.env'（须排在 *.env 之后，rg 末位 glob 优先）：未跟踪本地 .env
+          # 的内容扫描归跟踪面护栏（check_secret_tracking）管辖，本步只管 CI checkout
+          # 内的文档/环境文件；另 -v 过滤串补齐 .trae spec 模板占位（your_db_password
+          # 形态）与 .github CI 哑值三类，均已 rg 直证为非密钥。
           MATCHES=$(rg -n '^[\s\-*>#]{0,8}[A-Za-z_]*(PASSWORD|SECRET|TOKEN|API_KEY)[A-Za-z_]*\s*[=:]\s*[\x22\x27]?[A-Za-z0-9@#*_\-+/]{8,}[\x22\x27]?\s*$' \
+            --hidden \
             -g '!node_modules' -g '!*.lock' -g '!venv/' -g '!dist/' -g '!*.svg' \
-            -g '!.github/**' -g '!.git/**' \
-            -g '*.md' -g '*.yml' -g '*.yaml' -g '*.env' -g '*.txt' -g '*.sh' . 2>/dev/null \
-            | rg -v -i 'changeme|change-me|your[-_]?(password|secret|key)|example|placeholder|请替换|占位|x{5,}|\*{3,}' || true)
+            -g '!.git/**' \
+            -g '*.md' -g '*.yml' -g '*.yaml' -g '*.env' -g '!.env' -g '*.txt' -g '*.sh' . 2>/dev/null \
+            | rg -v -i 'changeme|change-me|your[-_\w]*(password|secret|key|token)|example|placeholder|请替换|占位|x{5,}|\*{3,}|ci-dummy-not-real|dummy-key-for-schema-generation|ci-test-generic-key' || true)
           if [ -n "$MATCHES" ]; then
             echo "⚠️ 发现文档/环境文件中的裸赋值疑似密钥:"
             echo "$MATCHES"
@@ -299,28 +295,15 @@ jobs:
           done
           echo "✅ 全仓(含子模块)无已跟踪 .env"
 
-      - name: 已轮换泄露凭据残留检查（黑名单）
-        run: |
-          echo "=== 检查历史事故凭据是否回流 ==="
-          # 2026-08-26 事故轮换的凭据指纹，禁止再次出现在仓库任何位置
-          BLACKLIST=(
-            'PostgresTerminal@8348'
-            'dev_asset_mgmt_xk9f'
-            'prod_asset_mgmt_r7t4'
-          )
-          FOUND=0
-          for item in "${BLACKLIST[@]}"; do
-            MATCHES=$(rg -n -F "$item" -g '!node_modules' -g '!dist/' -g '!.github/**' -g '!.git/**' . 2>/dev/null | rg -v '已脱敏|已轮换失效' || true)
-            if [ -n "$MATCHES" ]; then
-              echo "❌ 发现已轮换泄露凭据指纹回流: $item"
-              echo "$MATCHES"
-              FOUND=1
-            fi
-          done
-          if [ "$FOUND" -eq 1 ]; then
-            exit 1
-          fi
-          echo "✅ 无历史泄露凭据回流"
+      - name: 已轮换泄露凭据残留检查（SHA-256 指纹黑名单）
+        # 【M-34，2026-11-10】原 rg -F 明文黑名单（3 条已轮换凭据字面量 + 注释豁免
+        # '已脱敏|已轮换失效' + -g '!.github/**' 自我豁免）整体废除：黑名单本身
+        # 违反 SC-1（workflow 携带真实凭据明文），注释豁免是 fail-open（任何回流行
+        # 写上「已轮换」注释即可绕过）。改用 scripts/check_secret_fingerprints.py
+        # --revoked：凭据 SHA-256 指纹存于 scripts/secret_fingerprints.json
+        # （只存哈希），全树 token 分词指纹匹配，无注释豁免；.github/** 一并覆盖
+        # （自豁免面收口）。指纹口径与检测力边界见扫描器模块 docstring。
+        run: python scripts/check_secret_fingerprints.py --revoked
 
   # ==================== 周报生成 (SC-8 落地) ====================
   weekly-report:

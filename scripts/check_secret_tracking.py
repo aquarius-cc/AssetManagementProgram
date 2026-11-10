@@ -36,6 +36,15 @@ _PLACEHOLDER_RE = re.compile(
 )
 
 
+def is_placeholder(value: str) -> bool:
+    """占位判定唯一真源（G11，批次 5）：_PLACEHOLDER_RE 的公共入口。
+
+    check_secret_fingerprints.py 等下游护栏一律 import 本函数，禁止各自
+    内联第二份占位判定（DR-1）。
+    """
+    return bool(_PLACEHOLDER_RE.match(value))
+
+
 def _ls_files(repo: Path) -> str:
     """git ls-files 输出(失败返回空, 由调用方按空处理)"""
     result = subprocess.run(
@@ -66,7 +75,7 @@ def scan_staged(diff_text: str) -> list[str]:
             continue
         for match in _SECRET_KEY_RE.finditer(line):
             value = match.group(2).strip("\"'")
-            if _PLACEHOLDER_RE.match(value):
+            if is_placeholder(value):
                 continue
             violations.append(line.strip())
     return violations

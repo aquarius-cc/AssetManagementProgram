@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from check_secret_tracking import scan_staged  # noqa: E402
+from check_secret_tracking import is_placeholder, scan_staged  # noqa: E402
 
 _REAL_DB = "Super" + "Secret123"
 _REAL_REDIS = "Rd3al" + "Secret99"
@@ -51,3 +51,12 @@ def test_staged_short_value_not_matched():
 def test_staged_compose_env_passthrough_passes():
     """compose 透传行（${VAR:-} 插值）放行"""
     assert scan_staged("      - METRICS_TOKEN=${METRICS_TOKEN:-}\n") == []
+
+
+def test_is_placeholder_public_entry():
+    """G11：占位判定公共入口——指纹护栏（check_secret_fingerprints）按此单源复用"""
+    assert is_placeholder("your-secret-key-here")
+    assert is_placeholder("changeme-after-first-login")
+    assert is_placeholder("${DB_PASSWORD}")
+    assert not is_placeholder("Str0ng" + "Pass!123")
+    assert not is_placeholder("ci-test-generic-key-not-for-any-environment-123")
