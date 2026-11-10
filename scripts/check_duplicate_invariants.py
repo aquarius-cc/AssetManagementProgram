@@ -110,15 +110,138 @@ def check_g2_operation_log_single_impl():
 
 
 def check_g3_frontend_single_source():
-    """G-3: 前端资产状态映射单一来源（Format.ts 派生自 statusMapping，不得内联字面量）"""
+    """G-3: 前端状态语义映射单一来源（statusMapping.ts 为唯一字面量来源）。
+
+    批次 4b 扩展（账本 C-16，2026-11-10）——实现追上条文，覆盖全部消费点：
+    ① Format.ts 派生检查（原子集，保留）；
+    ② 跨端键集全等：后端 Asset.AssetStatus（AST 定位 class AssetStatus 整块）
+       与前端 ASSET_STATUS_MAP 键集必须全等 8 键，任一侧解析失败 fail-closed 判红；
+    ③ 组件/视图内联语义映射零容忍：形态清单以账本 C-16 命令 A 为唯一真源
+       （历史形态 statusMap/getStatusType/typeColorMap 等 + 函数内 `const map: Record<string,string>`），
+       豁免名单 = C-16 排除留档面（types 层单源 / Format.ts / statusMapping.ts 自身）。
+    """
     fmt = FRONTEND / "src" / "utils" / "Format.ts"
-    if not fmt.exists():
+    if fmt.exists():
+        text = read_text(fmt)
+        if "ASSET_STATUS_MAP" not in text or "./statusMapping" not in text:
+            BLOCKING.append("G-3 Format.ts 未从 ./statusMapping 的 ASSET_STATUS_MAP 派生资产状态映射")
+        if re.search(r"in_store:\s*'在库'", text):
+            BLOCKING.append("G-3 Format.ts 内联了资产状态字面量映射(应改为派生)")
+    _check_g3_cross_end_keys()
+    _check_g3_inline_maps()
+
+
+def _g3_backend_status_keys():
+    """AST 定位 asset.py 的 class AssetStatus 整块取成员键（lower）；解析失败返回 None。"""
+    path = BACKEND / "apps" / "assetmanagement" / "models" / "asset.py"
+    source = _source(path)
+    if source is None:
+        return None
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        BLOCKING.append(
+            f"G-3 跨端比对失败 {path.relative_to(ROOT)}（AssetStatus 块语法不可解析，fail-closed）"
+        )
+        return None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == "AssetStatus":
+            keys = set()
+            for stmt in node.body:
+                if isinstance(stmt, ast.Assign):
+                    keys.update(t.id.lower() for t in stmt.targets if isinstance(t, ast.Name))
+            if keys:
+                return keys
+    BLOCKING.append(
+        f"G-3 跨端比对失败 {path.relative_to(ROOT)}（未定位到 class AssetStatus，fail-closed）"
+    )
+    return None
+
+
+def _g3_frontend_status_keys():
+    """从 statusMapping.ts 提取 ASSET_STATUS_MAP 键集；块定位失败返回 None（fail-closed 由调用方判）。"""
+    path = FRONTEND / "src" / "utils" / "statusMapping.ts"
+    if not path.exists():
+        BLOCKING.append("G-3 跨端比对失败 src/utils/statusMapping.ts 不存在（fail-closed）")
+        return None
+    text = read_text(path)
+    if not text:
+        BLOCKING.append(f"G-0 解码失败 {path.relative_to(ROOT)}（非空文件不可解码，fail-closed）")
+        return None
+    m = re.search(r"export const ASSET_STATUS_MAP[^=]*=\s*\{(.*?)\n\}", text, re.S)
+    if not m:
+        BLOCKING.append(
+            "G-3 跨端比对失败 src/utils/statusMapping.ts（未定位到 ASSET_STATUS_MAP 块，fail-closed）"
+        )
+        return None
+    return set(re.findall(r"^  (\w+): \{", m.group(1), re.M))
+
+
+def _check_g3_cross_end_keys():
+    """跨端 AssetStatus 8 键全等（G-0 fail-closed：文件在场但解析失败即红，不跳过）。
+
+    前置：statusMapping.ts 不存在 → 本检查无守卫对象，直接返回（夹具最小化兼容，
+    真仓恒在场）；在场后，任一侧定位/解析失败即红（B-31 族不得静默跳过）。
+    """
+    path_ts = FRONTEND / "src" / "utils" / "statusMapping.ts"
+    if not path_ts.exists():
         return
-    text = read_text(fmt)
-    if "ASSET_STATUS_MAP" not in text or "./statusMapping" not in text:
-        BLOCKING.append("G-3 Format.ts 未从 ./statusMapping 的 ASSET_STATUS_MAP 派生资产状态映射")
-    if re.search(r"in_store:\s*'在库'", text):
-        BLOCKING.append("G-3 Format.ts 内联了资产状态字面量映射(应改为派生)")
+    backend_keys = _g3_backend_status_keys()
+    frontend_keys = _g3_frontend_status_keys()
+    if backend_keys is None or frontend_keys is None:
+        return
+    if len(backend_keys) != 8 or len(frontend_keys) != 8:
+        BLOCKING.append(
+            f"G-3 跨端键数非 8：后端 {sorted(backend_keys)} vs 前端 {sorted(frontend_keys)}"
+            "（AssetStatus 枚举与 ASSET_STATUS_MAP 必须双侧 8 键）"
+        )
+        return
+    if backend_keys != frontend_keys:
+        BLOCKING.append(
+            f"G-3 跨端键集分叉：仅后端有 {sorted(backend_keys - frontend_keys)}，"
+            f"仅前端有 {sorted(frontend_keys - backend_keys)}"
+            "（Asset.AssetStatus 与 ASSET_STATUS_MAP 必须全等）"
+        )
+
+
+# 形态清单唯一真源 = 账本 C-16 命令 A（批次4b）：历史内联形态名 + 函数内 Record map 形态。
+# 豁免 = C-16 排除留档面（types 层单源导出 / Format.ts 自有检查 / statusMapping.ts 自身）。
+G3_INLINE_NAME = re.compile(
+    r"\b(typeColorMap|priorityColorMap|paymentMethodMap|statusMap|getStatusType|getTypeLabel)\b"
+)
+G3_INLINE_FUNC_MAP = re.compile(r"const map: Record<string,\s*string>\s*=\s*\{")
+G3_SCAN_EXEMPT = {
+    "src/utils/statusMapping.ts",
+    "src/utils/Format.ts",
+    "src/types/auditlog.ts",
+    "src/types/operationlog.ts",
+}
+
+
+def _check_g3_inline_maps():
+    """组件/视图内联语义映射零容忍（收编面回潮即红；__tests__ 与豁免名单外全扫）。"""
+    src = FRONTEND / "src"
+    if not src.exists():
+        return
+    for path in sorted(list(src.rglob("*.vue")) + list(src.rglob("*.ts"))):
+        rel = path.relative_to(FRONTEND).as_posix()
+        if "__tests__" in path.parts or rel in G3_SCAN_EXEMPT:
+            continue
+        text = read_text(path)
+        if not text:
+            BLOCKING.append(
+                f"G-0 解码失败 {path.relative_to(ROOT)}（非空文件不可解码，fail-closed）"
+            )
+            continue
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if G3_INLINE_NAME.search(line):
+                BLOCKING.append(
+                    f"G-3 内联状态语义映射回潮 {rel}:{lineno}（应改用 ./statusMapping 单源，账本 C-16）"
+                )
+            if G3_INLINE_FUNC_MAP.search(line):
+                BLOCKING.append(
+                    f"G-3 函数内联语义 map 回潮 {rel}:{lineno}（应改用 ./statusMapping 单源，账本 C-16）"
+                )
 
 
 def check_g5_no_shadow_modules():

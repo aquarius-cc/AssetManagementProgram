@@ -39,6 +39,103 @@ def test_g3_inline_mapping_red(tmp_path, capsys):
     assert "G-3" in out and "内联" in out
 
 
+# ---------------- 批次 4b G-3 扩展自测（账本 C-16：全消费点覆盖 + 跨端 8 键全等） ----------------
+
+ASSET_PY = "asset_management_backend/apps/assetmanagement/models/asset.py"
+STATUS_MAP_TS = "vue-assetmanagement/src/utils/statusMapping.ts"
+EIGHT_KEYS = [
+    "broken",
+    "damaged",
+    "in_store",
+    "in_use",
+    "lost",
+    "recycled_pending",
+    "repairing",
+    "scrapped",
+]
+
+
+def _asset_status_py(keys):
+    body = "\n".join(f'    {k.upper()} = "{k}", "{k}"' for k in keys)
+    return f"from django.db import models\n\nclass AssetStatus(models.TextChoices):\n{body}\n"
+
+
+def _status_map_ts(keys):
+    body = "\n".join(f"  {k}: {{ label: '{k}', type: 'info' }}," for k in keys)
+    return (
+        "export const ASSET_STATUS_MAP: Record<string, { label: string; type: string }> = {\n"
+        f"{body}\n}}\n"
+    )
+
+
+def _write_cross_end(tmp_path, backend_keys, frontend_keys):
+    write(tmp_path / ASSET_PY, _asset_status_py(backend_keys))
+    write(tmp_path / STATUS_MAP_TS, _status_map_ts(frontend_keys))
+
+
+def test_g3_component_inline_semantic_map_red(tmp_path, capsys):
+    """组件 .vue 内联语义映射（C-16 形态清单）回潮即红。"""
+    write(
+        tmp_path / "vue-assetmanagement/src/components/X.vue",
+        "<template><div/></template>\n"
+        "<script setup>\n"
+        "const typeColorMap: Record<string, string> = { approval: 'primary' }\n"
+        "</script>\n",
+    )
+    _write_cross_end(tmp_path, EIGHT_KEYS, EIGHT_KEYS)
+    assert g.main(["--root", str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+    assert "G-3" in out and "内联状态语义映射回潮" in out
+
+
+def test_g3_function_internal_map_red(tmp_path, capsys):
+    """函数内 `const map: Record<string,string>` 形态（C-16 命令 A 命中形态）回潮即红。"""
+    write(
+        tmp_path / "vue-assetmanagement/src/views/Y.vue",
+        "<template><div/></template>\n"
+        "<script setup>\n"
+        "function f() {\n"
+        "  const map: Record<string, string> = { a: 'b' }\n"
+        "  return map\n"
+        "}\n"
+        "</script>\n",
+    )
+    _write_cross_end(tmp_path, EIGHT_KEYS, EIGHT_KEYS)
+    assert g.main(["--root", str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+    assert "G-3" in out and "函数内联语义 map 回潮" in out
+
+
+def test_g3_cross_end_key_divergence_red(tmp_path, capsys):
+    """跨端键集分叉（双侧各 8 键但键名不一致）即红。"""
+    frontend_keys = [k if k != "scrapped" else "scrapped_typo" for k in EIGHT_KEYS]
+    _write_cross_end(tmp_path, EIGHT_KEYS, frontend_keys)
+    assert g.main(["--root", str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+    assert "G-3" in out and "键集分叉" in out
+
+
+def test_g3_cross_end_unparseable_fail_closed(tmp_path, capsys):
+    """后端 AssetStatus 块缺失/不可定位 → fail-closed 判红，不得静默跳过（G-0/B-31 族）。"""
+    write(tmp_path / ASSET_PY, "from django.db import models\n\nclass Other(models.TextChoices):\n    A = 'a', 'a'\n")
+    write(tmp_path / STATUS_MAP_TS, _status_map_ts(EIGHT_KEYS))
+    assert g.main(["--root", str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+    assert "G-3" in out and "未定位到 class AssetStatus" in out
+
+
+def test_g3_cross_end_eight_keys_green(tmp_path, capsys):
+    """干净镜像：双侧 8 键全等 + 组件零内联 → 绿。"""
+    _write_cross_end(tmp_path, EIGHT_KEYS, EIGHT_KEYS)
+    write(
+        tmp_path / FORMAT,
+        'import { ASSET_STATUS_MAP } from "./statusMapping";\n'
+        "export const fmt = (s: string) => ASSET_STATUS_MAP[s];\n",
+    )
+    assert g.main(["--root", str(tmp_path)]) == 0
+    assert "[RESULT] PASS" in capsys.readouterr().out
+
+
 def test_g5_shadow_file_red(tmp_path, capsys):
     write(tmp_path / "asset_management_backend" / "apps" / "assetmanagement" / "__init__.py", "")
     write(tmp_path / "asset_management_backend" / "apps" / "assetmanagement.py",
