@@ -380,8 +380,13 @@ jobs:
           cache: "npm"
           cache-dependency-path: vue-assetmanagement/package-lock.json
       - run: npm ci
+      # 【M-09，2026-11-10】npx vue-tsc --noEmit 为假门禁：tsconfig.json 是 solution 型
+      # （files: [] + references），--noEmit 不触发 --build，对 0 个文件做检查（本地直证：
+      # --listFiles 输出 0 行、exit 0）。切 npm run type-check（= vue-tsc --build，
+      # --listFiles 2768 行含 718 个 src 文件）。pre-flight 首跑 0 错误，落地即 0 违规，
+      # 引 v3.5.1/G-5 先例不触发 §5.4 沙盒期。
       - name: TypeScript 类型检查
-        run: npx vue-tsc --noEmit
+        run: npm run type-check
 
   frontend-complexity:
     name: "前端 - 复杂度检查 (ESLint complexity)"
@@ -450,9 +455,11 @@ jobs:
           cache: "npm"
           cache-dependency-path: vue-assetmanagement/package-lock.json
       - run: npm ci
-      - name: 整体覆盖率检查（配置文件分层阈值：全局 80% / src/**/*.ts 80% / src/stores/**/*.ts 90% / src/**/*.vue 棘轮基线）
-        run: npm run test:coverage
-      - name: 核心 Store 层覆盖率专项检查（红线 90%，由 vitest.config.ts 的 src/stores/**/*.ts 阈值块强制）
+      # 【M-10，2026-11-10】原两 step 重复连跑两次 test:coverage（:454/:456 直证）。
+      # vitest.config.ts 的 thresholds 分层块单次运行即同时强制：
+      #   src/**/*.ts 80% / src/stores/**/*.ts 90% / src/**/*.vue 棘轮基线。
+      # 单次运行省一轮全量测试；coverage/ 产物由下方上传 step 照常取用。
+      - name: 覆盖率检查（单次运行同时强制 ts 80% / stores 90% / .vue 棘轮分层阈值）
         run: npm run test:coverage
       - name: 上传覆盖率报告
         if: always()
