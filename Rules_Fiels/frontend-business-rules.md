@@ -1,10 +1,10 @@
 
 ---
 
-### 📄 文档 5：前端业务规范 `/Rules_Fiels/frontend-business-rules.md` (v1.4)
+### 📄 文档 5：前端业务规范 `/Rules_Fiels/frontend-business-rules.md` (v1.6)
 
 # 前端业务规范与设计思路 (Frontend Business Rules)
-> 版本：v1.5 | 最后更新：2026-11-03
+> 版本：v1.6 | 最后更新：2026-11-10
 > 适用范围：Vue 3.5 + TypeScript 6.0 + Element Plus 2.10 + Vite
 
 ## 一、设计思路（统一与效率）
@@ -42,6 +42,7 @@
 - **切换机制**：在 `App.vue` 中使用 `useDark` 监听系统偏好或手动切换，在 `<html>` 标签上添加/移除 `dark` class。
 - **变量映射**：所有颜色必须通过 CSS 变量（如 `var(--el-color-primary)`）引用，Element Plus 的暗色变量会自动根据 `dark` class 切换。
 - **自定义变量**：项目自定义颜色（如 F1-F2）必须在 `src/styles/variables.css` 中同时定义亮色和暗色两套值。
+- **滚动条灰阶（批次 4 / M-24）**：`--scrollbar-track-bg` / `--scrollbar-thumb-bg` / `--scrollbar-thumb-hover-bg` 三个自定义色值统一在 `src/styles/variables.css` 的 `:root`（亮）与 `html.dark`（暗）各定义一次；`global-scroll.scss` 只保留尺寸与消费点，禁止再写字面量。值变更须同步 `src/styles/__tests__/scrollbarTokens.spec.ts` 的等值断言。
 
 ## 四、前端代码复用与量化规范（DRY 落地）
 
@@ -59,6 +60,7 @@
 | FR-8 | **Store 文件规模** | 单个 `stores/*.ts`（目录全量，`__tests__` 目录除外；2026-11-03 起废除 historic「非 `use*.ts`」前缀排除——原口径误排除 `userStore.ts` 致 31/32 假绿盲区，OP-06 收编；composable 规模由 FR-6 按目录独立管理）**不得超过 500 逻辑行**，计数口径与 FR-6 完全一致（逻辑行 = 物理行 − 空行 − 整行注释（行注释 `//` 与块注释 `/* */` 起止行剔除），行内/行尾注释计入代码行；字符串/模板串内 `//`、`/*` 不视为注释；语义与 BR-4 `logical_line_count` 对齐）。超过时，必须按职责拆分为独立模块（类型/缓存/请求控制等）。计数最小实现为 `scripts/check_frontend_invariants.py`（逻辑行 `logical_line_count`，`--print` 为权威数值来源，含 stores 段；严格模式无台账豁免）。 | 拆分 Store 模块 |
 
 ## 五、变更日志
+- v1.6 (2026-11-10): **[PATCH-FE] 批次 4 / M-24**——新增滚动条灰阶令牌（亮/暗各 3 个，值迁移自 `global-scroll.scss:10-18`，逐字等值、零渲染变更）；同步修正文档 :4 头部版本号残留（v1.4→v1.6，v1.5 变更时漏改）。配套：M-43 清理 4 处 `var()` 回退字面量（AssetTypeChildList.vue:33 / global-reset.scss:25 / common-forms.scss:84,482）、新增 `scrollbarTokens.spec.ts` 等值断言（T6 先红 3 failed 转绿）。依子引擎 §4.2 经人工审批（[HALT] 已确认）后应用。§5.4 适用性：不收紧任何阈值、不改变 CI 阻断行为，属设计令牌覆盖面扩展，不触发沙盒期。
 - v1.5 (2026-11-03): FR-8 口径收编（OP-06）——废除「非 `use*.ts`」前缀排除改**目录全量（`__tests__` 除外）**：原口径以 `startswith("use")` 排除致 `userStore.ts`（"userStore" 以 "use" 开头）假绿盲区（护栏 31 / 实际 32），护栏 `is_store_target` 与本条文同步收编；护栏自测 +5 用例先证红（3 failed）后证绿（49 passed）。[HALT] 经人工批准后应用；v1.4 历史记载不回溯。
 - v1.4 (2026-09-21): 新增 FR-8——`stores/*.ts`（非 `use*.ts`）规模上限 500 逻辑行，计数口径与 FR-6 完全一致，guard（`scripts/check_frontend_invariants.py`）扩展 stores 段扫描（严格模式，无台账豁免），`--print` 输出 stores 权威计数。依据子引擎 §4 本地自适应流程，经人工审批（[HALT] 已确认）后以 `[PATCH-FE]` 留痕应用；同步修正 v1.3 未升头部版本号残留。
 - v1.3 (2026-09-21): FR-6 行数口径基线固化——条文补充"不含空行和注释"及精确计数语义（与 BR-4 `logical_line_count` 对齐，行内/行尾注释计入代码行，块注释整体剔除）；配套门禁 `scripts/check_frontend_invariants.py` + 台账 `Rules_Fiels/FR6_composable_ledger.md` + CI job `fr6-composable-guard`（`duplicate-guard.yml`）。依据子引擎 §4 本地自适应流程，经人工审批（[HALT] 已确认）后以 `[PATCH-FE]` 留痕应用。

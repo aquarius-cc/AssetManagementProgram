@@ -816,10 +816,23 @@
 - **登记日期**：2026-09-28
 
 ### C-12. 后端分组端点 query 筛选字段声明式重复（3 键 × 2 Serializer，B4 引入，刻意保留）
+
+### C-13. contract/storage 全局资源读面豁免（M-41 挂账，合规形态保留）
+- **登记（2026-11-09，批次 3 组A 序6 M-41）**：`apps/assetmanagement/views/contract_view.py:114-116` 与 `storage_view.py:86-88`（`_base_queryset`）的 View 层直查 ORM（`Contract.objects.filter(is_deleted=False)` / `Storage.objects.filter(is_deleted=False)`）**不改代码，登记豁免**。
+- **理由**：Contract/Storage 为全局资源（无部门归属），RBAC 行级隔离不适用，仅按软删过滤；注释已声明"RBAC: 全局资源,仅按软删除过滤"意图。收敛为 Selector 读法无行级收益，纯形态迁移。
+- **边界**：豁免仅覆盖读面；两域写面已走 Service（contract_service/storage_service），不放宽。
+- **验证命令**：`rg -n "objects.filter" apps/assetmanagement/views/contract_view.py apps/assetmanagement/views/storage_view.py`（仅命中上述两处注释豁免行）。
+
+### C-12. 后端分组端点 query 筛选字段声明式重复（3 键 × 2 Serializer，B4 引入，刻意保留）
 - **判定**：**声明式 schema 重复，非业务规则重复**。`AssetGroupQuerySerializer`（汇总）与 `AssetGroupChildrenQuerySerializer`（明细）各自逐字声明了 `asset_current_status` / `asset_type_recordcode` / `asset_storage_recordcode` 三个 `CharField(required=False, allow_blank=True)`，共 6 处。
 - **位置**：`apps/assetmanagement/serializers/asset_grouped_serializers.py`（两个 Serializer 类各 3 个字段声明）。
 - **为何不收敛为共享常量/动态注入**：真正构成 DR-1 违规的**业务规则**——「query 键 → ORM 字段路径」的映射——已唯一实现于 Selector 的 `SUMMARY_FILTER_PATHS`，明细侧的子集由 `PASS_THROUGH_FILTER_PATHS` **派生**（去掉 `contract_code`），无第二份。剩下的只是 6 行 DRF 字段声明；而从字典动态注入字段会使 OpenAPI 生成与 `mypy --strict` 失去静态可见性，为省 3 行而牺牲可读性与工具链支持不划算。
 - **风险与护栏**：若日后只改一侧的键名/增删键，两端即分叉，**破坏契约不变量 I-1**（明细数 ≠ 汇总数）且不报错。故以**测试**而非 DRY 兜底：`test_pass_through_filters_match_summary_endpoint` 静态断言两端键集相等、且每个键的字段路径逐个一致。改任一侧必须同步，否则该用例变红。
+
+### C-14. 批次 4 前端三项登记（M-33 已关闭 / M-32 降级 / M-13 立条目）
+- **M-33 ✅ 已关闭（2026-11-09，S3）**：ContractPaymentRecord.vue 内联支付状态映射（statusMap/getStatusType/三状态字面量）收编 `statusMapping.PAYMENT_STATUS_MAP` + `types/contract.PaymentStatus`（as const，键集与 APPROVAL_STATUS_MAP 不同，刻意不合并）。T4 先红×3 转绿。验证：`npx vitest run src/utils/__tests__/statusMapping.spec.ts src/components/componentsdetails/detils/__tests__/ContractPaymentRecord.spec.ts`（33 用例）；组件源码 `grep -cE "'pending'|'approved'|'deleted'|const statusMap|const getStatusType"` → 0。
+- **M-32 ⏳ 降级（2026-11-09，S4，收敛另立 S12）**：fetchNotifications store/composable 双实现保留——职责（Pinia 单例+筛选参数 / 实例级+WS 推送）、容器、错误语义（异常外抛 / catch 单出口置 fetchError）均不同；本批两处各补 `listRequestSeq` 序号守卫（范式同 auditLogStore loadDataSeq），竞态交错用例先红×3 转绿。验证：`npx vitest run src/stores/__tests__/notificationStore.spec.ts src/composables/__tests__/useNotification.spec.ts`；store 层覆盖率 100%（≥90%）。
+- **M-13 ⏳ 立条目（2026-11-09，S7 评估）**：`@typescript-eslint/no-floating-promises` 一次性 type-aware 评估（D9 临时块，评估后已删除、不提交）命中 **115 处**（src 全量 .ts/.vue，含测试目录）。原审计「main 4 处」证据不成立（4 处均有 .catch）。处置：不启用规则、不新增红线（D13 硬约束：禁止常驻写入 config、禁止 CLI 进 CI——BF-086 教训）；命中项待逐条补 `.catch`/`void` 后另行评估常驻启用（复审周期：待 CI 基础设施就绪或团队投票）。证据留存：评估命令 `npm run lint:ci`（D9 块在位时）命中计数 115；**本地一次性评估（node v24.19.0），不代表 CI npm ci 后声明版本基线（CT-7）**。
 - **状态**：⚠️ 已降级至 C 区（2026-10-04，B4 落地时识别并留痕）——刻意保留，以测试护栏替代 DRY。
 - **登记日期**：2026-10-04 | 来源：v2.3 阶段 2 · B4（§1.8 新发现义务）
 - **验证命令**：`python -m pytest apps/assetmanagement/tests/test_asset_group_children_view.py -k pass_through -q`（预期 1 passed；键集分叉即红）
@@ -1065,6 +1078,13 @@
 - **领域归属判定**：合同付款子域自身枚举（付款状态 / 付款方式），非跨域复用面——前端当前无合同域共享 constants 落点，组件内单消费方，不构成重复。
 - **迁移触发条件**：出现第 2 个消费方 → 落点 `src/constants/contract.ts`（同 A-54 域常量收敛口径）。
 - **本批不动手**：仅登记待核查区，留待触发条件满足时按上条迁移。
+
+### D-11. 【批次 3 登记 2026-11-09】contract/storage 全局资源读面行级权限取舍（待核查区，不动手）
+- **背景**：merge-audit-20261107 批次 3 M-06/M-41 会话，assetmanagement 域类属性 queryset 全部清零（13→0），contract/storage 读路径已统一委托 `StorageSelector.get_all_storages()` / `ContractSelector.get_all_contracts()` 单入口。
+- **取舍事实**：两域为全局共享资源（仓储 / 合同），读面不套行级 scope（全库可见）；写面权限由 `IsSystemAdmin` 等权限类承担。与员工域 B-24/A-43 行级授权不同域——员工域算"人"，contract/storage 算"物"。
+- **已知敞口**：regular 用户可读全量 storage/contract 列表（含对方合同主体金额字段），是否需要按部门裁剪为产品决策，缺需求输入。
+- **迁移触发条件**：产品确认合同/仓储需要行级可见性 → 参照 A-43 员工域行级口径在同两 Selector 内加 scope 参数（禁止 View 内联过滤，DR-3）。
+- **本批不动手**：读面查询已是 Selector 单入口，无重复实现；仅权限取舍待决策，故落待核查区而非修复区。
 
 ---
 

@@ -1,10 +1,10 @@
 
 ---
 
-### 📄 文档 4：后端业务规范 `/Rules_Fiels/backend-business-rules.md` (v1.23)
+### 📄 文档 4：后端业务规范 `/Rules_Fiels/backend-business-rules.md` (v1.25)
 
 # 后端业务规范与设计思路 (Backend Business Rules)
-> 版本：v1.20 | 最后更新：2026-10-24
+> 版本：v1.25 | 最后更新：2026-11-09
 > 适用范围：Django 6.0 + DRF 3.16 + PostgreSQL 16
 
 ## 一、设计思路（防腐与一致性）
@@ -107,6 +107,7 @@ repairing ──repair_done──┘    │               │                  �
 | 强制回收 | `force_recycle_from_any()` | 管理员特殊操作，跳过常规校验 |
 | S1-创建即回收 | `_handle_s1_create_and_recycle()` | 未登记资产 S1：裸 `Asset.objects.create`（初始态由 OP-18/例外 E-1 显式注入，非依赖模型默认值）+ 回收直写 `in_store→recycled_pending`，不经 FSM `recycle()`；create + state_change 双审计补痕（OP-10） |
 | S1-创建即报废 | `_handle_s1_create_and_damaged()` | 未登记资产 S1：同上 + 报废直写 `in_store→damaged`，不经 FSM `to_damaged` |
+| demo-seed 注入 | `seed_grouped_assets.py`（command） | demo 数据注入：`Asset.objects.create` 绕过 `create_asset`（业务约束 7 唯一入口），初始态以 `Asset.AssetStatus.IN_STORE` 枚举显式注入（非字符串、非依赖模型默认值）。**残留写实**：① 未走 `create_asset`（其 kw-only user / `pop("asset_code")` / 按 `asset_purchase_number` 拆条三契约与 seed 固定 `DEMO-A###` 编码及 `--reset` 幂等冲突，且 command 无请求用户）；② 编码/幂等依赖 `DEMO-A###` 固定形态，改走统一入口将破坏 `--reset` 精确性。**创建审计已补**：实际新建时经 `transaction.on_commit` 以系统标识 `SYSTEM-SEED` 写 `AuditLog`（`seed_action=demo_inject`），demo 数据进追溯链。经 §4.2 审批（2026-11-09）确认豁免。 |
 
 **业务约束**：
 
@@ -117,6 +118,7 @@ repairing ──repair_done──┘    │               │                  �
 5. 审批拒绝报废时，资产必须回退到申请前的状态（由 `original_status` 字段决定），而非一律回到 `recycled_pending`。即使原员工已离职或调岗，也应先回退到 `in_use`，然后再通过正常回收流程处理。
 6. 用户取消报废申请时，资产同样必须回退到申请前的状态（由 `original_status` 字段决定），与审批拒绝行为保持一致。`original_status` 缺失或非法时兜底回退 `recycled_pending`。
 7. 资产创建时初始状态**必须**为 `in_store`，且**必须**由 `AssetService.create_asset` 统一注入（引用 `Asset.AssetStatus.IN_STORE` 枚举，非字符串）。创建类 Serializer（如 `AssetCreateSerializer`）**禁止**暴露 `asset_current_status` 写字段(P0-1 回归约束，防止客户端绕过 FSM 直接创建终态资产)。**例外 E-1**：未登记资产 S1 裸 create 绕过 `create_asset`，由 `unregisteredasset/handlers._create_unregistered_asset` 显式注入 `Asset.AssetStatus.IN_STORE` 枚举（见「特殊回退操作」S1 两行）；M-01 落地后重评 S1 是否改走 `create_asset`。
+8. **审计写入失败语义（提交后补偿）**：经 `transaction.on_commit(..., robust=True)` 的审计写入发生在主事务提交之后，"失败即回滚"物理不可行——主事务**不回滚**，审计至少一次补偿（结构化日志 + `AUDIT_WRITE_FAILED` 分渠道计数：`unregistered_adapter`=内层适配器自吞点、`unregistered_safe_call`=外层调度失败点，单次失败只计一处）。资产域回滚口径以 `AuditLogger._safe_log(strict=True)` 为准。死信/重放（阶段 B）另立批次，启用时触发 CT-6 与 §1.3 [HALT]。
 
 ### 3.1 合同状态机（业务流转路径）
 
@@ -333,9 +335,11 @@ P3-9 读面收口后，`RoleViewSet`（list/retrieve）与 `PermissionViewSet`�
 | BR-4	| **函数长度红线** |	单个函数/方法（含 Service 方法、工具函数）不得超过 50 行（不含空行和注释）。超过时，必须拆分为多个私有方法（_helper）。|	拆分并分层调用 |
 | BR-5	| **圈复杂度管控** |	单个函数的圈复杂度（McCabe）不得超过 10。使用 ruff check --select C90 检查。超过时，必须简化条件分支或使用策略模式。|	重构分支逻辑 |
 | BR-6	| **文件行数限制** |	单个 .py 文件不得超过 500 **逻辑行**。口径：物理跨度行数 − 空行 − 纯 `#` 注释行 − 本文件模块 docstring（唯一实现见 `scripts/line_metrics.py`，BR-4/BR-6 共用）。**不纳入**测试文件（文件名含 `test`/`conftest` 或路径含 `tests/`、`test/` 段）与 `migrations/`。⚠️ 禁止用 PowerShell `Measure-Object -Line` 数行——它跳过空行，可低估约 12%。超过时按职责拆分（如 services.py → services/checkout.py + services/recycle.py）。护栏 `scripts/check_file_length_guard.py`，台账 `Rules_Fiels/BR6_file_length_ledger.md`。|	拆分为模块包 |
-| BR-7	| **调用链验证** |	视图（View）→ 服务（Service）→ 选择器（Selector）的纵深不得超过 3 层（View→Service→Selector 为标准深度）。若出现 View→Service→Service→Selector 等 4 层+，必须扁平化或使用事件驱动解耦。|	合并中间层或引入事件 |
+| BR-7	| **调用链验证** |	视图（View）→ 服务（Service）→ 选择器（Selector）的纵深不得超过 3 层（View→Service→Selector 为标准深度）。若出现 View→Service→Service→Selector 等 4 层+，必须扁平化或使用事件驱动解耦。**归层口径：core/ 框架 Mixin、`process_fn` 回调、闭包与同类私有方法按其定义所属架构层归并计数（符号跳数不作为 BR-7 口径）；`batch_delete_invoke` 等框架文档化模板方法钩子不构成跨层。**|	合并中间层或引入事件 |
 
 ## 六、变更日志
+- v1.25 (2026-11-09): **demo-seed 豁免行转正 + 旁路消除（§4.2 审批通过）**——① §3「特殊回退操作」demo-seed 行 [待确认] → 经 §4.2 审批（2026-11-09）确认豁免；② 残留③（无创建审计）消除：`seed_grouped_assets` 实际新建 Asset 时经 `transaction.on_commit` 以系统标识 `SYSTEM-SEED` 补 `AuditLog`（`seed_action=demo_inject`），残留收敛为两条（未走 `create_asset` / `DEMO-A###` 固定编码与 `--reset` 幂等耦合）；③ 同批收口 M-05②：合同支付审计四载荷 `operator_jobcode` 改 kw-only 必填（TypeError 契约用例，防无操作人审计行，对齐 M-07 形态）。登记：批次 3 收尾。
+- v1.24 (2026-11-09): **[PATCH-BE] 一次审批包**（三处规范变更合并共用一次 §4.2 人工审批与一次版本升级，刻意例外）——① §3「特殊回退操作」增 demo-seed 豁免行（初始态 `IN_STORE` 枚举注入；三条残留写实；[待确认]，M-28）；② §3 业务约束新增第 8 条「审计写入失败语义（提交后补偿）」：on_commit(robust=True) 后主事务不回滚、`AUDIT_WRITE_FAILED` 分渠道单次计数（M-08 阶段 A，阶段 B 死信另批）；③ BR-7 追加归层口径（Mixin/process_fn/闭包按定义所属层归并，符号跳数不作口径，M-03/X′）；④ 版本字段三处漂移收敛（:4 v1.23 / :7 v1.20 / 日志顶）。登记：批次 3。
 - v1.23 (2026-11-05): **P3-9 读面收口 + §4.2.1 豁免登记**——RoleViewSet / PermissionViewSet 读 action 由 `IsAuthenticated` 收紧为 `IsSystemAdmin`（防角色/权限配置枚举泄露）；新增 §4.2.1 读面豁免登记（departments tree / asset-types / storages 三行，列消费方与理由；未登记即越权面）。登记：BF-181。——① 「特殊回退操作」增 S1 两行（未登记资产 S1 创建即回收/创建即报废旁路，初始态由 E-1 显式注入非依赖模型默认值）；② `repairing→damaged` 改标双入口共边（维修失败确认 `repair_failed` / 报废申请 `to_damaged`，transitions.py M-30 注释同边）；③ 新增 §3.1 合同状态机小节（8 态单向链 / 单出边 / `ContractInvalidTransitionError`（AUD-15）/ `allowed_next_states` 脏数据返 `[]`；与资产状态机三点差异；同步约束三处 `_CONTRACT_TRANSITIONS` + `test_contract_fsm.py` + 小节）。约束 7 追加例外 E-1（S1 裸 create 显式注入 `IN_STORE` 枚举，`handlers._create_unregistered_asset`，M-01 落地后重评）。登记：BF-181；merge-audit P3-2/3/4/6/7。
 - v1.21 (2026-11-04): **新增 §4.8 OS-8（信封全包后处理器，OP-09 / 批次 8 落地）**——基线 265 operation 直证（op9 机械分类）：裸 JSON 信封包装 0 残留、信封内嵌 0、非 JSON 0 违约、no-body 0 违约 + 真实 DELETE 19/19 修正为信封 200（204 无 body 全退场）+ 幽灵 CRUD 8 条（dashboard×5 经去 ResponseWrapperMixin 运行时 404 / permissions×3 经 `http_method_names` 过滤运行时 405）退场；`core/envelope_schema.py`（ENVELOPE_EXT_NAME `x-envelope` 单点）经 base.py `POSTPROCESSING_HOOKS` 接线；qr-code-image `(200, image/png)` 精确媒体声明；G-1 security 注释 7 处 / 3 文件 267→265 同步；`api_schema` fixture 上提根 conftest（DR-1，跨域共享）。基线重导 `--validate` 双跑一致；8 条护栏（core/tests/test_openapi_envelope_contract.py）全绿。登记：BF-178；融合报告 OP-09 批次 8 收口。
 - v1.20 (2026-10-24): **B4 豁免条款落地（M-28 方案 A，[PATCH-BE] 经用户拍板放行）**——① B4 约束内容追加「非分页列表豁免」：仪表盘 `limit`（top-N，运行时上限 100）与 `days`（时间窗，上限 365）为聚合/截断类 action 参数，不适用 `page`/`page_size` 分页契约；② 配套代码去重：`dashboard_view.py` 两处 `limit` 解析与两处 `days` 同形 `try/except`（各 4 行 ×4 处）收敛为唯一 helper `_parse_int_param(query_params, key, default, upper)`（DR-1），行为逐字等价（缺省/空值/非法回退 default，超上限钳位）；③ 新增测试 10 例（`TestParseIntParam` 8 例单元 + 2 例端点集成，落在 `test_dashboard_view_api.py`）。回归：全量 pytest + cov / `mypy --strict` / ruff check+C90+format / 五护栏 / `makemigrations --dry-run` / OpenAPI 基线零漂移（门禁数字见 BF-140 登记）。登记：BF-140，融合报告 M-28 已修复。

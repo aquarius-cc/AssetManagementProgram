@@ -11180,3 +11180,54 @@ Commit 3（首跑红修复，head 8aa51b0）push 复验：
 - **§5.4 定性记录**：本批 3a 删重复 workflow = 阻断面搬运（coverage 不减）不触发沙盒；3b migration-check 增 push 触发 = 首次真实生效的实质阻断面，裁定延后至 3b 上线时（不落地 14 天灰度，用 3b 证红/证绿矩阵 + 一次真实 push 的 gate 日志）。
 
 *登记人：AtomCode ｜ 状态：【已关闭】（2026-11-08 回填完毕：提交链 bc4d585 → b7299c6 → 8aa51b0；Commit 1 CI 42428517509 / Security 42428517588 / DupGuard 42428517549 / CD 42430875160 全绿；Commit 2 migration-check 首跑红 42432138344 + CD gate ③ SHA 拒绝 42435021151（fail-closed）；Commit 3 复验 CI 42432981495 / Security 42432981528 / migration-check 42432981551 / CD 42435483855 全绿，部署收口）*
+
+## BF-184【已关闭】批次 2 合同支付域审计补齐（M-05 P1）——contract_service 4 写方法补四类审计 + View 4 段传参 + 新增审计载荷单源模块 + 4 组先红后绿审计断言｜来源：`docs/Review/merge-audit-20261107.md` M-05（:60/:129-133/:159）+ 批次 2 执行方案 v1.3（5Δ 冻结决策 + F1-F7 订正闭环）
+
+### 一、核实结论
+- M-05 直证成立：合同支付 4 写方法（单条 add/批量 batch/软删 delete/审批 approve）方法体均无 `GenericAuditService` 调用（同文件 create :195 / update_settlement_status :350 / delete_contract :407 均有），`add_payment_record_batch` 设计注释自述 approve 应记录「谁批准了这笔付款」，与无 `approver` 审计的现状直接矛盾——审批痕迹不可追溯（B7）。
+- 关键口径锚点：`core/audit_log_filters.py:94` 动态派生 valid_types（emoji 枚举），**通过即生效、零改动**；`log_delete` 只含 `before_data` 形参（无 after_data），delete 载体因此走 before；`GenericAuditService` :76/:98/:122/:144 四方法均为既有 StaticMethod，零新增枚举 = 无 §5.2 [HALT] 面。
+
+### 二、修复方案（批次 2 执行方案 v1.3 冻结决策）
+- **①枚举复用**：add/batch→`log_update`、delete→`log_delete`、approve→`log_approve`（枚举零新增）；细分载体 `payment_action`（add/batch/approve→after_data，delete→before_data）。
+- **②批量汇总**：batch 记 1 条请求级汇总（total/success_count/fail_count/payment_ids 内嵌），逐条 add/approve 各自成账 = 批量审计构成 N+N+1。
+- **③服务签名**：4 方法加 keyword-only `operator_jobcode/operator_name`（None 默认兼容测试直调），View 端 `resolve_operator(request.user)` 下传（三级降级兜底同值 adminuser，Δ13）；batch 内 `_add_item` :286/:294 两处透传（Δ4），审计经 on_commit（Δ12，savepoint 回滚自动丢弃失败条目回调）。
+- **④测试**：落位既有 `test_contract_view_api.py` 末尾 `TestContractPaymentAuditOperator`（4 主链 + 3 参数化失败路径，`captureOnCommitCallbacks(execute=True)` 统一块，双载体过滤 helper `_payment_action_logs`）；失败路径判据 404/400/400 + 审计零行（Δ15）。
+
+### 三、验证记录
+```text
+先红（Step 1）：TestContractPaymentAuditOperator 7 例 → 4 failed（assert 0 == 1，
+  len(logs)==0 确证审计缺失）+ 3 failed-path 绿（异常路径本无审计，先ANTE确认）
+后绿（Step 2 后）：
+  新类 7/7 passed + 合同域 106 passed（test_contract_view_api + test_contract_service，零回归）
+  全量：pytest -q --cov=. -> 2405 passed（基线 2398 + 新增 7，0 failed，11m16s）
+覆盖率：整体 89.65%（≥80 ✓）；contract_service.py 95%（≥90 ✓）；contract_payment_audit.py 100%
+静态门禁：
+  ruff check / format --check / C90(max=10) 全绿（1 file reformatted 自身测试代码后收口）
+  mypy . --strict -> Success: no issues found in 231 source files（mypy 2.1.0 与 dev.txt 一致，CT-7 无漂移）
+  makemigrations --dry-run -> No changes detected（CT-6① ✓；本批纯行为变更，无迁移面）
+  api-schema-baseline.json vs 重导出 diff exit 0（契约零漂移 ✓；View 仅内部变量，不改契约面）
+  五护栏直跑：check_function_length_guard / check_file_length_guard / check_duplicate_invariants /
+    check_frontend_invariants / check_secret_tracking -> 全 PASS
+规模红线（两红两绿，最终收口）：
+  初版 BR-4/BR-6 双红（add_payment_record_batch 51 > 50；contract_service.py 522 > 500）
+  → 按 F4 拆分：审计载荷抽独立单源模块 services/contract_payment_audit.py（81 逻辑行，
+    4 函数 log_payment_added/batch_summary/deleted/approved），contract_service 调用点一行化
+    → BR-4 PASS / BR-6 PASS（contract_service.py 482 ≤ 500，运行时最大业务文件 asset_view.py 484）；
+    注释压缩条款（>485 单行压缩）未触发，文件演进留痕见 --print 快照
+未跑项：mutmut 本地 Windows 环境无法执行（同前批口径），变异分数 ≥83.25676365492598 门禁交由
+  CI 变异测试 job 收口（如实在案，不虚报本地结论）
+```
+
+### 四、对抗审核
+- **审计载荷单源化（DR-1）**：4 处 after_data/before_data 载荷构造收敛至 `contract_payment_audit.py` 唯一实现，contract_service 仅保留一行调用 + 注释指针；新模块不触 batch_delete（G-6 不适用）、不以 select/组件命名（无影子死文件面）。
+- **delete 的 `deleted_amount` 捕获**：循环保留 raise-on-missing 语义（PAYMENT_NOT_FOUND），捕获软删前 amount 入 before_data——软删后就地读值会拿到被改写后的 status，取值时机在 status 置位前，语义正确性经主链+失败路径双用例锁定。
+- **失败路径零审计为设计行为**：异常在 save 前抛出、on_commit 回调未注册，与资产域既有失败路径口径一致（Δ15 断言的就是「失败 = 零审计行」，非缺陷）。
+- **resolve_operator 兜底值与命令断言**：admin_authenticated_client 的 auth_username="adminuser" 与 resolve_operator 三级降级兜底同值，断言取 fixture 动态值（Δ13），两级改动互不脆断。
+- **契约面零变更**：4 View 仅加内部 operator 变量与 keyword 传参，路由/请求/响应/schema 全未动——spectacular diff exit 0 是直证而非推断。
+
+### 五、遗留与关联事项
+- 批次 3（M-06/M-29/M-30/M-41/M-07/M-08/M-03/M-28/M-31）不含本批任何遗留，M-08 审计失败容错语义待其批次拍板。
+- `contract_service.py` 当前 482 逻辑行（余量 18 行）：后续批次若触碰该文件需盯 BR-6，缩水口径以 `check_file_length_guard.py --print` 为准（LT-3）。
+- merge 报告 M-05 行（:60）已划线关闭 + 批次 2 表下补执行回执；本条为唯一账本登记（无双登记）。
+
+*登记人：AtomCode ｜ 状态：【已关闭】（2026-11-08 当日收口：先红 4 failed → 后绿 7/7 + 合同域 106 + 全量 2405 passed；覆盖率 89.65%/95%/100% 三线达标；mypy strict 231 files 0、schema diff exit 0、5 护栏全 PASS、BR-4/BR-6 经拆分后双绿；mutmut 留 CI 收口）*

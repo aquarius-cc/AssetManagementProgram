@@ -1,10 +1,10 @@
 
 ---
 
-### 📄 文档 7：前端测试细则 `/Rules_Fiels/frontend-testing-rules.md` (v1.8)
+### 📄 文档 7：前端测试细则 `/Rules_Fiels/frontend-testing-rules.md` (v1.9)
 
 # 前端测试细则 (Frontend Testing Rules)
-> 版本：v1.8 | 最后更新：2026-10-31
+> 版本：v1.9 | 最后更新：2026-11-10
 > 适用范围：Vitest + Vue Test Utils + Vue 3.5 + @stryker-mutator/vitest-runner（变异测试）
 
 ## 一、测试文件位置 [T9]
@@ -40,7 +40,7 @@
 ## 六、整体覆盖率检查（宪法 CT-2 落地）[T14]
 - 整体红线（宪法 CT-2）：`npm run test:coverage`（等价于 `vitest run --coverage`）
 - 阈值由 `vitest.config.ts` 的 `coverage.thresholds` **自动强制**，不达标即判失败，**无需也不应再传 `--threshold`**。
-- 阈值为**分层前缀块**（BF-086 / P2-2 落地）：`'src/**/*.ts'` = 80（`'src/stores/**/*.ts'` = 90），`'src/**/*.vue'` = 分层棘轮（2026-10-12 实测基线：语句 12.9 / 分支 11.6 / 函数 10.9 / 行 13.0）。**无无前缀全局块**——因 `.vue` 存量零覆盖会把并集拖至 42% 直接假红。
+- 阈值为**分层前缀块**（BF-086 / P2-2 落地）：`'src/**/*.ts'` = 80（`'src/stores/**/*.ts'` = 90），`'src/**/*.vue'` = 分层棘轮（批次 4 S9 三档补测 + S10 四页重构后实测基线：语句 40.8 / 分支 25.9 / 函数 24.9 / 行 41.5，v8 provider 行覆盖由语句/分支/函数所在行派生聚合）。**无无前缀全局块**——因 `.vue` 存量零覆盖会把并集拖至 42% 直接假红（该风险已随批次 4 补测消除，S9 后 .vue 全量 0 覆盖文件为 0）。
 - **棘轮语义**：`.vue` 块阈值**只升不降**；覆盖率上移后需**手工同步调高**该块数值，否则棘轮退化为「只记录不阻断」。补组件测试专项时应与该块上移绑定推进。
 - `coverage.include` 现为 `['src/**/*.ts', 'src/**/*.vue']`（120 个组件已进入统计口径）。
 - 若 ts 层整体覆盖率 < 80%，触发 `[HALT]` 并补测；若 `.vue` 层跌破当前棘轮阈值，同样触发 `[HALT]`。
@@ -84,6 +84,7 @@ npm run test:mutate
 > **CI 强制（2026-10-31，批次1/M-09+M-10）**：本地三项之外，CI 由 `frontend-type-check`、`frontend-lint`、`frontend-format` 作业强制同样三项；其中 lint 作业跑 `npm run lint:ci`（`= eslint .`，**检查模式不带 `--fix`**），与本地 `npm run lint`（带 `--fix`）语义刻意分离——防止「可自动修复的违规被 CI 静默修好后通过」。上表命令为本地执行口径，不变。
 
 ## 十、变更日志
+- **v1.9 (2026-11-10)**：[PATCH-FE] 批次 4 / M-04(b)——§六棘轮值同步为 S9 三档补测 + S10 四页重构后的实测值（语句 40.8 / 分支 25.9 / 函数 24.9 / 行 41.5，v8 provider 行覆盖由语句/分支/函数所在行派生聚合），与 `vitest.config.ts` 逐值一致；销项 M-27 遗留的 12.9/11.6/10.9/13.0 旧基线。**阈值只升不降**（T14），按 0.1 粒度向下取整，实际余量为取整残差（0.00~0.09pt），不额外预留固定余量。依子引擎 §4.2 经人工审批（[HALT] 已确认）后应用。§5.4 适用性：棘轮上移属既有 T14 机制的正常执行、落地即 0 违规，不触发沙盒期。
 - **v1.8 (2026-10-31)**：T17 补 CI 强制注记（批次1 M-09+M-10，零生产代码）——CI 新增/改造三个作业强制三项检查：`frontend-lint` 与 `frontend-complexity` 改跑 `npm run lint:ci`（检查模式不带 `--fix`，消除「自动修复后静默通过」假绿），新增 `frontend-format` 跑 `npm run format:check`（此前仅本地强制）。**本地三项检查命令与顺序一字未改**（`npm run lint` 仍带 `--fix` 供本地修复），属检查/修复语义分离的口径补记，故不触发根级 §5.4 沙盒期。配套：子模块 `package.json` 新增 `lint:ci` script。依据根级 §5.2，经人工审批（用户指令「同步相关文档」）后应用。
 - **v1.7 (2026-10-05)**：T14 / T15 覆盖率命令勘误——`vitest --coverage --threshold 80` → `npm run test:coverage`；T15 的 `vitest --coverage --coverage.include=...` 补 `run` 子命令。**根因**：vitest 4 已移除 `--threshold` CLI 参数，原命令实测报 `CACError: Unknown option '--threshold'`（exit 1），照抄即门禁假红；缺 `run` 则裸 `vitest` 在本地进 watch 模式、在 CI 才有一次性行为，两种环境行为不一致。**阈值效力一字未改**：`vitest.config.ts` 的 `coverage.thresholds`（整体 80 / `src/stores/**` 90）自动强制，不达标仍判失败，故不触发根级 §5.4 沙盒期。同步销项 `docs/compose/specs/2026-07-06-rules-files-fix-plan.md:314` 的历史待办（其提议的 `--coverage.threshold=80` 属 vitest 3 形制，vitest 4 下同样失效）。依据根级 §5.2，经人工审批后应用。
 - **v1.6 (2026-09-17)**：修复 T16 工具选型不可落地问题——原指定 `vitest-mutant` / `@vitest/mutate` 在 npm 均不存在（E404）且 Vitest 无 `--mutate` 旗标，经根级 §5 人工审批改用 `@stryker-mutator/vitest-runner` v10.0.0，命令改为 `npm run test:mutate`，≥ 80% 红线不变。

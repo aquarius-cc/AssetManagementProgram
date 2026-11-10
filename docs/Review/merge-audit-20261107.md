@@ -57,7 +57,7 @@
 | M-02 | P1 | 护栏假绿 | check_duplicate_invariants.py:41 | read_text BOM 解码缺口，G-1~G-8 可被绕过 | :41 直证 ✅ | 已确认/待修 |
 | M-03 | P1 | 调用链深度 | batch_mixins.py:402→167 + asset_service.py:316→323 | 批删链 6 层，超 DR-6(≤5)/BR-7(≤3)，13 域接线 | 链路符号定位直证 ✅ | 已确认/待修 |
 | M-04 | P1 | 测试资产薄弱 | vitest.config.ts:52-58 | .vue 棘轮 21.1/19.0/18.6/21.3，余量 0.09pt；68 个 .vue 0% 覆盖 | 阈值块直证 ✅（0-覆盖清单以 A 的 coverage-final.json 重算为准） | 已确认/待修 |
-| M-05 | P1 | 审计缺失(B7) | contract_service.py:214,265,474,509 | 合同支付 4 写操作无审计，审批痕迹不可追溯 | 4 符号定位直证 ✅ | 已确认/待修 |
+| M-05 | P1 | 审计缺失(B7) | contract_service.py:214,265,474,509 | 合同支付 4 写操作无审计，审批痕迹不可追溯 | 4 符号定位直证 ✅ | ~~已确认/待修~~ **已关闭（批次 2，BF-184，2026-11-08）** |
 | M-06 | P2 | 双取数口径 | assets 等 8 ViewSet 类属性 queryset | 7/8 已覆写 get_queryset，字典域豁免 → DR-1 整洁度问题 | 采纳 A 逐处核读（未见反证） | 已确认/待修 |
 | M-07 | P2 | 行级隔离防退化 | out_asset_service.py:49,56-57 | create_outasset user 可选，忘传跳过可见性校验（生产唯一调用方已传） | :45/56-57 直证 ✅ | 已确认/待修 |
 | M-08 | P2 | 审计可靠性 | unregisteredaudit 适配器外层 _safe_call_audit | 外层包装无指标；失败容错语义需拍板（回滚 vs 补偿） | 采纳 A/C2 裁决（C2 本身含两轮独立核读） | 已确认/待修 |
@@ -157,6 +157,8 @@
 | 顺序项 | 内容 | 依赖 | 验证 |
 |:--|:--|:--|:--|
 | M-05 | contract_service 4 方法补审计 + View 传参 + 4 组审计断言测试 | 无 | 审计断言绿（CT-4）+ 全量 pytest + 契约快照不回归 |
+
+> **批次 2 执行回执（2026-11-08，BF-184）**：先红（TestContractPaymentAuditOperator 4 failed + 3 参数化失败路径绿）→ 后绿（7/7 + 合同域 106）；枚举复用不加新枚举（无 §5.2 HALT），细分载体 `payment_action`，批量 1 条汇总；契约零漂移（spectacular--validate diff exit 0）；十项门禁细目见 BF-184 §三。
 
 ### 批次 3：后端架构（按域分批；usermanagement 域合并）
 
