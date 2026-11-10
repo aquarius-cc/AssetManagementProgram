@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.59 | **最后更新**：2026-10-29 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.63 | **最后更新**：2026-11-10 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -829,6 +829,24 @@
 - **为何不收敛为共享常量/动态注入**：真正构成 DR-1 违规的**业务规则**——「query 键 → ORM 字段路径」的映射——已唯一实现于 Selector 的 `SUMMARY_FILTER_PATHS`，明细侧的子集由 `PASS_THROUGH_FILTER_PATHS` **派生**（去掉 `contract_code`），无第二份。剩下的只是 6 行 DRF 字段声明；而从字典动态注入字段会使 OpenAPI 生成与 `mypy --strict` 失去静态可见性，为省 3 行而牺牲可读性与工具链支持不划算。
 - **风险与护栏**：若日后只改一侧的键名/增删键，两端即分叉，**破坏契约不变量 I-1**（明细数 ≠ 汇总数）且不报错。故以**测试**而非 DRY 兜底：`test_pass_through_filters_match_summary_endpoint` 静态断言两端键集相等、且每个键的字段路径逐个一致。改任一侧必须同步，否则该用例变红。
 
+### C-16. 前端内联状态语义映射盘点（批次 4b 阶段 0 口径固化，收编 6 处 + 排除面留档）
+- **口径固化（命令 A，可复现）**：`grep -rnE "(const|function) [a-zA-Z]*(ColorMap|TypeMap|StatusMap|MethodMap|LabelMap|IconMap|Mapping)[a-zA-Z]*[:=(]|const map: Record<string" vue-assetmanagement/src --include="*.vue" --include="*.ts" | grep -v "__tests__" | grep -v "src/utils/statusMapping.ts"`——含函数内 `const map: Record<string,...>` 形态（NotificationBell 双 map 即此形态，`statusMap|getStatusType` 粗扫恒零命中）；排除规则：导入表头/图标/字段名 labelMap、query 参数与 errors 收集用 Record、测试夹具不算。
+- **口径固化（命令 B，裸 hex，仅留档不阻断）**：`grep -rnE "#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}[^0-9a-fA-F]" src --include="*.vue" --include="*.scss" --include="*.ts" | grep -v "__tests__"`，口径 = 仅样式声明值、排除注释与字符串。**事实订正**：此前「33 处 / GroupedAssetTable 6 处组件内联 hex」均为 `#default` 插槽误判污染——实测 `.vue` 生效样式裸 hex **0 处**，GroupedAssetTable 命中全在对比度审计注释（`:409-423`）且生效值走 `var()`。
+- **真实收编面（6 处，非此前误估的 13/14 处——后者把 19 个 statusMapping import 点误计入，import 即已合规）**：
+
+| # | 位置 | 形态 | 键集 | 差异类型 | 处置 |
+|:--|:--|:--|:--|:--|:--|
+| 1 | `NotificationBell.vue:118`（getTagType 函数内 map） | 类型→颜色 | approval/status_change/system | **值冲突**（#3） | 裁决门 ③ |
+| 2 | `NotificationBell.vue:127`（getTypeLabel 函数内 map） | 类型→文案 | approval/status_change/system | 等值（单源） | 直接接线 |
+| 3 | `NotificationList.vue:94` typeColorMap | 类型→颜色 | approval/status_change/system | **值冲突**（#1）：approval warning↔primary、status_change primary↔success、system 同 info；Bell 文案「状态」↔List 无 label map | 裁决门 ③ |
+| 4 | `NotificationList.vue:89` priorityColorMap | 优先级→颜色 | high/medium/low | 等值（独立域单源） | 收编新域 map |
+| 5 | `ContractPaymentRecord.vue:180` paymentMethodMap | 支付方式→文案 | bank_transfer/cash/check/other | 等值（独立域单源） | 收编新域 map |
+| 6 | `StorageBatchImport.vue:132`（函数内 map） | 仓库中文名→编码 | 新货仓库/回收仓库/待报废仓库 | 等值（导入域解析映射） | 收编或留档（裁决门顺带） |
+
+- **排除留档（非欠账）**：`types/auditlog.ts` 3 个 + `types/operationlog.ts` 2 个 *Mapping——类型层各域单源导出（各定义一次、消费面单一），非重复，原位保留；`Format.ts` 内部 map——G-3 子集（assetCurrentStatusMapping 等已派生自 statusMapping）或域单源；`AssetTypeBatchImport.vue:137` labelMap——导入错误文案的字段中文名，非状态语义；12 处 `var()` 回退 + useChartTheme FALLBACK + app.ts/statusMapping.ts/variables.css/dark.css 令牌定义——合法形态（4b-1 终态全数豁免）。
+- **跨端锚**：`Asset.AssetStatus` 8 键定义于 `models/asset.py:81-91`（`class AssetStatus(models.TextChoices)` 整块；`:82-88` 为截断范围不可作解析锚），与 `ASSET_STATUS_MAP` 8 键全等（`statusMapping.spec.ts:194` 键集断言在位）。
+- **登记日期**：2026-11-10 | 来源：批次 4b 执行方案（阶段 0/0.5，§1.8）
+
 ### C-15. `_parse_date` 日期解析双实现（批次 5 M-45 批A 登记处，刻意保留）
 - **判定**：**函数体逐字等值的工具性重复，外层错误策略分叉**。`apps/assetmanagement/operation_log_filters.py:59` 与 `core/audit_log_filters.py:66` 各持一份 `_parse_date(raw, field) -> tuple[datetime | None, str | None]`（解析单个 `YYYY-MM-DD` → `timezone.make_aware(strptime(...))`，`ValueError` 回 `f"{field} {DATE_FORMAT_ERROR}"`），两处 8 行逐字一致；`DATE_FORMAT` / `DATE_FORMAT_ERROR` 常量亦同名同值。
 - **为何不收敛为共享 util**：原 `utils/date_utils.py` 的 `parse_date` 等 5 函数即为此类「预建共享层」的反例——生产零引用，实际消费方各自持有本地实现，共享层沦为死代码（M-45 批A 已整删，-105 行）。两处 `_parse_date` 的真实分叉在**外层错误语义**：operation_log 版以 tuple 传递错误（`parse_time_range` 返回 `error` 字符串）；audit 版由 `_parse_time_range` 将 error 转抛 `InvalidAuditLogFilters`（`str(exc)` 即用户文案）。强行抽公共 util 需把两种错误策略参数化，复杂度反而上移；且审计链（core/）与操作日志链（apps/assetmanagement/）分属不同依赖方向，下沉 core 会造成 apps→core 之外的第二条工具耦合。
@@ -1176,6 +1194,7 @@
 > 故同表登记；但实现与 CI 归属不同（`ci.yml` 而非 `duplicate-guard.yml`），不可混为一谈。
 
 ## 变更记录
+- **v2.9.63 (2026-11-10)**：登记 **C-16**（批次 4b 阶段 0 口径固化，§1.8）——前端内联状态语义映射全量盘点：命令 A/B 固化可复现口径，真实收编面 **6 处**（NotificationBell ×2 / NotificationList ×2 / ContractPaymentRecord paymentMethodMap / StorageBatchImport 仓库名映射）；此前「13/14 处」系 `statusMap|getStatusType` 粗扫把 19 个 statusMapping import 点误计入（import 点即已合规）。types 层（auditlog/operationlog）5 个 *Mapping 为各域单源导出、Format.ts 为 G-3 子集，均排除留档。头部版本对齐（v2.9.59→v2.9.63，补记批次 5 C-15 未随 commit 对齐的脱节）。通知域值冲突（Bell vs List）待裁决门 ③。
 - **v2.9.62 (2026-11-07)**：登记 **B-31**（缺陷族「解码序/静默跳过」，§1.8 新发现义务）——护栏自实现 read_text 解码序缺失 + except/空文本 continue 静默跳过双缺陷四实例（① line_metrics 已关闭基线 ② G 护栏 M-02 本批关 ③ FR 护栏 M-17 收窄本批关 ④ BR-4/BR-6 不可解码面留尾另批）；附：回归护栏表新增 **G-0**（护栏自身不得静默跳过，fail-closed）并补录 **G-8** 行（v3.7.4 表内遗漏，与 AGENTS §1.8 对齐）。②③ 关闭与 G-0 实现属 BF-183 批次 1（执行方案 v3.1，4+2 补丁闭环）。
 - **v2.9.61 (2026-11-05)**：关闭 **B-26**（批次 10 Stage 3，前端 `34ee807`）——`common-forms.scss` 新增 `@mixin section-title-block`（依 D-9 命名警示异名）+ form-container `.section-title` 改 include + 4 组件 `@use`/`@include` 收敛；B-26-①（SelectedRecordsTable `margin: 0` 显式保留）、B-26-②（背景改 `var(--gradient-card-highlight)` 恢复暗色跟随）均落地；验证矩阵（5 include / 旧 margin .vue 0 / mixin 定义仅 dashboard）+ build/tc/lint/fmt 全 0 见条目内。B 区 9 项自此全关。
 - **v2.9.60 (2026-11-05)**：批次 10 状态复核（M-14~M-17 销项/立项前置）——对 D-2/D-5/B 区做状态复核（复核结论与证据直附 merge-audit-20261101 M-15/M-16/M-17 行，非新修复），新增 **D-9**（D 区编号重号消歧 D-4a/D-4b/D-5a/D-5b + `.section-title` 非 B-26 家族待核查 + `@mixin section-title` 命名冲突警示 + B-26 事实订正「亮色平涂恒生效 / 暗色跟随」，B-26-② 改 `var(--gradient-card-highlight)` 验收口径改为 5 页双主题目视），无其他新增条目。
