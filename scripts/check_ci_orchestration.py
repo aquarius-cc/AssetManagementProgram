@@ -21,7 +21,7 @@ CT-6 迁移红线从未进部署链回查面（M-01 根因）。
 断言四（双名单生效性，M-01）：ci-cd 门禁回查 step 必须走 scripts/gate_recheck.py
 （双名单唯一真源 RECHECK_NAMES），防内联单名单回查回潮把迁移红线静默移出回查面。
 断言五（push 面三点断言，S-1/P-3）：duplicate-guard.yml 删除后护栏自测的
-push 面唯一依赖 ci.yml:backend-lint——自测 step 文本、4 个护栏自测文件的
+push 面唯一依赖 ci.yml:backend-lint——自测 step 文本、5 个护栏自测文件的
 真仓绿锚、BR-4/BR-6 直跑 step 文本三者必须全在场。
 
 解析口径（刻意零第三方依赖）：GitHub Actions 的 job 键固定为 jobs: 段内 2 空格缩进，
@@ -61,11 +61,14 @@ GUARD_SELFTEST_MARKER = "pytest ../scripts/tests -q"
 BR4_RUN_MARKER = "python ../scripts/check_function_length_guard.py"
 BR6_RUN_MARKER = "python ../scripts/check_file_length_guard.py"
 REAL_REPO_ANCHOR = "def test_real_repo_default_root_green"
+# 【M-34/M-11，2026-11-10】新增第 5 项：密钥指纹护栏自测（真仓绿锚覆盖 53 处
+# 夹具分流 + 已轮换凭据指纹零回流）
 GUARD_REAL_REPO_ANCHORS = (
     "scripts/tests/test_duplicate_invariants.py",
     "scripts/tests/test_frontend_invariants.py",
     "scripts/tests/test_file_length_guard.py",
     "scripts/tests/test_function_length_guard.py",
+    "scripts/tests/test_check_secret_fingerprints.py",
 )
 # 断言六（BF-183 首跑 42432138344 修复）：变更面 GITHUB_ENV 写入必须走 heredoc
 # 形式（多行兼容、空值必定义变量），③/④ 读取必须走 set -u 安全形式
@@ -326,7 +329,7 @@ def main(argv=None):
         print("→ security-summary 窄断言：needs 须含 weekly-report，汇总 step 须走外部脚本（M-18/S-3）。")
         print("→ 迁移触发形态：migration-check on 段必须含 push（M-01 防休眠）。")
         print("→ 双名单生效性：门禁回查 step 必须走 scripts/gate_recheck.py（M-01）。")
-        print("→ push 面三点：ci.yml 自测 step + 4 真仓绿锚 + BR-4/BR-6 直跑文本（S-1/P-3）。")
+        print("→ push 面三点：ci.yml 自测 step + 5 真仓绿锚 + BR-4/BR-6 直跑文本（S-1/P-3）。")
         print("→ 变更面 env 安全：GITHUB_ENV heredoc 写入 + ③/④ set -u 安全读取（42432138344 首跑红直证）。")
         return 1
     print("[PASS] CI 编排护栏全绿：needs 覆盖 / CD 监听名 / security-summary 窄断言 / 迁移触发形态 / 双名单生效性 / push 面三点 / 变更面 env 安全")

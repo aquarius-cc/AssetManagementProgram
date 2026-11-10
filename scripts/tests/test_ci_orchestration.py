@@ -227,7 +227,7 @@ def test_gate_recheck_inline_fallback_red(tmp_path):
 
 
 def test_guard_push_surface_real_repo_green():
-    """真仓正样本：ci.yml 自测 step + 4 真仓绿锚 + BR-4/BR-6 直跑文本全在场。"""
+    """真仓正样本：ci.yml 自测 step + 5 真仓绿锚 + BR-4/BR-6 直跑文本全在场。"""
     root = Path(guard.__file__).resolve().parent.parent
     assert guard.audit_guard_push_surface(root) == []
 
