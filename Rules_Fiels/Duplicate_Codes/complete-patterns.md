@@ -836,12 +836,12 @@
 
 | # | 位置 | 形态 | 键集 | 差异类型 | 处置 |
 |:--|:--|:--|:--|:--|:--|
-| 1 | `NotificationBell.vue:118`（getTagType 函数内 map） | 类型→颜色 | approval/status_change/system | **值冲突**（#3） | 裁决门 ③ |
+| 1 | `NotificationBell.vue:118`（getTagType 函数内 map） | 类型→颜色 | approval/status_change/system | **值冲突**（#3） | **已裁决（2026-11-10 用户拍板）：以 NotificationList 列表页为准**（approval=primary / status_change=success / system=info），Bell 弹层改为同口径 |
 | 2 | `NotificationBell.vue:127`（getTypeLabel 函数内 map） | 类型→文案 | approval/status_change/system | 等值（单源） | 直接接线 |
-| 3 | `NotificationList.vue:94` typeColorMap | 类型→颜色 | approval/status_change/system | **值冲突**（#1）：approval warning↔primary、status_change primary↔success、system 同 info；Bell 文案「状态」↔List 无 label map | 裁决门 ③ |
+| 3 | `NotificationList.vue:94` typeColorMap | 类型→颜色 | approval/status_change/system | **值冲突**（#1）：approval warning↔primary、status_change primary↔success、system 同 info；Bell 文案「状态」↔List 无 label map | **已裁决：为权威口径**（approval=primary / status_change=success / system=info） |
 | 4 | `NotificationList.vue:89` priorityColorMap | 优先级→颜色 | high/medium/low | 等值（独立域单源） | 收编新域 map |
 | 5 | `ContractPaymentRecord.vue:180` paymentMethodMap | 支付方式→文案 | bank_transfer/cash/check/other | 等值（独立域单源） | 收编新域 map |
-| 6 | `StorageBatchImport.vue:132`（函数内 map） | 仓库中文名→编码 | 新货仓库/回收仓库/待报废仓库 | 等值（导入域解析映射） | 收编或留档（裁决门顺带） |
+| 6 | `StorageBatchImport.vue:132`（函数内 map） | 仓库中文名→编码 | 新货仓库/回收仓库/待报废仓库 | 等值（导入域解析映射） | **已裁决（2026-11-10 用户拍板）：收编 statusMapping 新域 map**（STORAGE_NAME_TO_CODE_MAP），纳入阶段 2 护栏覆盖 |
 
 - **排除留档（非欠账）**：`types/auditlog.ts` 3 个 + `types/operationlog.ts` 2 个 *Mapping——类型层各域单源导出（各定义一次、消费面单一），非重复，原位保留；`Format.ts` 内部 map——G-3 子集（assetCurrentStatusMapping 等已派生自 statusMapping）或域单源；`AssetTypeBatchImport.vue:137` labelMap——导入错误文案的字段中文名，非状态语义；12 处 `var()` 回退 + useChartTheme FALLBACK + app.ts/statusMapping.ts/variables.css/dark.css 令牌定义——合法形态（4b-1 终态全数豁免）。
 - **跨端锚**：`Asset.AssetStatus` 8 键定义于 `models/asset.py:81-91`（`class AssetStatus(models.TextChoices)` 整块；`:82-88` 为截断范围不可作解析锚），与 `ASSET_STATUS_MAP` 8 键全等（`statusMapping.spec.ts:194` 键集断言在位）。
