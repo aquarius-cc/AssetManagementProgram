@@ -69,7 +69,10 @@ QUOTED_EXTENSIONS = frozenset(
 # 第一道恢复旧 rg 的隐藏目录口径：.opencode/**（AI 工具链目录，含 vendored skill 脚本，
 # 旧 rg 从未扫描）不进引号形态扫描；第三道指纹模式为精确哈希、无假阳，仍全树覆盖。
 # 排除非静默：跳过数量在扫描结束时汇总打印（可审计）。
-QUOTED_EXCLUDED_PREFIXES = (".opencode/",)
+# 批次4b §1.8 补充：本文件自指排除——PEM/AKIA 结构模式正则字面量必然存在于
+# 模式定义源自身（结构形态"永不分流"无法经白名单放行；批次5 61980dd 提交后
+# 自指文件进 git 跟踪面即自扫爆红，真仓绿锚暴露）。第三道 revoked 模式仍覆盖本文件。
+QUOTED_EXCLUDED_PREFIXES = (".opencode/", "scripts/check_secret_fingerprints.py")
 
 # 第三道·token 分词（指纹化检测力的载体，边界见模块 docstring）。
 # AI_REVIEW_NEEDED: regex validation required

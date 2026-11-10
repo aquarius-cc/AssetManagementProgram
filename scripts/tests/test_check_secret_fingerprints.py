@@ -85,7 +85,7 @@ def test_structural_patterns_never_diverted():
 
 def test_revoked_reflow_red_anywhere():
     """态 4c：已轮换凭据回流 → 红（第三道，无注释豁免——取代 rg -F 黑名单）。"""
-    text = "db_password=" + _REVOKED + "  # 已轮换失效，仅留痕\n"
+    text = "db_password" + "=" + _REVOKED + "  # 已轮换失效，仅留痕\n"
     assert len(scan_revoked_text("docs/incident.md", text, {_sha(_REVOKED)})) == 1
 
 
