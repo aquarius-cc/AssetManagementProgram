@@ -1,5 +1,5 @@
 # AI 执行引擎总配置 (Root Engine)
-> 版本：v3.7.5 | 最后更新：2026-11-03
+> 版本：v3.7.7 | 最后更新：2026-11-10
 > 职责：跨端契约仲裁、全局红线、宪法级规则（测试/DRY/安全/可观测性/AI鲁棒性/交互写作）、子引擎路由
 
 ## §1 核心执行协议（所有子引擎必须遵守）
@@ -268,6 +268,17 @@ AI 在任务完成后，必须输出以下审计票：
 > **§5.4 适用性判定**：不适用沙盒期。audit 的 exit 条件与阻断阈值**一字未改**，本次仅将既有结论汇入
 > `Security 汇总` 并前移至部署链路，属阻断结论的执行搬运而非红线收紧。
 
+> **④ 审计豁免登记（【M-12，2026-11-10】新增，仅限「无修复版本/攻击面未暴露」类漏洞）**：
+> audit 门禁原则是 fail-closed（发现任意漏洞即红），不允许无登记豁免。现存两条经人工批准的
+> 例外登记如下（新增/续期必须走本表 + §5.2 审批；过期未续期视为自动失效，恢复 fail-closed）：
+>
+> | # | 漏洞 | 豁免方式 | 批准依据 | Owner（角色） | 失效日期 | 复核节奏 |
+> |:--|:--|:--|:--|:--|:--|:--|
+> | 1 | CVE-2026-106454（twisted 26.4.0 ReDoS，上游无修复版本；攻击面未暴露——本项目不运行 IMAP 服务） | `pip-audit --ignore-vuln CVE-2026-106454`（security-scan.yml python-audit） | BF-102（2026-10-17 用户批准） | 后端负责人 | 2026-12-10 | 每周 schedule 报告核对上游是否出修复版，出即升级并删例外 |
+> | 2 | GHSA-vfj7-8cjw-p6xm / CVE-2026-93687（braces，high，仅 dev 链可达、生产零暴露，上游无补丁） | `npm audit --audit-level=high --omit=dev`（security-scan.yml node-audit） | BF-100（2026-10-17 用户批准） | 前端负责人 | 2026-12-10 | 每周核对 dev 链可否收敛；每月人工评审本口径是否仍成立 |
+>
+> 两条例外的**报告可见性不豁免**：audit-report*.json 完整记录，每周安全报告可见。
+
 子引擎执行任务前必须主动检查本契约，发现违反立即 `[HALT]`。
 
 ## §7 可观测性契约（全端通用）
@@ -326,6 +337,7 @@ AI 在任务完成后，必须输出以下审计票：
 > **执行监督**：审计票自检项中必须包含 `Fact-1[√]` 和 `Style-1~Style-3[√]`。
 
 ## §10 变更日志
+- **v3.7.7 (2026-11-10)**：**SC-7 ④ 审计豁免登记（批次 5/M-12，仅规范补录零代码）**——§6 增设 ④「审计豁免登记」块：audit 门禁现存两条经人工批准的例外（twisted CVE-2026-106454 的 --ignore-vuln、node-audit 的 --omit=dev 口径）以表格登记（漏洞/豁免方式/批准依据/Owner 角色/失效日期 2026-12-10/复核节奏），规则化「新增例外必须登记 + §5.2 审批 + 过期自动失效」，并将「报告可见性不豁免」固化为条文。此前两条例外仅散落于 security-scan.yml 步骤注释，根级契约不可见（SC-2 执行状态段缺豁免台账，属规范缺口）。同时修复头部版本漂移（v3.7.5/2026-11-03 → v3.7.7，§10 已有 v3.7.6 条目而头部未跟进）。**§5.4 适用性判定：不触发沙盒期**——本条为既有 CI 行为（2026-10-17 已落地并 CI 直证）的登记补录，不新增/收紧任何红线阈值。
 - **v3.7.6 (2026-11-08)**：**BF-183 批次 1——护栏/门禁自洽（M-01/M-02/M-18 + P-1~P-4，零业务代码）**——① G-0 fail-closed：`check_duplicate_invariants.py` 复用 `line_metrics.read_text`（utf-8-sig 打头），非空文件解码/解析失败判红（B-31 缺陷族第四实例收口，complete-patterns.md 登记），§1.8 守护枚举更新为 G-0、G-1~G-3、G-5~G-8；② M-17 收窄：前端护栏 read_text 收编 line_metrics 单源（计数口径收编留独立批次）；③ M-18：`security-scan.yml` 的 `security-summary` needs 纳入 `weekly-report`（schedule 分支 always() + 按 event 分流），判定外部化 `scripts/security_summary.py` 六态纯函数；④ 删 `duplicate-guard.yml`（方案 C：三 job 与 backend-lint 护栏自测同覆盖重复；push 面由「三点断言」S-1/P-3 锁死——ci.yml 自测 step + 4 真仓绿锚 + BR-4/BR-6 直跑文本）；⑤ `migration-check.yml` 唤醒：on 增 push、删触发级 paths，③/④ 变更面解析改根仓 gitlink 指针 diff 单源（S-2：BASE 空/全零 → 全量扫描、fail_closed 仅留运行中真实 git 故障），步骤①全量跑计入 gate 600s 轮询预算（O-1，3b 为 3c 硬前置）；⑥ `ci-cd.yml` gate 第二步升级双名单回查（Dependency Security Scan + Migration Safety Check，`scripts/gate_recheck.py` 双名单唯一真源，缺失/超时/非 success 一律 fail-closed）。**§5.4 适用性判定：不触发沙盒期**——依 v3.7.2/v3.7.3 先例：G-0、双名单回查落地即 0 违规（现实仓文件全部可解码、双名单对象均为既有必跑链），属护栏覆盖面扩展 + 门禁稀释面闭合（去伪存真）；migration-check push 唤醒是既有红线（CT-6）的激活而非新设阈值。
 - **v3.7.5 (2026-11-03)**：**FR-8 口径收编（批次 7 OP-06，§2 子域条文同步）**——前端 `frontend-business-rules.md` FR-8 版本 v1.4→v1.5：废除「非 `use*.ts`」前缀排除，改**目录全量（`__tests__` 除外）**。原口径以 `startswith("use")` 排除致 `userStore.ts`（"userStore" 以 "use" 开头）落在 FR-8 扫描外（护栏 31 / 实际 32 假绿盲区），护栏 `is_store_target`（`scripts/check_frontend_invariants.py:74-78`）与条文同步收编；护栏自测 +5 用例（先证红 3 failed→证绿 49 passed）。经 §5.2 流程人工批准（FR-8 条文改写 [HALT] 已确认，2026-11-03）后应用；历史台账「31 文件」记载不回溯改写。子域索引（§1.3/§2）无变化，仅条文文本与本条日志。
 - **v3.7.4 (2026-11-02)**：**§1.8 回归护栏清单扩展——新增 G-8（M-08 枚举收编自动化断言）**——G-8：role/employee_status 的 kwargs/赋值形态字面量 {dept_manager, active, left, retirement} 回潮即红（口径经批次 5 v1.1 拍板：AST 收窄仅 kwargs/赋值两类节点，docstring/help_text/错误文案噪音不误红；范围 = apps/**.py，migrations/（CT-6 禁改）与 tests/（夹具）在范围外），由 `check_g8_enum_literals_absent()` 落地，守护枚举由 G-1~G-3、G-5~G-7 更新为 **G-1~G-3、G-5~G-8**，阻断范围同步；配套自测 `scripts/tests/test_duplicate_invariants.py` +6 用例 + `ci.yml` 护栏自测注释 G-5~G-7→G-5~G-8。**§5.4 适用性判定：不触发沙盒期**——依 v3.5.1（G-5）/v3.7.3（G-6/G-7）先例：本项不新增规范内容，仅对既有规范 M-08 收编（七处字面量已改枚举，rg 三组生产零命中已取证）加自动化断言，落地即 0 违规，属护栏覆盖面扩展而非红线收紧。
