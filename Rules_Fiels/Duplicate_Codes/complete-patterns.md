@@ -829,6 +829,12 @@
 - **为何不收敛为共享常量/动态注入**：真正构成 DR-1 违规的**业务规则**——「query 键 → ORM 字段路径」的映射——已唯一实现于 Selector 的 `SUMMARY_FILTER_PATHS`，明细侧的子集由 `PASS_THROUGH_FILTER_PATHS` **派生**（去掉 `contract_code`），无第二份。剩下的只是 6 行 DRF 字段声明；而从字典动态注入字段会使 OpenAPI 生成与 `mypy --strict` 失去静态可见性，为省 3 行而牺牲可读性与工具链支持不划算。
 - **风险与护栏**：若日后只改一侧的键名/增删键，两端即分叉，**破坏契约不变量 I-1**（明细数 ≠ 汇总数）且不报错。故以**测试**而非 DRY 兜底：`test_pass_through_filters_match_summary_endpoint` 静态断言两端键集相等、且每个键的字段路径逐个一致。改任一侧必须同步，否则该用例变红。
 
+### C-15. `_parse_date` 日期解析双实现（批次 5 M-45 批A 登记处，刻意保留）
+- **判定**：**函数体逐字等值的工具性重复，外层错误策略分叉**。`apps/assetmanagement/operation_log_filters.py:59` 与 `core/audit_log_filters.py:66` 各持一份 `_parse_date(raw, field) -> tuple[datetime | None, str | None]`（解析单个 `YYYY-MM-DD` → `timezone.make_aware(strptime(...))`，`ValueError` 回 `f"{field} {DATE_FORMAT_ERROR}"`），两处 8 行逐字一致；`DATE_FORMAT` / `DATE_FORMAT_ERROR` 常量亦同名同值。
+- **为何不收敛为共享 util**：原 `utils/date_utils.py` 的 `parse_date` 等 5 函数即为此类「预建共享层」的反例——生产零引用，实际消费方各自持有本地实现，共享层沦为死代码（M-45 批A 已整删，-105 行）。两处 `_parse_date` 的真实分叉在**外层错误语义**：operation_log 版以 tuple 传递错误（`parse_time_range` 返回 `error` 字符串）；audit 版由 `_parse_time_range` 将 error 转抛 `InvalidAuditLogFilters`（`str(exc)` 即用户文案）。强行抽公共 util 需把两种错误策略参数化，复杂度反而上移；且审计链（core/）与操作日志链（apps/assetmanagement/）分属不同依赖方向，下沉 core 会造成 apps→core 之外的第二条工具耦合。
+- **风险与护栏**：若日后只改一侧的 `DATE_FORMAT` 或时区处理语义，两端分叉且无测试互证。回查命令：`md5sum <(grep -A8 "def _parse_date" asset_management_backend/apps/assetmanagement/operation_log_filters.py) <(grep -A8 "def _parse_date" asset_management_backend/core/audit_log_filters.py)`——两侧 hash 应一致（2026-11-10 实测 `07443549359b99cb82d17f30bafa425d`）；分叉即须重判本条目（收敛或差异留档）。
+- **登记日期**：2026-11-10 | 来源：merge-audit-20261107 M-45①（批次 5）
+
 ### C-14. 批次 4 前端三项登记（M-33 已关闭 / M-32 降级 / M-13 立条目）
 - **M-33 ✅ 已关闭（2026-11-09，S3）**：ContractPaymentRecord.vue 内联支付状态映射（statusMap/getStatusType/三状态字面量）收编 `statusMapping.PAYMENT_STATUS_MAP` + `types/contract.PaymentStatus`（as const，键集与 APPROVAL_STATUS_MAP 不同，刻意不合并）。T4 先红×3 转绿。验证：`npx vitest run src/utils/__tests__/statusMapping.spec.ts src/components/componentsdetails/detils/__tests__/ContractPaymentRecord.spec.ts`（33 用例）；组件源码 `grep -cE "'pending'|'approved'|'deleted'|const statusMap|const getStatusType"` → 0。
 - **M-32 ⏳ 降级（2026-11-09，S4，收敛另立 S12）**：fetchNotifications store/composable 双实现保留——职责（Pinia 单例+筛选参数 / 实例级+WS 推送）、容器、错误语义（异常外抛 / catch 单出口置 fetchError）均不同；本批两处各补 `listRequestSeq` 序号守卫（范式同 auditLogStore loadDataSeq），竞态交错用例先红×3 转绿。验证：`npx vitest run src/stores/__tests__/notificationStore.spec.ts src/composables/__tests__/useNotification.spec.ts`；store 层覆盖率 100%（≥90%）。
