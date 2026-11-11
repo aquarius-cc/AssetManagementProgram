@@ -181,7 +181,7 @@
 | M-04(a) | 68 个 0% 页面分三档补测（高流量 Dashboard/AsideMenu 先行） | 无 | 各档 coverage 阈值绿 |
 | M-32 | notificationStore 竞态守卫 + 双实现收敛 | 无 | 竞态交错用例 + 相关 spec 绿 |
 | M-14 | 4 管理页抽统一列表组件 + composable | M-04(a)① 先行 | 各页交互测试 + lint:ci |
-| M-33 | ContractPaymentRecord 状态映射收编 statusMapping | 无 | 组件 spec + rg 内联零命中 |
+| M-33 | ContractPaymentRecord 状态映射收编 statusMapping | 无 | 组件 spec + rg 内联零命中 ✅（批次 4b 落地，BF-186：域 2 收编 + G-3 护栏内联零容忍） |
 | M-04(b) | 棘轮手工上移（T14 只升不降） | M-04(a) 完成 | CI frontend-test 绿 |
 | M-20/M-26 | usePaginationSearch 拆分 + Format.ts:19 旧名注释 | 无 | 护栏 composables 段绿 + rg 零命中 |
 | M-21 | isAxiosError 统一 helper + eslint 禁 axios 包 + LogIn px 令牌化 | 无（helper 先行） | type-check + lint:ci + 视图 spec |

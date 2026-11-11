@@ -11254,3 +11254,22 @@ Commit 3（首跑红修复，head 8aa51b0）push 复验：
 - **关联**：merge-audit-20261107 M-35/M-36/M-45 三行销项；根 AGENTS §6 ④（v3.7.7）为唯一豁免台账；M-32/M-13/C-14 前端账本条目不在本批范围（批次 4b 另排）。
 
 *登记人：AtomCode ｜ 状态：【已关闭】（2026-11-10 当日收口：后端 2427 passed + 前端 2627 passed + 五护栏 + BR-4/BR-6 全绿；净删 ~-1500 行死代码/死依赖；变异门禁与 CI 基线按惯例交 CI 收口）*
+
+---
+
+## BF-186【已关闭】批次 4b——C-16 前端内联语义映射收编 statusMapping 单源（6 处）+ G-3 扩展护栏（实现追上条文）+ 指纹护栏真仓绿锚自指修复 + CI 首跑红收口（M-05 service 侧补齐 + C90 重构）｜来源：`Rules_Fiels/Duplicate_Codes/complete-patterns.md` C-16（批次 4b 阶段 0 口径固化）+ BF-185 §关联「批次 4b 另排」
+
+- **发现时间**：2026-11-10 批次 4b 启动（C-16 盘点）｜**修复时间**：2026-11-10 代码落地 + 2026-11-11 CI/CD 收口
+- **销项清单（提交链）**：
+  - 根仓 `09f8824`（阶段 0：C-16 内联语义映射盘点 + 头部对齐 v2.9.63）→ `0945562`（阶段 0.5：裁决门落定，C-16 处置列签字，通知域值冲突以 NotificationList 为准）→ `f311212`（§1.8：指纹护栏真仓绿锚自指缺陷修复——扫描器自扫自身 PEM/AKIA 正则字面量与 3 夹具值爆红，quoted 自指排除 + allowlist 12→15 + 伪形态源码级消除）→ `18a3928`（阶段 2：G-3 扩展护栏——Format.ts 派生子集 + 跨端键集全等（Python ast 定位 AssetStatus ↔ TS ASSET_STATUS_MAP 双侧 8 键，任一侧定位失败 fail-closed）+ 组件/视图内联语义映射零容忍；自测 +5 用例，真仓绿锚 :205 不动）。
+  - frontend `4950538`（域 1 通知域类型/优先级）+ `dae983a`（域 2 支付方式 PAYMENT_METHOD_MAP）+ `d9c92f1`（域 3 仓库名 STORAGE_NAME_TO_CODE_MAP）→ `87cfb8b`（收口：NotificationList 别名删除模板直用单源 + prettier 收尾）。
+  - 根仓指针 `4ff42e8`（前端 87cfb8b）+ `899a640`（backend 8005cdd）。
+- **CI 首跑红直证与收口**：backend 23 提交（批次 3/5）此前未过 CI，根仓 42942243747 首跑暴露 **mypy arg-type ×4**（contract_service 4 支付方法 `str | None` 传入 kw-only 必填审计 helper）+ **C901 ×2**（test_batch_delete_depth 辅助函数 22/11 > 10）→ backend `8005cdd`：service 侧 `operator_jobcode` 改 kw-only 必填 `str`（补齐 M-05 收口半边，测试调用点 46 处机械补参）+ 深度护栏辅助函数拆分 5 个小 helper（逻辑逐字等价，test_batch_delete_depth 4 passed）。
+- **门禁矩阵**：
+  - 前端：prettier 全合规 / vue-tsc --build 0 错 / eslint 0 错 / 全量 vitest **2635 passed**（266 files）。
+  - 后端（本地定向）：mypy 4 处目标错误清零 / ruff check + format 全绿（449 files）/ C90 全绿 / 合同支付域 117 passed / test_batch_delete_depth 4 passed。
+  - 护栏：提交钩子五护栏（BR-4/BR-6/重复代码/前端规模/密钥跟踪）全绿双跑直证。
+- **CI/CD 直证（2026-11-11 回填）**：首跑 CI 42942243747 failure（mypy+C90，红证据）→ 修复后复验 **CI 42956836183 success**（34m51s）+ **Dependency Security Scan 42956834307 success** + **Migration Safety Check 42956834422 success** → **CD 42960651607 success**（1m34s，部署收口）。
+- **关联**：complete-patterns C-16 收编清零 + G-3 行回填；merge-audit-20261107 M-33（ContractPaymentRecord 状态映射收编）随域 2 落地；BF-185 §关联「M-32/M-13/C-14 批次 4b 另排」——M-32/M-13 不在本批（前端账本条目另行立项），C-14 已由 C-16 口径固化吸收。
+
+*登记人：AtomCode ｜ 状态：【已关闭】（2026-11-11 收口：CI 42956836183 + Security 42956834307 + Migration 42956834422 + CD 42960651607 全绿；首跑红 42942243747 已由 backend 8005cdd 闭环）*
