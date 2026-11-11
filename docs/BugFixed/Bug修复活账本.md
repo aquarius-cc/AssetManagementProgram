@@ -11273,3 +11273,60 @@ Commit 3（首跑红修复，head 8aa51b0）push 复验：
 - **关联**：complete-patterns C-16 收编清零 + G-3 行回填；merge-audit-20261107 M-33（ContractPaymentRecord 状态映射收编）随域 2 落地；BF-185 §关联「M-32/M-13/C-14 批次 4b 另排」——M-32/M-13 不在本批（前端账本条目另行立项），C-14 已由 C-16 口径固化吸收。
 
 *登记人：AtomCode ｜ 状态：【已关闭】（2026-11-11 收口：CI 42956836183 + Security 42956834307 + Migration 42956834422 + CD 42960651607 全绿；首跑红 42942243747 已由 backend 8005cdd 闭环）*
+
+---
+
+## BF-187【已关闭】批次 6——文档与拍板/杂项收尾（D1-D7 拍板 + 10 项落地 + M-19 移交 M-03）｜来源：`docs/Review/merge-audit-20261107.md` 批次 6（M-15/16/19/22/23/25/27/37/38/39/42）+ 批次 6 执行方案（D1-D7 冻结表，2026-11-11 用户批准）
+
+- **发现时间**：2026-11-07 融合审计批次 6 立项｜**修复时间**：2026-11-11 执行落地
+- **编号说明**：冻结方案曾预定条目号 BF-186，落地核账时发现 BF-186 已被批次 4b（2026-11-11 收口）占用，按编号自增纪律顺延为 **BF-187**；方案文中「现最大为 BF-185」系快照时点信息。
+- **拍板表（D1-D7 冻结，2026-11-11）**：D1=A 双入口固定 Asia/Shanghai；D2=A「有值必验、缺值可略」；D3=A 书面豁免+防扩散；D4=A′ 保留人读格式+豁免登记；D5=A 导航免责+单行订正；D6=先 M-03 后 M-19；D7=[PATCH-BE]/[PATCH-FE] 各合并一次审批（两次 [HALT] 均经用户批准）。
+- **落地清单（11 项终态，来源=merge-audit-20261107 批次 6 表）**：
+  1. **M-22 已修复**：backend-business-rules.md v1.26 B1 订正（message=展示文案、值不固定、按 code 判定）+ backend-testing-rules.md v1.9 T4 同步 + 头部 v1.6→v1.9 版本漂移收敛；跨端契约 §3 `message: "str"` 零改动。
+  2. **M-38 已修复（拍板 D2-A）**：约束 4 改「有值必验、缺值可略」入 v1.26；零代码变更（repair_asset_service 现行实现即口径）；补拍板锚用例 `TestRepairGradeArbitration` 2 例（有值非法保持前态 / 缺值资产成色保留+记录 None 同断），test_repair_service_gaps.py **37 passed**。
+  3. **M-42 已修复（拍板 D3-A）**：frontend-business-rules.md v1.7 §3.1 palette 豁免登记（**5 类 13 个**：PIE_EXTRA 2 / tooltip 2 / 分割线 2 / 面积渐变 4 / 状态散点 3，2026-11-11 复证 useChartTheme.ts:47/81/83/85-86 + statusMapping.ts:326,329,330）+ 防扩散四条款 + FALLBACK 按 K3 裁决合规。
+  4. **M-15 已修复（拍板 D1-A）**：Format.ts 双入口——`BUSINESS_TIME_ZONE` + `toBusinessDateTimeParts`（formatDate/formatDateTime/formatDateTimeFull/formatRelativeTime/todayLocalISO 唯一来源）+ `toLocalDateString` 语义保留（仅限无时刻语义调用方）；**todayLocalISO 显式改写**防静默漏改；parseExcelDate/DashboardAssetTrend.vue/readExcelFile.ts 不动。新增 4 时区 `describe.each`（前置 `resolvedOptions()` 防假绿，实证 Node 运行时切 TZ 生效）+ todayLocalISO 鉴别用例（UTC 16:30→业务次日）；漏改先红抽证（回落旧路径该用例必红）后复绿 **75 passed**。§3.2 口径入 v1.7。注：双时区目检（Chrome DevTools 传感器 UTC-8/UTC+14）**未执行**——本地无浏览器手动目检环境，跨时区正确性以 4 时区矩阵自动化用例为实证载体（UTC+14=Kiritimati/UTC-5=New_York 已覆盖 ±两侧；影响面评估维持 [推测] 不升级）。
+  5. **M-16 已修复**：TESTING.md §3.3 恢复步骤文档化 + backend README :126 导航；**文档已实操验证**——执行中被 kill 的全量 pytest 残留 `test_asset_management_backend`，按 §3.3 ①→③ 恢复（terminate backend + dropdb --if-exists）后全量重跑绿。
+  6. **M-19 延后（拍板 D6）**：asset_view.py 护栏权威值 **485 逻辑行**（`check_file_length_guard.py --print`，2026-11-11 实测；台账 471/报告 484 均为旧基线）< 500 合规无紧迫性；移交 M-03 批删链扁平化后残差重取，届时跑 `spectacular --validate` 零漂移直证。
+  7. **M-23 已修复（拍板 D4-A′）**：base.py simple formatter 增 `[{trace_id}]`（`"{levelname} {asctime} [{trace_id}] {module} {message}"`）+ console 挂 `filters:["trace_id"]`；production.py 删 filters 覆写（下沉 base，DR-1）、留 formatter=json 单点覆写（环境分流非重复）；新护栏 `core/tests/test_logging_console_trace.py` 四组 7 例（trace_id 恒存在参数化含无请求 "-" / simple-TraceIDFilter 耦合 / base 单源 / **AST 源码精确快照**——dev 零覆写、test 仅 level、production 仅 level+formatter，绕开共享 dict 污染）。变异自证：①摘 base filter → 2 failed ②production 加回 filters → 精确快照红（同证 `ast.unparse` 单引号口径）③还原双 settings 双跑 **7 passed ×2**。§5.1 豁免登记入 v1.26。
+  8. **M-25 已修复**：core/metrics.py `NOTIFICATION_DEAD_LETTER` Counter（`asset_mgmt_notification_dead_letter_total{channel="persist_individually"}`）+ notification_service.py 死信分支 `.inc()` + 关键字置首 message（StructuredJSONFormatter 仅序列化固定字段，extra 不落盘——docstring/实现漂移另挂 P3 不在本批修）；test_notification.py 死信用例扩展（关键字 + 增量 +2 断言），先红抽证（摘 .inc → 红）后复绿 **28 passed**；监控告警SOP.md §2 表 + §3.3 最小规则（increase > 0, P2, 后端开发）。
+  9. **M-27 已闭环/销项**：2026-11-10 v1.9 / M-04(b) 棘轮上移已闭环且被超越——文档与配置同为 **40.8/25.9/24.9/41.5**（frontend-testing-rules.md §六 / vitest.config.ts:57-62 逐值一致，本次 test:coverage 直证零 threshold 违规）；清单所列 21.1/19.0/18.6/21.3 仅存 vitest.config.ts:51-52 历史注释，按 T14 只升不降禁止回改。零改动销项。
+  10. **M-37 已修复（拍板 D5-A）**：README :238 单行订正（`reject / cancel → 按 original_status 回退`）+ :245 导航免责声明（完整规则指向 backend-business-rules.md §三 + transitions.py，图不一致以规则为准）；规则文本与状态机路径零改动。
+  11. **M-39 已修复**：test_contract_fsm.py `test_legal_edge_passes` 改硬编码 7 对参数化（独立于 `_CONTRACT_TRANSITIONS` 派生，保表漂移先红锚价值）+ 反向必拒断言；表漂移抽证（临时摘 `receive_check→initial_check` 边 → 仅该参数化例红、其余 6 条绿）后还原，**30 passed**。
+- **门禁实测（2026-11-11，CT-7 已对齐 dev.txt：mypy 2.1.0/django-stubs 6.1.0/drf-stubs 3.18.0/types-channels 4.3.0 与 pip list 一致）**：
+  - 后端：全量 pytest **2440 passed**（PG，20:16）/ 整体覆盖率 **90.28%**（≥80）/ Service 层 **98.38%**（≥90，assetmanagement services 95-100% + notification services 98%）/ ruff check 全绿 / `mypy . --strict` 0 errors（229 files）/ C90 全绿 / `makemigrations --dry-run` **No changes detected**（CT-6 ①；②无新增迁移不适用）。
+  - 前端：type-check / lint:ci / format:check 全绿 / 全量 `test:coverage` **2640 passed**（266 files）零 threshold 违规（棘轮 40.8/25.9/24.9/41.5 保持）。
+  - 四护栏：check_duplicate_invariants PASS / file length PASS（asset_view 485）/ function length PASS（0 违规）/ frontend invariants PASS（FR-5/6/8 全 0 违规）。
+- **§1.8 核查结论（新发现义务）**：本批无新增重复模式入账——① M-15 双入口经判定**语义不同**（绝对瞬间 vs 本地日历日期），非重复实现（两入口职责边界已写入 v1.7 §3.2 与函数 docstring）；② M-23 production console formatter 单点覆写经判定为**环境差异分流**、非重复实现（§5.1 登记）；③ M-25 Counter 仿 AUDIT_WRITE_FAILED 形态属既有范式复用（DR-1 正向收敛），非同构重复；④ `python scripts/check_duplicate_invariants.py` **PASS**。若后续判定反悔按 BF-171 先例立 D 区条目。
+- **关联**：backend-business-rules.md v1.26 / backend-testing-rules.md v1.9 / frontend-business-rules.md v1.7 三份变更日志（批准依据：批次 6 方案 D1-D7，2026-11-11 用户拍板冻结）；merge-audit-20261107 批次 6 执行回执；M-19 移交 M-03 批次（结构性扁平化独立批次）；遗留挂账：StructuredJSONFormatter docstring/实现漂移（extra 不序列化）P3 另立。
+
+*登记人：AtomCode ｜ 状态：【已关闭】（2026-11-11 收口：后端 2440 passed + 覆盖率 90.28%/98.38% + 前端 2640 passed + 四护栏 + ruff/mypy/C90/迁移零变更；M-19 移交 M-03；M-15 浏览器双时区目检未执行、以 4 时区矩阵用例代证）*
+
+---
+
+## BF-188【收口中】批次 4 收尾——M-32 竞态面 / M-13 评估面 / M-21 执行面（vue 子模块）｜来源：`docs/Review/merge-audit-20261107.md` 批次 4（M-32/M-13/M-21）+ 路径 A 终版定稿（2026-11-11 用户批准）
+
+- **消歧锚（勿混）**：本条 M-13 = `merge-audit-20261107` 的 **floating promise 规则评估**，非 BF-136（2026-10-20 审计的审计吞并 M-13）、非 BF-179（20261101 前端写端点缓存失效时序 M-13）；本条 M-32 = `merge-audit-20261107` 的**通知竞态/双实现**，非 BF-142（登录节流共 key M-32）。
+- **编号说明**：落地核账时账本最大号已为 **BF-187**（批次 6，:11279，其条目 `:11282` 记载「BF-186 被占用顺延」的同型撞号），按编号自增纪律取 **BF-188**；冻结方案早期使用的「BF-187」系快照时点信息。
+- **发现时间**：2026-11-07 融合审计立项｜**修复时间**：2026-11-11 执行落地
+- **路径 A 边界（不推翻既有裁决）**：C-14（2026-11-09 S4）已裁定 `fetchNotifications` store/composable 双实现**保留**、收敛另立 S12；C-14（S7）评估 `no-floating-promises` 命中 115 处后由 **D13** 裁定不启用规则、不新增红线。本批只收口竞态面 / 评估面 / 执行面，不删双实现、不常驻启用规则、不改业务行为与跨端契约；因此不触发 §5.2 / §4.2 / §5.4 审批门。
+- **落地清单**：
+  1. **M-21 执行面闭合（commit 1 `c35a573`）**：`eslint.config.ts` 新增独立块 `app/no-direct-axios`——仅 `^axios(/|$)` 一条 regex（逐字复用既有字面量，非新增正则）；`files` 覆盖 `src/{utils,composables,stores}/**/*.{ts,vue}`，`ignores` 排除测试目录 / `*.spec.ts` / `*.test.ts` 与 `requestErrors.ts`/`errorHandler.ts`/`tokenRefresh.ts` 三个 infra，`src/api/*` 天然不在覆盖面，`allowTypeImports: true` 放行纯类型导入。**不扩现有块** `app/store-layer-no-direct-api` 的 files——其同含 `@/api/*` 正则，扩面会误伤 stores/composables 合法 API 导入并违背 A-45「composable 为 API 适配层」决策。4 个生产点（`SubmitBatch.ts`/`useOperationGuard.ts`/`useAssetOperationForm.ts`/`stores/dashboard.ts`）值守卫改引 `@/utils/errorHandler::isApiError` 唯一入口（`SubmitBatch.ts` 保留 `import type { AxiosError }`）；`SubmitBatch.spec.ts` 的 `vi.mock('axios')` 链同步改指唯一入口，测试夹具 `isAxiosError: true` 标志位与 mock 判定在 diff 自审后逐字还原（避免全局替换造成的语义漂移）。LogIn F4 复核：独立 `6px` 零命中（子串命中系 `16px`），14px 为 F5 字号、1px 为描边宽度，判已合规、**零代码改动**。
+  2. **M-32 契约回归屏障（commit 2 `4f82553`）**：新增 `src/__tests__/notificationDualImpl.contract.spec.ts`（4 用例契约快照）——store 异常外抛 vs composable `fetchError` 单出口、`pagination.total` 归属（NotificationList → `usePagedList` 适配）vs composable 无分页态、数据态实例级 vs `fetchError` 模块级、WS unshift 各写各的实例级数组。文件头标注「**S12 收敛时必须同步改写本 spec**」，防止未来收敛被红测误判为线上缺陷。
+  3. **文档收口（本 commit）**：C-14 两行保持 ⏳ 并补证据 + 验证命令 + → B-32；S12 由口头挂账转正式立项 B-32（B 区，☐ 待修复）；融合报告 §2 三行终态、批次表、批次总览、`:249` 时点快照注与事实边界追加回执，源报告 A M-13/M-21 加回执并声明历史统计不回溯；`:242`/`:244` 统计行与 `:14` 不改动。
+- **门禁实测（2026-11-11；CT-7：node v24.19.0 / npm 11.17.0，已装 eslint 10.14.0 / vue-tsc 3.2.8 / vitest 4.1.11 与 `package-lock.json` 锁定版本逐一一致，结论在声明版本下取得）**：
+  - 三项检查：`npm run type-check`（`vue-tsc --build`）/ `npm run lint:ci`（`eslint .`）/ `npm run format:check` 全 0。
+  - CT-4 先红后绿：仅加规则时定向 ESLint 报 **4 处违规（红）** → 6 个 infra 豁免点与 6 个含 axios 值导入的 spec 逐一验证不误伤 → 收敛后定向 16 文件 exit 0（绿）。`--print-config` 直证 `src/utils/SubmitBatch.ts` 命中新块、`src/api/request.ts` 与 `src/utils/requestErrors.ts` 不命中（**修正记录**：初版把排除项写在 `files` 否定模式，flat config 退化为全局匹配导致 12 处误报，改用具名 `ignores` 后归零）。
+  - 定向回归：8 文件 **96 passed**；契约快照 **4 passed**。
+  - 全量 `npm run test:coverage`：**267 文件 / 2644 用例全绿**，`src/stores` 96.84 / 97.18 / 91.18 / 97.22（≥90），`.vue` 棘轮 40.8/25.9/24.9/41.5 保持、零 threshold 违规。
+  - `npm run test:mutate`：Final mutation score **85.15 ≥ break 80**（17m13s）。
+  - 环境注记（Fact-1）：首次 `test:coverage` 因 IDE `safe-delete` 守卫拦截 vitest 清理 `coverage/.tmp`（591 > 500）抛 unhandled error 退出 1；在**单条命令进程内**临时设 `CODEBUDDY_SAFE_DELETE_ENABLED=0`（未改任何配置）重跑得 exit 0，上述数字取自重跑结果；用例与覆盖率阈值本身从未失败。
+- **D13 证据**：commit 1 的 `eslint.config.ts` diff 中 `no-floating-promises` 字面量零命中；`rg -n "no-floating-promises" vue-assetmanagement/eslint.config.ts` → 0 命中。
+- **§5.4 适用性判定**：axios 规则属既有 **F11 执行面闭合**（S6 已就 components/views 落地同型），本批仅在存量清零后把覆盖面扩至 utils/composables/stores，落地零违规、CI 阻断行为不变；参照 `frontend-business-rules.md` v1.6「覆盖面扩展不触发沙盒期」判例，**不属新增/收紧红线，不适用 14 天沙盒期**。
+- **§1.8 核查结论（新发现义务）**：本批无新增重复模式入账——4 点收敛复用单一 `isApiError`，**未新建** `httpError.ts`；`requestErrors.ts` 维持豁免（防 `element-plus` 间接进入 `api/request.ts` 请求链）；新 ESLint 块复用既有 `^axios(/|$)` 字面量。双实现收敛工作以 **B-32** 正式立项，C-14 状态不关闭；`python scripts/check_duplicate_invariants.py` 未在本批改动护栏面（零护栏文件改动）。
+- **CI/CD 四链（commit 4 待回填）**：[PENDING] 本环境 `git push origin master` 失败（`ssh: connect to host ssh.github.com port 443: Connection timed out`，与 M-34 报告「本环境无 GitHub 连通」一致），CI / Dependency Security Scan / Migration Safety Check / CD 四 run 号与 conclusion **均未取得、不编造**。vue gitlink 已 bump 至本地 `4f82553`（**该子模块 commit 尚未推送**）；网络恢复后须先推子模块、再推根仓，按 `scripts/gate_recheck.py` 双名单 fail-closed 口径回填四 run conclusion（以最终 head SHA 的复验 run 为准；首跑红预留额外修复 commit），四链全绿后本条才置【已关闭】。
+- **状态词口径**：本条【收口中】为本批新增状态词（账本既有词为【进行中】，见 BF-183 :11091）；commit 4 后统一转【已关闭】。
+- **审计票（根 §4 / 前端 §3）**：读取规范已读 README / 根 AGENTS / 前端 AGENTS / frontend-business-rules / frontend-testing-rules / §1.8 活账本 / 两份审计报告；`CT-1[√] CT-2[√] CT-3[N/A：零状态机改动] CT-4[√] CT-5[√] CT-6[N/A：零迁移] CT-7[√]`；`DR-1[√] DR-5[√/豁免]`；`SC-1[√] SC-3[√]`；跨端契约未破坏；红线触发：无（路径 A 不推翻 C-14/D13）；建议提交：是（本地）。自检项 `CT-2[√] CT-4[√] CT-6[√]` / `DR-2~DR-6[√]` / `SC-2、SC-4~SC-8[√/N/A]` / `OC-1~OC-7[√/N/A]` / `AR-1~AR-5[√]` / `Fact-1[√]`（push 失败与 CI [PENDING] 已如实标注）/ `Style-1~3[√]`；覆盖率整体 61.98% lines（含 .vue 并集，无全局阈值）、核心 stores 97.22% lines（≥90%）、变异 85.15%（≥80%）。
+- **关联**：C-14 / B-32 / merge-audit-20261107 M-32·M-13·M-21 / 源报告 A M-13·M-21 回执 / vue 子模块 `c35a573` + `4f82553`。
+
+*登记人：Tencent Hunyuan Hy ｜ 状态：【收口中】（2026-11-11 代码与文档落地完成；CI 四 run 回填待网络恢复）*
