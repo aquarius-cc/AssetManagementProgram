@@ -35,7 +35,7 @@ jobs:
         run: ruff check .
       - name: Ruff 格式检查
         run: ruff format --check .
-      # 护栏自测：护栏套件（BR-4/BR-6/G-0、G-1~G-3、G-5~G-8/FR-5~FR-8/CI 编排 M-02+M-24+M-01/M-18/S-1/P-2 scripts/ 长度）逐条断言
+      # 护栏自测：护栏套件（BR-4/BR-6/G-0、G-1~G-3、G-5~G-8/FR-5~FR-8/CI 编排 M-02+M-24+M-01/M-18/S-1/P-2 scripts/ 长度/覆盖率门禁固化点九项 M-21）逐条断言
       # 先证红再证绿（BF-061 假绿教训）。测试仅依赖父仓根下 scripts/ 与 pytest，
       # 走 tmp_path 夹具不触碰代码库。
       # scripts/tests/conftest.py 已把 scripts/ 加入 sys.path，故无 working-directory 依赖。
@@ -230,7 +230,13 @@ jobs:
         run: python manage.py migrate --plan
       - name: 整体覆盖率检查（红线 80%）
         run: |
-          pytest --cov=. --cov-fail-under=80 --cov-report=xml --cov-report=html -v
+          set -o pipefail
+          pytest --cov=. --cov-fail-under=80 --cov-report=term --cov-report=xml --cov-report=html -v 2>&1 | tee pytest-coverage.log
+          tail -n 25 pytest-coverage.log >> "$GITHUB_STEP_SUMMARY"
+      - name: 门禁工具链版本（CT-7）
+        run: |
+          python -m pytest --version
+          pip show pytest pytest-cov | grep -E '^(Name|Version)' | tee -a "$GITHUB_STEP_SUMMARY"
       - name: 核心 Service 层覆盖率专项检查（红线 90%）
         run: |
           pytest --cov=apps.assetmanagement.services --cov-fail-under=90 -v
@@ -459,8 +465,21 @@ jobs:
       # vitest.config.ts 的 thresholds 分层块单次运行即同时强制：
       #   src/**/*.ts 80% / src/stores/**/*.ts 90% / src/**/*.vue 棘轮基线。
       # 单次运行省一轮全量测试；coverage/ 产物由下方上传 step 照常取用。
+      # 【M-21，2026-11-14】CT-7：覆盖率结论必须以 lock 钉版下的生效版本取得，
+      # 版本打印进 SUMMARY 作取数证据（npm ls 为证据 step 非门禁，lock 漂移不假红）。
+      - name: 门禁工具链版本（CT-7）
+        run: |
+          node --version
+          npm --version
+          npm ls vitest @vitest/coverage-v8 --depth=0 | tee -a "$GITHUB_STEP_SUMMARY" || true
       - name: 覆盖率检查（单次运行同时强制 ts 80% / stores 90% / .vue 棘轮分层阈值）
-        run: npm run test:coverage
+        run: |
+          set -o pipefail
+          npm run test:coverage 2>&1 | tee vitest-coverage.log
+      - name: 覆盖率摘要
+        if: always()
+        run: |
+          [ -f vitest-coverage.log ] && tail -n 30 vitest-coverage.log >> "$GITHUB_STEP_SUMMARY" || true
       - name: 上传覆盖率报告
         if: always()
         uses: actions/upload-artifact@v4

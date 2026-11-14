@@ -23,6 +23,9 @@ CT-6 迁移红线从未进部署链回查面（M-01 根因）。
 断言五（push 面三点断言，S-1/P-3）：duplicate-guard.yml 删除后护栏自测的
 push 面唯一依赖 ci.yml:backend-lint——自测 step 文本、5 个护栏自测文件的
 真仓绿锚、BR-4/BR-6 直跑 step 文本三者必须全在场。
+断言七（覆盖率门禁固化点，M-21）：ci.yml 的覆盖率门禁九项固化点必须在场
+（后端整体 80 / 四个 Service 各 90 / 前端分层阈值 / CT-7 声明版本两处 /
+覆盖率数字证据），删除任一 step 或 Service 专项缩水即判红，防门禁静默稀释。
 
 解析口径（刻意零第三方依赖）：GitHub Actions 的 job 键固定为 jobs: 段内 2 空格缩进，
 故用行缩进定位，不引入 PyYAML（requirements 未声明，可用性不确定）。
@@ -74,6 +77,18 @@ GUARD_REAL_REPO_ANCHORS = (
 # 形式（多行兼容、空值必定义变量），③/④ 读取必须走 set -u 安全形式
 MIG_ENV_HEREDOC_MARKER = "MIGRATION_FILES<<MIG_DELIM"
 MIG_SETU_SAFE_MARKER = "${MIGRATION_FILES-}"
+# 断言七（M-21）：覆盖率门禁固化点九项，删除任一命令即判红
+COVERAGE_GATE_MARKERS = (
+    ("pytest --cov=. --cov-fail-under=80", "后端整体 80"),
+    ("apps.assetmanagement.services --cov-fail-under=90", "Service 专项 assetmanagement"),
+    ("apps.authusermanagement.services --cov-fail-under=90", "Service 专项 authusermanagement"),
+    ("apps.usermanagement.services --cov-fail-under=90", "Service 专项 usermanagement"),
+    ("apps.unregisteredasset.services --cov-fail-under=90", "Service 专项 unregisteredasset"),
+    ("npm run test:coverage", "前端分层阈值"),
+    ("pip install -r requirements/dev.txt", "CT-7 后端声明版本"),
+    ("npm ci", "CT-7 前端 lock 钉版"),
+    ("GITHUB_STEP_SUMMARY", "覆盖率数字证据"),
+)
 
 
 def _jobs_section(lines):
@@ -279,9 +294,18 @@ def audit_guard_push_surface(root):
     return problems
 
 
+def audit_coverage_gate(ci_path):
+    """断言七（M-21）：返回违规清单；空 list = 九项固化点齐全。"""
+    text = Path(ci_path).read_text(encoding="utf-8")
+    return [
+        f"ci.yml: 覆盖率门禁固化点缺失（{label}）：`{marker}`"
+        for marker, label in COVERAGE_GATE_MARKERS if marker not in text
+    ]
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="CI 编排护栏（needs 覆盖率 + CD 监听名 + security-summary 窄断言 + 迁移触发形态 + 双名单生效性 + push 面三点 + 变更面 env 安全）"
+        description="CI 编排护栏（needs 覆盖率 + CD 监听名 + security-summary 窄断言 + 迁移触发形态 + 双名单生效性 + push 面三点 + 变更面 env 安全 + 覆盖率门禁固化点九项）"
     )
     parser.add_argument("--root", default=None, help="仓库根目录（默认按 __file__ 推导）")
     args = parser.parse_args(argv)
@@ -319,6 +343,7 @@ def main(argv=None):
         if cd_path.exists():
             problems.extend(audit_gate_recheck(cd_path))
         problems.extend(audit_guard_push_surface(root))
+        problems.extend(audit_coverage_gate(ci_path))
 
     if problems:
         print("[FAIL] CI 编排护栏未通过：")
@@ -331,8 +356,9 @@ def main(argv=None):
         print("→ 双名单生效性：门禁回查 step 必须走 scripts/gate_recheck.py（M-01）。")
         print("→ push 面三点：ci.yml 自测 step + 5 真仓绿锚 + BR-4/BR-6 直跑文本（S-1/P-3）。")
         print("→ 变更面 env 安全：GITHUB_ENV heredoc 写入 + ③/④ set -u 安全读取（42432138344 首跑红直证）。")
+        print("→ 覆盖率门禁固化点九项：后端整体 80 / 四 Service 各 90 / 前端分层 / CT-7 双取数 / SUMMARY 证据（M-21）。")
         return 1
-    print("[PASS] CI 编排护栏全绿：needs 覆盖 / CD 监听名 / security-summary 窄断言 / 迁移触发形态 / 双名单生效性 / push 面三点 / 变更面 env 安全")
+    print("[PASS] CI 编排护栏全绿：needs 覆盖 / CD 监听名 / security-summary 窄断言 / 迁移触发形态 / 双名单生效性 / push 面三点 / 变更面 env 安全 / 覆盖率门禁固化点九项")
     return 0
 
 
