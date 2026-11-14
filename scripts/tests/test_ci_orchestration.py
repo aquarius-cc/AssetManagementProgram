@@ -301,3 +301,54 @@ def test_migration_env_safety_unsafe_read_red(tmp_path):
 def test_real_repo_workflows_green(capsys):
     assert guard.main([]) == 0
     assert "[PASS]" in capsys.readouterr().out
+
+
+# 断言七（M-21）：覆盖率门禁固化点九项
+COVERAGE_CI_FORM = """name: CI Pipeline
+jobs:
+  backend-test:
+    steps:
+      - run: pip install -r requirements/dev.txt
+      - run: pytest --cov=. --cov-fail-under=80
+      - run: pytest --cov=apps.assetmanagement.services --cov-fail-under=90 -v
+      - run: pytest --cov=apps.authusermanagement.services --cov-fail-under=90 -v
+      - run: pytest --cov=apps.usermanagement.services --cov-fail-under=90 -v
+      - run: pytest --cov=apps.unregisteredasset.services --cov-fail-under=90 -v
+      - run: tail -n 25 pytest-coverage.log >> "$GITHUB_STEP_SUMMARY"
+  frontend-test:
+    steps:
+      - run: npm ci
+      - run: npm run test:coverage
+"""
+
+SERVICE_LINES = [
+    "apps.assetmanagement.services --cov-fail-under=90",
+    "apps.authusermanagement.services --cov-fail-under=90",
+    "apps.usermanagement.services --cov-fail-under=90",
+    "apps.unregisteredasset.services --cov-fail-under=90",
+]
+
+
+def test_coverage_gate_service_lines_shrink_red(tmp_path):
+    """证红：删 3 条 Service 路径留 1 条 → 断言七返回 3 条违规。"""
+    text = COVERAGE_CI_FORM
+    for line in SERVICE_LINES[1:]:
+        text = text.replace(line, "pytest -q")
+    problems = guard.audit_coverage_gate(write(tmp_path / "ci.yml", text))
+    assert len(problems) == 3
+    assert all("Service 专项" in item for item in problems)
+
+
+def test_coverage_gate_missing_summary_red(tmp_path):
+    """证红：夹具只含一处 GITHUB_STEP_SUMMARY；Python str.replace 为全量替换，
+    单处夹具可消除日后移植到 JS 时「只换首个」的歧义。"""
+    fixture = COVERAGE_CI_FORM.replace("GITHUB_STEP_SUMMARY", "GITHUB_ENV")
+    assert "GITHUB_STEP_SUMMARY" not in fixture
+    problems = guard.audit_coverage_gate(write(tmp_path / "ci.yml", fixture))
+    assert any("覆盖率数字证据" in item for item in problems)
+
+
+def test_real_repo_coverage_gate_green():
+    """真仓正样本（M-21 Step 1 落地后状态）：ci.yml 九项固化点齐备。"""
+    root = Path(guard.__file__).resolve().parent.parent
+    assert guard.audit_coverage_gate(root / ".github" / "workflows" / "ci.yml") == []

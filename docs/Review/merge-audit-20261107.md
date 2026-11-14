@@ -65,21 +65,21 @@
 | M-10 | P2 | CI 效率 | ci.yml:453-456 | 同一 test:coverage 连跑两次 | :454/:456 直证 ✅ | 已确认/待修 |
 | M-11 | P2 | 密钥扫描盲区 | security-scan.yml:250,313 | 模式缺 yaml + 黑名单排 .github/** | :250 直证 ✅ | 已确认/待修 |
 | M-12 | P2 | 依赖审计口径 | security-scan.yml:172-173,216 | 已登记降噪例外（ignore-vuln/omit=dev）需 §6 补记 | 文档级，A 已核读 | 已确认/待修 |
-| M-13 | P3级 | floating promise 证据不成立 | main 引 4 处（有 .catch） | A 逐处核读均有 catch → 具体证据不成立，改规则评估 | 采纳 A 复核 | 待复核 |
+| M-13 | P3级 | floating promise 证据不成立 | main 引 4 处（有 .catch） | A 逐处核读均有 catch → 具体证据不成立，改规则评估 | 采纳 A 复核 | ~~待复核~~ **评估面已销项（BF-188，2026-11-11）：C-14/S7 一次性评估 115 处命中，D13 裁定不启用规则、不新增红线；115 处收口与复审仍挂 C-14** |
 | M-14 | P2 | 前端 FR-1/FR-2 样板 | RoleManage/AuthUserManage/ContactsView/NotificationList | 4 管理页分页/搜索样板重复，公共件已在位 | 采纳 A 核读 | 已确认/待修 |
-| M-15 | P2[推测] | 日期显示时区 | base.py:166-168 / Format.ts | 非东八区浏览器业务日期可能跨日 | 双报告 K4/K5 日期契约一致；影响面保持 [推测] | 已确认/待修 |
-| M-16 | P2 | 本地可复现性 | backend conftest | main 会话残留测试库 2079 setup errors（环境差异非代码缺陷） | 采纳 A（B 侧会话无残留，旁证） | 已确认/待修 |
+| M-15 | P2[推测] | 日期显示时区 | base.py:166-168 / Format.ts | 非东八区浏览器业务日期可能跨日 | 双报告 K4/K5 日期契约一致；影响面保持 [推测] | 已修复 BF-187 |
+| M-16 | P2 | 本地可复现性 | backend conftest | main 会话残留测试库 2079 setup errors（环境差异非代码缺陷） | 采纳 A（B 侧会话无残留，旁证） | 已修复 BF-187 |
 | M-17 | P2 | LT-1/DR-1 护栏自洽 | check_frontend_invariants.py:179-259 | 内联第二份计数函数 + 台账不分区 | 采纳 A 核读（K6 复核无反证） | 已确认/待修 |
 | M-18 | P2 | CI 汇总完整性 | security-scan.yml:364 | security-summary 未纳入 weekly-report | 采纳 A 核读 | 已确认/待修 |
-| M-19 | P3 | 规模余量 | asset_view.py 484 行 | 距上限 16 行（护栏权威值，B 侧同值复证） | 一致 ✅ | 已确认/待修 |
+| M-19 | P3 | 规模余量 | asset_view.py 484 行 | 距上限 16 行（护栏权威值，B 侧同值复证） | 一致 ✅ | 延后 BF-187（移交 M-03 批次） |
 | M-20 | P3 | 规模余量 | usePaginationSearch.ts 199 行 | 距 FR-6 上限 1 行 | B 护栏同值复证 ✅ | 已确认/待修 |
-| M-21 | P3 | F11 执行缺口+令牌 | 7 个 .vue 直导 isAxiosError 等 | eslint 未禁 axios 包；LogIn px 偏离 F4 | 采纳 A（C3 裁决已修正计数） | 已确认/待修 |
-| M-22 | P3 | 文档口径 | core/mixins.py:111,137,206 | message 为展示文案非 "success"，B1 补记 | 采纳 A 核读 | 已确认/待修 |
-| M-23 | P3 | OC-2 环境差异 | base.py:346-350 | dev/test console 无 trace_id filter | 采纳 A 核读 | 已确认/待修 |
+| M-21 | P3 | F11 执行缺口+令牌 | 7 个 .vue 直导 isAxiosError 等 | eslint 未禁 axios 包；LogIn px 偏离 F4 | 采纳 A（C3 裁决已修正计数） | ~~已确认/待修~~ **已收口（BF-188，2026-11-11）：7 视图 + 4 个 .ts 守卫复用 `@/utils/errorHandler::isApiError`、独立 ESLint 块闭合 F11 执行面、LogIn F4 复核已合规（零改动）** |
+| M-22 | P3 | 文档口径 | core/mixins.py:111,137,206 | message 为展示文案非 "success"，B1 补记 | 采纳 A 核读 | 已修复 BF-187 |
+| M-23 | P3 | OC-2 环境差异 | base.py:346-350 | dev/test console 无 trace_id filter | 采纳 A 核读 | 已修复 BF-187 |
 | M-24 | P3 | 设计令牌 | global-scroll.scss:8-19 | 6 处裸 hex（范围经 A 修正） | 采纳 A | 已确认/待修 |
-| M-25 | P3 | 通知死信 | notification_service.py:99-139 | 死信仅日志无告警/落库接线 | 采纳 A 核读 | 已确认/待修 |
+| M-25 | P3 | 通知死信 | notification_service.py:99-139 | 死信仅日志无告警/落库接线 | 采纳 A 核读 | 已修复 BF-187 |
 | M-26 | P3 | 文档漂移 | Format.ts:19 | 注释引用旧名 outassetStatusMapping | 采纳 A | 已确认/待修 |
-| M-27 | P3 | 文档漂移 | frontend-testing-rules.md §六:43 | 棘轮文档值 12.9 系旧基线，配置实为 21.1/19.0/18.6/21.3 | 与 K1/M-04 数字互证一致 ✅ | 已确认/待修 |
+| M-27 | P3 | 文档漂移 | frontend-testing-rules.md §六:43 | 棘轮文档值 12.9 系旧基线，配置实为 21.1/19.0/18.6/21.3 | 与 K1/M-04 数字互证一致 ✅ | 已闭环/销项 BF-187 |
 
 ### 2.2 报告B独有条目（M-28~M-45，全字段）
 
@@ -89,17 +89,17 @@
 | M-29 | P2 | 分层违规(View 内联业务守卫) | apps/usermanagement/views/role_view.py:87-101 | B·AUD-B-02 | `RoleViewSet.destroy` 内联删除守卫（is_system 不可删 + 已分配用户 400）+ 直接 ORM 查询，绕过 RoleService；同文件 perform_* 均 Service 路由，口径不一致 | 下沉 `RoleService.delete_role()` + `@transaction.atomic`，View 仅参数解析 | `codegraph node RoleViewSet.destroy`；`rg -n "is_system" apps/usermanagement -g "!*migrations*" -g "!*tests*"`（确认守卫无 Service 版实现） | 下沉后跑 test_role_service.py + 按需补守卫负面用例 | 已确认/待修 |
 | M-30 | P2 | DR-1 双实现+分层 | apps/usermanagement/department_serializers.py:151-235 ↔ services/department_service.py:230-258 | B·AUD-B-03 | 部门移动校验（循环引用+层级上限）双实现：Serializer 版锁外读 DB 且无 `select_for_update`，error_code 与 Service 分叉（纯文案 dict vs CIRCULAR_REFERENCE 等）；codegraph impact `_validate_move_hierarchy` = 17 符号（含 11 测试锚） | Serializer 只做格式校验，跨实体业务校验收敛 Service 单实现；或双闸保留则两处注释声明意图并统一 error_code | `codegraph impact _validate_move_hierarchy` | 收敛/对齐后 `pytest apps/usermanagement/tests/test_department_service.py`（12 用例锚在位） | 已确认/待修 |
 | M-31 | P2 | 回归稳定(CT-4) | docker/feishu-webhook/test_app.py::test_unknown_path_404 | B·AUD-B-04 | 覆盖率专项 ×4 中 1 跑失败（404 波动），复跑通过 4/5；判定波动用例非环境问题，疑似夹具时序/端口耦合；裂纹未阻断门禁但 CT-4 要求回归屏障 | 连跑 N 次定位失败模式 → 补确定性夹具（端口/时序注入）或标注 `@pytest.mark.flaky` 并登记 | `rg -n "test_unknown_path_404" docker/feishu-webhook/test_app.py` | 同用例连跑 3 轮绿+记录 | 已确认/待修 |
-| M-32 | P2 | 竞态保护缺失+FR-2 双实现 | src/stores/notificationStore.ts:40-56 ↔ composables/useNotification.ts:141 | B·AUD-F-02 | `fetchNotifications` store/composable 双实现（CodeGraph impact 双定义各 8 影响符号）；store 版无 seq 守卫/并发去重——多事件触发路径（NotificationList 6 处 + NotificationBell 双通道）存在过期响应覆盖风险；19 个实体 store 走 createEntityStore + auditLog/dashboard 自建守卫，本 store 是唯一裸奔） | 二选一：store 版补 listRequestSeq 序号守卫（范式同 auditLogStore:38-42）；或收敛 createEntityStore/usePagedList 范式并消双实现 | `codegraph impact fetchNotifications`；`rg -n "fetchNotifications" src/views/NotificationList.vue src/components/commoncomponents/NotificationBell.vue` | 竞态用例（双请求交错断言后写不覆盖新写）+ `npm run test:coverage` 相关 spec 全绿 | 已确认/待修 |
+| M-32 | P2 | 竞态保护缺失+FR-2 双实现 | src/stores/notificationStore.ts:40-56 ↔ composables/useNotification.ts:141 | B·AUD-F-02 | `fetchNotifications` store/composable 双实现（CodeGraph impact 双定义各 8 影响符号）；store 版无 seq 守卫/并发去重——多事件触发路径（NotificationList 6 处 + NotificationBell 双通道）存在过期响应覆盖风险；19 个实体 store 走 createEntityStore + auditLog/dashboard 自建守卫，本 store 是唯一裸奔） | 二选一：store 版补 listRequestSeq 序号守卫（范式同 auditLogStore:38-42）；或收敛 createEntityStore/usePagedList 范式并消双实现 | `codegraph impact fetchNotifications`；`rg -n "fetchNotifications" src/views/NotificationList.vue src/components/commoncomponents/NotificationBell.vue` | 竞态用例（双请求交错断言后写不覆盖新写）+ `npm run test:coverage` 相关 spec 全绿 | ~~已确认/待修~~ **竞态面已销项（BF-188，2026-11-11）：双 `listRequestSeq` 守卫 + 3 交错用例（S4）+ 契约快照 4 用例；双实现收敛另立 B-32/S12，维持 C-14 降级裁决** |
 | M-33 | P2 | 状态映射游离(G-3 精神) | src/components/componentsdetails/detils/ContractPaymentRecord.vue:72,180-184 | B·AUD-F-01 | 支付记录审核状态内联映射（待审核/已审核/已删除）与 statusMapping.APPROVAL_STATUS_MAP 标签用语不一致；真值源 contract.ts:76 字面量联合类型，未入类型化枚举；G-3 护栏仅锁 Format 资产状态不拦该域 | 映射收编 statusMapping.ts 增 `PAYMENT_STATUS_MAP` + PaymentStatus 枚举；模板字面量比较改常量 | `codegraph node ContractPaymentRecord` | `npx vitest run src/components/componentsdetails/__tests__` + rg 内联映射零命中 | 已确认/待修 |
 | M-34 | P2 | CI 扫描假阳性（机理已证/现网待复核） | .github/workflows/security-scan.yml:250（PATTERNS 循环同段） | B·AUD-C-01 | workflow :250 的 `rg -n "$pattern" --type py --type js --type ts --type json -g '!node_modules' -g '!*.lock' -g '!venv/' -g '!dist/'` **无 `!*tests*` 排除**：按钉 SHA 051d7141 内容复现 5 处夹具密码命中（config/tests/test_base_settings_guard.py:25 等）→ `FOUND=1 → exit 1`，secret-scan 步骤该版本必红；CI 现网 run 实际红绿未直证（本环境无 GitHub 连通）——历史账面「2026-10-01 双 audit 归零」与该机理存在时间线矛盾，故存疑。与 M-11 同行互证 | ① `gh run list --workflow security-scan.yml` 直证最近 secret-scan conclusion；② 模式追 `-g '!*tests*'`（或 tests 命中降级 warn 不阻断）；③ 员工夹具密码非密钥判读规则登记 PR 模板 | `Get-Content .github/workflows/security-scan.yml | Select-Object -Skip 247 -First 10`；`gh run list --workflow security-scan.yml`（网络可用时） | 步骤 ① 输出直证 + 注入 tests 夹具 yml/py 断言修复后通过 | 已确认机理 / 待复核现网 |
 | M-35 | P3 | 死代码文件 | asset_management_backend/core/validators.py:17-100 | B·AUD-C-02 | 4 个校验函数（validate_asset_code/validate_phone_number/validate_id_card/validate_non_negative_number）生产零引用（rg 全仓剔除自身后仅命中 docstring 与定义；含测试仍零引用） | 删除整文件（同步删自测段），pytest 全量,ruff/mypy兜底 | `rg -n "validate_asset_code" asset_management_backend -g "*.py"` | 删除后全量 pytest + 门禁绿灯 | 已确认/待修 |
 | M-36 | P3 | 死依赖 | backend requirements + vue package.json | B·AUD-C-03 | ponytail 依赖扫描：requests/urllib3/chardet（后端全仓零 import，连 scripts/loadtest 亦无）+ less/less-loader（0 个 .less 文件）+ jsdom（vitest environment=happy-dom）+ lodash-es（仅 useDebouncedSearch 一个 debounce 用途）。[推测] urllib3 或为传递 pin 守卫 | 逐包 npm/pip remove 前跑全量门禁兜底；urllib3 留待复核 pip-audit 口径后再删（或为传递 pin 守卫） | `rg -n "requests\|urllib3\|chardet" asset_management_backend -g "*.py"` · `rg "lodash\|less\|jsdom" vue-assetmanagement/src --glob "!*config*"` | 每删一包全量测试（前后端各一轮） | 已确认/待修 |
-| M-37 | P3 | 文档漂移(README 图缺边) | README.md:218-241 | B·AUD-B-06 | README 状态机导航图缺 3 个 to_damaged 入口边 + 3 个 reject 目标 + cancel 边 + 双入口共边标注，与 transitions.py 陈旧脱节 | 补边或加「完整规则见 backend-business-rules.md §三」导航免责声明 | `rg -n "to_damaged\|cancel" README.md` | 文档核对 | 已确认/待修 |
-| M-38 | P3 | 业务口径[待确认] | apps/assetmanagement/services/repair_asset_service.py:253-255 | B·AUD-B-08 | `repair_done` 的 physical_grade 更新为可选（调用方不传即不更新，None 落库留痕），与约束 4「维修完成必须更新」字面语义弱化；[推测] 宽容历史数据的刻意设计 | 产品拍板：约束 4 口径落文档「有值必验、缺值可略」，或把空值升级为必传校验 | `codegraph node repair_done` | 拍板后改文档或校验逻辑 + 补用例 | 已确认/待拍板 |
-| M-39 | P3 | 合同 FSM 低层直测 | assetmanagement/tests/test_contract_fsm.py:76-78 | B·AUD-B-07 | 合法边 7 条仅 1 条 FSM 级直测参数化；CT-3 由集成链 test_contract_view_api.py:569-603 满足非缺测（K4 裁决互补） | `_validate_transition` 合法边参数化为 7 条，提升表漂移单测先红灵敏度 | `rg -n "test_edges_match_transition_table\|_validate_transition" assetmanagement/tests/test_contract_fsm.py` | 参数化后 test_contract_fsm 全绿 | 已确认/待修 |
+| M-37 | P3 | 文档漂移(README 图缺边) | README.md:218-241 | B·AUD-B-06 | README 状态机导航图缺 3 个 to_damaged 入口边 + 3 个 reject 目标 + cancel 边 + 双入口共边标注，与 transitions.py 陈旧脱节 | 补边或加「完整规则见 backend-business-rules.md §三」导航免责声明 | `rg -n "to_damaged\|cancel" README.md` | 文档核对 | 已修复 BF-187 |
+| M-38 | P3 | 业务口径[待确认] | apps/assetmanagement/services/repair_asset_service.py:253-255 | B·AUD-B-08 | `repair_done` 的 physical_grade 更新为可选（调用方不传即不更新，None 落库留痕），与约束 4「维修完成必须更新」字面语义弱化；[推测] 宽容历史数据的刻意设计 | 产品拍板：约束 4 口径落文档「有值必验、缺值可略」，或把空值升级为必传校验 | `codegraph node repair_done` | 拍板后改文档或校验逻辑 + 补用例 | 已修复 BF-187（拍板 D2-A） |
+| M-39 | P3 | 合同 FSM 低层直测 | assetmanagement/tests/test_contract_fsm.py:76-78 | B·AUD-B-07 | 合法边 7 条仅 1 条 FSM 级直测参数化；CT-3 由集成链 test_contract_view_api.py:569-603 满足非缺测（K4 裁决互补） | `_validate_transition` 合法边参数化为 7 条，提升表漂移单测先红灵敏度 | `rg -n "test_edges_match_transition_table\|_validate_transition" assetmanagement/tests/test_contract_fsm.py` | 参数化后 test_contract_fsm 全绿 | 已修复 BF-187 |
 | M-40 | P3 | DRY 跨文件同构块 | core/audit_log_filters.py:66-102 ↔ apps/assetmanagement/operation_log_filters.py:59-102 | B·AUD-B-05 | `_parse_date`/`_validate_operation_type`/Invalid* 异常类 37 行逐字同构复制，唯一消费面差异可收敛 core 侧共用 helper | 抽 core 共用 helper（或与 M-17 收敛批次合并） | `rg -n "_parse_date" asset_management_backend --glob "*.py"` | 抽取后 diff 输出等价 + 双域过滤测试绿 | 已确认/待修 |
 | M-41 | P3 | View 直查 ORM（部分带注释豁免） | role_view.py:209-217 / employee_auth_mixin.py:61-74 / contract_view.py:114-116、storage_view.py:86-96 | B·AUD-B-09 | UserRoleViewSet.get_queryset 手写过滤链未走 Selector（usermanagement 无 RoleSelector）；employee_auth_mixin 在 View 层 `AuthUser.objects.get`；contract/storage 为全局资源已注释豁免（合规形态，仅挂账） | Role 域补 `RoleSelector`（与 M-29 同批）；authuser 域挪进 PermissionService 助手；contract/storage 维持挂账或补软删 base 单点化 | `rg -n "objects\.filter" apps/usermanagement/views -g "*.py"` | 补 Selector 后跑相关 view 测试 | 已确认/待修 |
-| M-42 | P3 | 设计令牌逸出[推测] | composables/useChartTheme.ts:37-47,81-83；utils/statusMapping.ts:232-236 | B·AUD-F-04 | 8 个派生色（PIE_EXTRA `#8B5CF6`/`#6B7280`、divider `#1d1e1f/#ffffff`、tooltip rgba、3 个状态散点色）不在 F1-F2 四色令牌集内；[推测] 图表 palette 派生色豁免口径无书面确认 | 设计/产品确认图表 palette 豁免口径（书面化）或收编进 variables.css 令牌 | `rg "#8B5CF6\|#13C2C2\|#F759AB\|#FA8C16" vue-assetmanagement/src` | 确认后文档化 | 已确认/待拍板口径 |
+| M-42 | P3 | 设计令牌逸出[推测] | composables/useChartTheme.ts:37-47,81-83；utils/statusMapping.ts:232-236 | B·AUD-F-04 | 8 个派生色（PIE_EXTRA `#8B5CF6`/`#6B7280`、divider `#1d1e1f/#ffffff`、tooltip rgba、3 个状态散点色）不在 F1-F2 四色令牌集内；[推测] 图表 palette 派生色豁免口径无书面确认 | 设计/产品确认图表 palette 豁免口径（书面化）或收编进 variables.css 令牌 | `rg "#8B5CF6\|#13C2C2\|#F759AB\|#FA8C16" vue-assetmanagement/src` | 确认后文档化 | 已修复 BF-187（拍板 D3-A） |
 | M-43 | P3 | var() 回退字面量（口径与 M-24 统一） | componentsdetails/components/AssetTypeChildList.vue:33 | B·AUD-F-03（K3 裁决） | `var(--table-header-bg, #f5f7fa)` 属变量缺失回退形态，与 M-24 对 global-reset.scss 的口径一致（渐进项，不计硬违规），仅该变量确已在 variables.css 定义时可移除字面量 | 与 M-24 同批令牌化时顺带清理 | `rg -n "f5f7fa" vue-assetmanagement/src` | 双主题目检 | 已确认/待修（并入 M-24 批） |
 | M-44 | P3 | 路由守卫前瞻加固[推测] | src/router/guards.ts:84-87 | B·AUD-F-05 | roleWhitelist 用 `startsWith(prefix)` 无 path-boundary 保护：未来新增以现有白名单为前缀的路由会被误命中；当前路由集零影响；与 X-04（默认读放行系刻意设计+负向断言）不冲突，属另一个独立加固面 | 白名单前缀判定改为「prefix === path 或 prefix + '/'」边界匹配 + 负向断言侧 spec 展开 | `codegraph node guards`；`rg -n "startsWith" src/router/guards.ts` | guards 负向断言（模拟新路由）先红后绿 | 已确认/待修 |
 | M-45 | P3 | ponytail 死代码批量（M-35/M-36 之外） | date_utils.py 全文 / string_utils.py:11-50,73-99,121-139 / Image.ts:54-158 / usermanagement/providers.py:44-108 / core/models.py:107,135-155 / assetmanagement/interfaces.py:63-117 / utils/reactiveAccess.ts:18-42 | B·§三F（ponytail-audit+review） | ① date_utils 5 个日期函数生产零调用（唯一消费是自测+re-export，实际解析用两处本地 _parse_date）；② string_utils 5/6 函数死代码（唯一活的 mask_phone_number）；③ Image.ts 5/7 死导出（唯一活的 lazyLoadDirective，main.ts:10 注册）；④ providers Mock 三件套 docstring 声称测试用、实际零引用；⑤ BaseModel.restore()/hard_delete() 全仓生产零调用（all_objects 仅 role_service.py:225 一处可平替）；⑥ EmployeeProvider 注册中心唯一产品 + Mock 已死（yagni）；⑦ reactiveAccess readReactive/readStoreValue 三元访问语义双实现。**净可减 ~-570 行（-7 依赖单列 M-36）**；每条均经 rg 全仓剔除自身/测试复核零外部调用 | 按模块分小批删除/坍缩；每批全量前后端测试兜底；interfaces 注册中心若删需同步 apps.py ready 钩子 | `rg -n "restore\(\)" asset_management_backend -g "*.py"` 等（各条独立命令已入 B 报告） | 每小批全量 pytest + 前端 type-check/lint/test / ruff mypy | 已确认/待修（低风险批量，每批可独立） |
@@ -131,7 +131,7 @@
 | 安全红线 SC | 业务 0 违规；CI 3 加固缺口 | 12 项通过；SC-1/3/4 干净直证 | 业务面干净；**CI 面 4 个缺口合并**：M-11（yaml盲区）+ M-34（tests 假阳性）+ M-01（部署 gate 回查面）+ M-18（周报汇总） |
 | RBAC/行级隔离 | 防退化缺口 M-06/M-07 | B11/B12/B14 全通过 + G 护栏 PASS；usermanagement 3 处分层违例 (M-29/M-30/M-41) | 隔离面接线完整；**usermanagement 是唯一多违例模块**（4 条，与 M-06 同域分批） |
 | 操作日志/审计 | 资产/用户域合规；M-05/M-08/M-25 | B7 抽查通过；审计留痕 8 组批删接线全绿 | 合规 + M-05/M-08 在案 |
-| 前端质量 | M-04（68 个 0% 页面）/M-14/M-21 等 | 语法纪律全绿；规模护栏全 PASS；M-32/M-33 竞态/映射两处 P2 + 令牌杂项 | **最大短板 = 测试资产（M-04）**；语法/契约/规模面健康 |
+| 前端质量 | M-04（68 个 0% 页面）/M-14/M-21 等 | 语法纪律全绿；规模护栏全 PASS；M-32/M-33 竞态/映射两处 P2 + 令牌杂项 | **最大短板 = 测试资产（M-04）**；语法/契约/规模面健康；**M-32 竞态面 / M-13 评估面 / M-21 执行面于 BF-188（2026-11-11）收口，收敛挂 B-32/S12** |
 | CI/工程化 | M-01/09/10/12/17/18 | M-34 secret-scan 疑点；BOM 假绿（M-02） | **护栏/门禁自身正确性是修复最高优先级**（假绿比红更危险） |
 | 死代码/过工程度 | 三源仅 TraeCode 2 条 | ponytail 净 ~-570 行、-7 依赖 | **M-35~M-36/M-45 低风险批量清理项**，批次末段执行 |
 
@@ -179,13 +179,13 @@
 | 顺序项 | 内容 | 依赖 | 验证 |
 |:--|:--|:--|:--|
 | M-04(a) | 68 个 0% 页面分三档补测（高流量 Dashboard/AsideMenu 先行） | 无 | 各档 coverage 阈值绿 |
-| M-32 | notificationStore 竞态守卫 + 双实现收敛 | 无 | 竞态交错用例 + 相关 spec 绿 |
+| M-32 | notificationStore 竞态守卫 + 双实现收敛 | 无 | 竞态交错用例 + 相关 spec 绿（BF-188 追加：+ `notificationDualImpl.contract.spec.ts` 契约快照 4 用例；收敛转 B-32/S12） |
 | M-14 | 4 管理页抽统一列表组件 + composable | M-04(a)① 先行 | 各页交互测试 + lint:ci |
 | M-33 | ContractPaymentRecord 状态映射收编 statusMapping | 无 | 组件 spec + rg 内联零命中 ✅（批次 4b 落地，BF-186：域 2 收编 + G-3 护栏内联零容忍） |
 | M-04(b) | 棘轮手工上移（T14 只升不降） | M-04(a) 完成 | CI frontend-test 绿 |
 | M-20/M-26 | usePaginationSearch 拆分 + Format.ts:19 旧名注释 | 无 | 护栏 composables 段绿 + rg 零命中 |
-| M-21 | isAxiosError 统一 helper + eslint 禁 axios 包 + LogIn px 令牌化 | 无（helper 先行） | type-check + lint:ci + 视图 spec |
-| M-13 | 启用 no-floating-promises 评估 | M-21 后（同 ESLint 面） | 0 命中→销账；有命中→立条目 |
+| M-21 | isAxiosError 统一 helper + eslint 禁 axios 包 + LogIn px 令牌化 | 无（helper 先行） | type-check + lint:ci + 视图 spec（BF-188 追加：独立 ESLint 块 + 4 点收敛 + 定向 8 文件 96 用例 + 先红后绿） |
+| M-13 | no-floating-promises 评估（C-14/S7 已完成：一次性评估 115 处命中，D13 裁定不启用规则） | M-21 后（同 ESLint 面） | 0 命中→销账；有命中→立条目（BF-188 评估面销项，结论与 D13 复审挂 C-14） |
 | M-24/M-43 | 滚动条 6 处 hex 令牌化 + var() 回退清理（同批） | 无 | 双主题目检 + lint:ci |
 | M-44 | guards 前缀 path-boundary 加固 | 无 | 负向断言先红后绿 |
 
@@ -217,8 +217,18 @@
 | M-37 | README 状态机图补边或导航免责 | 文档核对 |
 | M-39 | test_contract_fsm 合法边参数化 7 条 | 合同 FSM 测试绿 |
 
+### 批次 6 执行回执（2026-11-11，BF-187）
+
+**拍板表（D1-D7 冻结，用户批准）**：D1=A 双入口固定 Asia/Shanghai｜D2=A 有值必验、缺值可略｜D3=A 书面豁免+防扩散｜D4=A′ 保留人读格式+豁免登记（production :103 formatter=json 为环境分流保留，仅删 :104 filters 覆写）｜D5=A 导航免责+单行订正｜D6=先 M-03 后 M-19｜D7=[PATCH-BE]/[PATCH-FE] 各合并一次审批。
+
+**11 项终态**：M-15 ✅（Format.ts 双入口 + todayLocalISO 显式改写 + 4 时区矩阵/鉴别用例；浏览器双时区目检未执行、以自动化矩阵代证）｜M-16 ✅（TESTING.md §3.3 + 后端 README 导航；恢复步骤已实操验证）｜M-19 ⏩延后移交 M-03（护栏权威值 485 逻辑行实测 <500 无紧迫性）｜M-22 ✅（backend-business-rules v1.26 B1 + backend-testing-rules v1.9 T4 + 头部版本收敛）｜M-23 ✅（base 统一挂 filter + AST 四组护栏 7 例 + 变异自证 ①②③）｜M-25 ✅（NOTIFICATION_DEAD_LETTER Counter + 关键字置首 + SOP 登记）｜M-27 ✅已闭环/销项（v1.9/M-04(b) 超越，四值 40.8/25.9/24.9/41.5，21.x 仅存历史注释禁止回改）｜M-37 ✅（README :238 订正 + :245 导航免责）｜M-38 ✅（约束 4 拍板入 v1.26 + TestRepairGradeArbitration 2 例锚）｜M-39 ✅（7 边硬编码参数化 + 表漂移抽证）｜M-42 ✅（v1.7 §3.1 五类十三色豁免登记 + 防扩散条款）。
+
+**门禁实测**：后端全量 2440 passed（PG）/ 覆盖率整体 90.28% / Service 98.38% / ruff + mypy --strict 0 errors / 四护栏 PASS / `makemigrations --dry-run` No changes detected；前端三项全绿 + 全量 2640 passed 零 threshold 违规（棘轮保持）。CT-7 对齐 dev.txt（mypy 2.1.0 / django-stubs 6.1.0 / drf-stubs 3.18.0 / types-channels 4.3.0 与 pip list 一致）。
+
+**编号更正**：本批次账本条目原计划编号 BF-186，因 BF-186 已被批次 4b（2026-11-11 收口）占用顺延为 **BF-187**。
+
 **修复顺序总览**：
-批次 1（M-02→M-17→M-01→M-18，护栏自身）→ 批次 2（M-05）→ 批次 3（M-06→M-29→M-30→M-41→M-07→M-08→M-03→M-28→M-31）→ 批次 4（M-04a→M-32→M-14→M-33→M-04b→M-20/26→M-21→M-13→M-24/43→M-44）→ 批次 5（M-09→M-10→M-34→M-11→M-12→M-36→M-35/45）→ 批次 6（拍板与文档收尾）。
+批次 1（M-02→M-17→M-01→M-18，护栏自身）→ 批次 2（M-05）→ 批次 3（M-06→M-29→M-30→M-41→M-07→M-08→M-03→M-28→M-31）→ 批次 4（M-04a→M-32→M-14→M-33→M-04b→M-20/26→M-21→M-13→M-24/43→M-44）→ 批次 5（M-09→M-10→M-34→M-11→M-12→M-36→M-35/45）→ 批次 6（拍板与文档收尾）；**批次 4 收尾（BF-188，2026-11-11）单列**：M-32 竞态面 / M-13 评估面 / M-21 执行面收口，双实现收敛另立 B-32/S12。
 预计节奏：批次 1/2/5/6 合计 ~3 天工作量级；批次 3 按域 2~3 子批（usermanagement 域 M-06/29/30/41 单列一子批）；批次 4 按档位 3 子批。全程无 [HALT] 红线变更（M-03 除外——属结构性扁平化，需独立评估批次）。
 
 ---
@@ -236,6 +246,8 @@
 
 **融合明细**：报告B 17 条原 AUD 条目 100% 融合入 M-28~M-44（含 1 条口径统一降级 M-43）；ponytail 死代码/依赖清单落为两条（M-36 依赖 / M-45 代码）；报告A 28 条全部保留原编号与状态（5 条 P1 本会话逐条直证）。K1~K6 六处交叉点裁决：采纳 4（M-28/M-34/M-39/M-43 新条目化）、口径统一 1（K3 var() 回退域）、互证无冲突 1（K5 门禁数字）。
 
+> **时点快照注（2026-11-11）**：本表为审计时点（2026-11-07）结论，批次落地后的终态以 §2 各行状态列（批次 1-6 已同步改写）与 `docs/BugFixed/Bug修复活账本.md`（BF-184/BF-185/BF-187 等）为准，本表「已修复 0（纯审计）」数字不回溯改写。**批次 4 收尾（BF-188，2026-11-11；M-32 竞态面 / M-13 评估面 / M-21 执行面）终态同样以 §2 各行状态列与账本为准，统计表仍不回溯。**
+
 **独有发现归属**：M-05（合同支付审计，仅 A 报告链发现）为最高优先业务 P1；M-01/02/04（门禁/护栏正确性）为最高优先工程 P1；M-28~M-34（报告B：状态机旁路/分层/竞态/CI 扫描）；M-35~M-45（死代码/依赖/文档域，报告B ponytail 链）。
 
 ---
@@ -250,7 +262,7 @@
 - [x] **域差异显式标注**：K1（A 未扫 management/commands、B 未扫护栏代码）作为融合边界记入，不作为对方缺陷。
 - [x] **只读纪律**：本融合会话未改动任何业务代码；唯一产出物 = 本文件。
 - [x] **建议可执行**：46 条均含 file:line/symbol 去处 + 回查命令 + 建议验证方式；修复顺序含依赖关系与批次边界，修复 skill（bug-surgical-fix / audit-batch-fix-closure / br4-batch-split-execution 等）可直接按批次接手。
-- [x] **事实边界**：M-34 [推测] 干 CI 现网 run 结论（机理已由追加直证）；M-15/M-42/M-44 影响面 [推测]；M-13 维持「待复核（勿再按报告原文直接取证）」。
+- [x] **事实边界**：M-34 [推测] 干 CI 现网 run 结论（机理已由追加直证）；M-15/M-42/M-44 影响面 [推测]；M-13 维持「待复核（勿再按报告原文直接取证）」。**BF-188 回执（2026-11-11）**：M-13 评估面已收口（C-14/S7 一次性评估 115 处命中、D13 裁定不启用规则且不新增红线），本行「维持待复核」为审计时点历史陈述，不回溯改写；终态以 §2 状态列与 C-14/BF-188 为准。
 
 ### 审计票（根 AGENTS.md §4 格式）
 

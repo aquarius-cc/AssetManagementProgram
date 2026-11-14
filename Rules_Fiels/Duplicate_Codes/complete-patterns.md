@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.63 | **最后更新**：2026-11-10 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.64 | **最后更新**：2026-11-11 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -721,6 +721,14 @@
 - **关联**：merge-audit-20261107 **M-02**（P1）/**M-17**（P2，收窄）；**P-2** scripts/ 规模零护栏兜底（本批轻量断言 + 另立 M 项）；BF-183。
 - **验证命令**：`python -m pytest scripts/tests/test_duplicate_invariants.py scripts/tests/test_frontend_invariants.py -q`（证红用例先红后绿）+ `python scripts/check_duplicate_invariants.py` + `python scripts/check_frontend_invariants.py`（现实仓 PASS）。
 
+### B-32. 【S12 正式立项 2026-11-11】fetchNotifications 双实现收敛（merge-audit-20261107 M-32；BF-188）
+- **编号**：顺延登记（B-31 后最大号 +1）。**状态**：☐ 待修复 | 登记日期：2026-11-11 | 登记来源：C-14「收敛另立 S12」原为口头挂账（本账本与 Bug 活账本均无 S12 条目），按 §1.8 新发现义务转为正式条目。
+- **判定**：`src/stores/notificationStore.ts::fetchNotifications`（Pinia 单例 + 筛选参数 + `pagination.total`，异常外抛）与 `src/composables/useNotification.ts::fetchNotifications`（实例级数据态 + WS 推送 + `fetchError` 单出口）在职责、容器、错误语义上均不同；C-14（2026-11-09 S4）已裁决**保留双实现**，竞态面由两处 `listRequestSeq` 守卫 + 3 个交错用例闭环。本条仅承接未来的收敛工作，**不表示当前双实现为违规**。
+- **触发条件**：S12 执行前须先补齐架构决策——WS 推送归属、`fetchError`/`isMarkingAll` 模块级态归属、`pagination.total` 归属、NotificationBell 8 个返回项与 NotificationList `usePagedList` 适配层的等价性；并与 `eslint.config.ts` A-45「composable 为 API 适配层」决策对齐。
+- **验证命令**：`npx vitest run src/__tests__/notificationDualImpl.contract.spec.ts src/stores/__tests__/notificationStore.spec.ts src/composables/__tests__/useNotification.spec.ts` + `npm run test:coverage`（stores ≥90 / .vue 棘轮只升不降）+ `npm run test:mutate`（≥80）。
+- **回归屏障与同步义务**：`src/__tests__/notificationDualImpl.contract.spec.ts` 是**契约快照**，固化四处经裁决分叉（错误语义 / 分页契约 / 容器 / WS unshift），文件头已标注「S12 收敛时必须同步改写本 spec」。S12 收敛时该文件断言必然变红，属预期行为，须同步改写或删除，**不得按线上缺陷回滚**。收敛完成后回写本条状态并附证据与验证命令（§1.8）。
+- **关联**：C-14（M-32 降级 / M-13 立条目）；BF-188；merge-audit-20261107 M-32 / M-13 / M-21。
+
 ---
 
 ## C — 降级/待决策（Downgraded / Decision Gate）
@@ -855,8 +863,8 @@
 
 ### C-14. 批次 4 前端三项登记（M-33 已关闭 / M-32 降级 / M-13 立条目）
 - **M-33 ✅ 已关闭（2026-11-09，S3）**：ContractPaymentRecord.vue 内联支付状态映射（statusMap/getStatusType/三状态字面量）收编 `statusMapping.PAYMENT_STATUS_MAP` + `types/contract.PaymentStatus`（as const，键集与 APPROVAL_STATUS_MAP 不同，刻意不合并）。T4 先红×3 转绿。验证：`npx vitest run src/utils/__tests__/statusMapping.spec.ts src/components/componentsdetails/detils/__tests__/ContractPaymentRecord.spec.ts`（33 用例）；组件源码 `grep -cE "'pending'|'approved'|'deleted'|const statusMap|const getStatusType"` → 0。
-- **M-32 ⏳ 降级（2026-11-09，S4，收敛另立 S12）**：fetchNotifications store/composable 双实现保留——职责（Pinia 单例+筛选参数 / 实例级+WS 推送）、容器、错误语义（异常外抛 / catch 单出口置 fetchError）均不同；本批两处各补 `listRequestSeq` 序号守卫（范式同 auditLogStore loadDataSeq），竞态交错用例先红×3 转绿。验证：`npx vitest run src/stores/__tests__/notificationStore.spec.ts src/composables/__tests__/useNotification.spec.ts`；store 层覆盖率 100%（≥90%）。
-- **M-13 ⏳ 立条目（2026-11-09，S7 评估）**：`@typescript-eslint/no-floating-promises` 一次性 type-aware 评估（D9 临时块，评估后已删除、不提交）命中 **115 处**（src 全量 .ts/.vue，含测试目录）。原审计「main 4 处」证据不成立（4 处均有 .catch）。处置：不启用规则、不新增红线（D13 硬约束：禁止常驻写入 config、禁止 CLI 进 CI——BF-086 教训）；命中项待逐条补 `.catch`/`void` 后另行评估常驻启用（复审周期：待 CI 基础设施就绪或团队投票）。证据留存：评估命令 `npm run lint:ci`（D9 块在位时）命中计数 115；**本地一次性评估（node v24.19.0），不代表 CI npm ci 后声明版本基线（CT-7）**。
+- **M-32 ⏳ 降级（2026-11-09，S4，收敛另立 S12）**：fetchNotifications store/composable 双实现保留——职责（Pinia 单例+筛选参数 / 实例级+WS 推送）、容器、错误语义（异常外抛 / catch 单出口置 fetchError）均不同；本批两处各补 `listRequestSeq` 序号守卫（范式同 auditLogStore loadDataSeq），竞态交错用例先红×3 转绿。验证：`npx vitest run src/stores/__tests__/notificationStore.spec.ts src/composables/__tests__/useNotification.spec.ts`；store 层覆盖率 100%（≥90%）。**竞态面已完成（2026-11-11，BF-188）**：新增 `src/__tests__/notificationDualImpl.contract.spec.ts`（4 用例契约快照，固化错误语义 / 分页契约 / 容器 / WS unshift 四处经裁决分叉），验证 `npx vitest run src/__tests__/notificationDualImpl.contract.spec.ts`（4 passed）+ `npm run test:coverage`（267 文件 / 2644 用例，stores 96.84/97.18/91.18/97.22 ≥90，.vue 棘轮保持）+ `npm run test:mutate`（85.15 ≥80）。竞态面销项；**双实现收敛仍挂 → B-32（S12）**，本行维持 ⏳ 不关闭。
+- **M-13 ⏳ 立条目（2026-11-09，S7 评估）**：`@typescript-eslint/no-floating-promises` 一次性 type-aware 评估（D9 临时块，评估后已删除、不提交）命中 **115 处**（src 全量 .ts/.vue，含测试目录）。原审计「main 4 处」证据不成立（4 处均有 .catch）。处置：不启用规则、不新增红线（D13 硬约束：禁止常驻写入 config、禁止 CLI 进 CI——BF-086 教训）；命中项待逐条补 `.catch`/`void` 后另行评估常驻启用（复审周期：待 CI 基础设施就绪或团队投票）。证据留存：评估命令 `npm run lint:ci`（D9 块在位时）命中计数 115；**本地一次性评估（node v24.19.0），不代表 CI npm ci 后声明版本基线（CT-7）**。**评估面已完成（2026-11-11，BF-188）**：本批未启用规则、未新增红线，D13 硬约束保持；验证命令 `rg -n "no-floating-promises" vue-assetmanagement/eslint.config.ts` → 0 命中（commit 1 的 ESLint diff 亦零字面量，证明 D13 未被顺手绕过）；§5.4 适用性判定（既有 F11 执行面闭合 + 存量清零后落地零违规、CI 阻断行为不变 → 不触发沙盒期）见 BF-188。115 处命中项与 D13 复审周期不变，本行维持 ⏳ 不关闭。
 - **状态**：⚠️ 已降级至 C 区（2026-10-04，B4 落地时识别并留痕）——刻意保留，以测试护栏替代 DRY。
 - **登记日期**：2026-10-04 | 来源：v2.3 阶段 2 · B4（§1.8 新发现义务）
 - **验证命令**：`python -m pytest apps/assetmanagement/tests/test_asset_group_children_view.py -k pass_through -q`（预期 1 passed；键集分叉即红）
@@ -1194,6 +1202,7 @@
 > 故同表登记；但实现与 CI 归属不同（`ci.yml` 而非 `duplicate-guard.yml`），不可混为一谈。
 
 ## 变更记录
+- **v2.9.64 (2026-11-11)**：批次 4 收尾（BF-188，merge-audit-20261107 M-32/M-13/M-21）——C-14 两行保持 ⏳ 降级态，补记「竞态面/评估面已完成」证据与验证命令（新增契约快照 `src/__tests__/notificationDualImpl.contract.spec.ts` 4 用例；全量 coverage 267 文件/2644 用例、stores 96.84/97.18/91.18/97.22 ≥90；变异 85.15 ≥80）并指向 **B-32**；**S12 由口头挂账转正式立项 B-32**（B 区，☐ 待修复，含触发条件、契约快照同步改写义务、验证命令）。M-13 维持 D13「不启用规则、不新增红线」，commit 1 的 ESLint diff 中 `no-floating-promises` 零命中留证；§5.4 适用性判定（既有 F11 执行面闭合 + 存量清零后落地零违规、CI 阻断行为不变，不触发沙盒期）见 BF-188。零新增重复模式入账：4 个收敛点复用 `@/utils/errorHandler::isApiError` 单一入口，`requestErrors.ts` 等 6 个 infra 文件维持豁免，`no-restricted-imports` 新块为既有正则的复用（非新增 regex）。
 - **v2.9.63 (2026-11-10)**：登记 **C-16**（批次 4b 阶段 0 口径固化，§1.8）——前端内联状态语义映射全量盘点：命令 A/B 固化可复现口径，真实收编面 **6 处**（NotificationBell ×2 / NotificationList ×2 / ContractPaymentRecord paymentMethodMap / StorageBatchImport 仓库名映射）；此前「13/14 处」系 `statusMap|getStatusType` 粗扫把 19 个 statusMapping import 点误计入（import 点即已合规）。types 层（auditlog/operationlog）5 个 *Mapping 为各域单源导出、Format.ts 为 G-3 子集，均排除留档。头部版本对齐（v2.9.59→v2.9.63，补记批次 5 C-15 未随 commit 对齐的脱节）。通知域值冲突（Bell vs List）待裁决门 ③。
 - **v2.9.62 (2026-11-07)**：登记 **B-31**（缺陷族「解码序/静默跳过」，§1.8 新发现义务）——护栏自实现 read_text 解码序缺失 + except/空文本 continue 静默跳过双缺陷四实例（① line_metrics 已关闭基线 ② G 护栏 M-02 本批关 ③ FR 护栏 M-17 收窄本批关 ④ BR-4/BR-6 不可解码面留尾另批）；附：回归护栏表新增 **G-0**（护栏自身不得静默跳过，fail-closed）并补录 **G-8** 行（v3.7.4 表内遗漏，与 AGENTS §1.8 对齐）。②③ 关闭与 G-0 实现属 BF-183 批次 1（执行方案 v3.1，4+2 补丁闭环）。
 - **v2.9.61 (2026-11-05)**：关闭 **B-26**（批次 10 Stage 3，前端 `34ee807`）——`common-forms.scss` 新增 `@mixin section-title-block`（依 D-9 命名警示异名）+ form-container `.section-title` 改 include + 4 组件 `@use`/`@include` 收敛；B-26-①（SelectedRecordsTable `margin: 0` 显式保留）、B-26-②（背景改 `var(--gradient-card-highlight)` 恢复暗色跟随）均落地；验证矩阵（5 include / 旧 margin .vue 0 / mixin 定义仅 dashboard）+ build/tc/lint/fmt 全 0 见条目内。B 区 9 项自此全关。
