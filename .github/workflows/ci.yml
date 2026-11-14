@@ -231,7 +231,7 @@ jobs:
       - name: 整体覆盖率检查（红线 80%）
         run: |
           set -o pipefail
-          pytest --cov=. --cov-fail-under=101 --cov-report=term --cov-report=xml --cov-report=html -v 2>&1 | tee pytest-coverage.log
+          pytest --cov=. --cov-fail-under=80 --cov-report=term --cov-report=xml --cov-report=html -v 2>&1 | tee pytest-coverage.log
           tail -n 25 pytest-coverage.log >> "$GITHUB_STEP_SUMMARY"
       - name: 门禁工具链版本（CT-7）
         run: |
@@ -241,6 +241,7 @@ jobs:
         run: |
           pytest --cov=apps.assetmanagement.services --cov-fail-under=90 -v
           pytest --cov=apps.authusermanagement.services --cov-fail-under=90 -v
+          pytest --cov=apps.usermanagement.services --cov-fail-under=90 -v
           pytest --cov=apps.unregisteredasset.services --cov-fail-under=90 -v
       - name: 上传覆盖率报告
         if: always()
