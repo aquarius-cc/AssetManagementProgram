@@ -53,6 +53,16 @@ def test_staged_compose_env_passthrough_passes():
     assert scan_staged("      - METRICS_TOKEN=${METRICS_TOKEN:-}\n") == []
 
 
+def test_compose_required_interpolation_form_allowed():
+    """批次 3/M-05 (BF-190): compose `:?` 插值行（fail-closed 必填形态）不误报密钥。
+
+    prod 编排 F1 后新增 `- METRICS_TOKEN=${METRICS_TOKEN:?...}` 形态;
+    正则捕获值以 `${` 开头, 命中 _PLACEHOLDER_RE 的 `\\$\\{.*` 分支 → 放行。
+    """
+    line = "+      - METRICS_TOKEN=${METRICS_TOKEN:?请在 .env 中设置 METRICS_TOKEN}"
+    assert scan_staged(line) == []
+
+
 def test_is_placeholder_public_entry():
     """G11：占位判定公共入口——指纹护栏（check_secret_fingerprints）按此单源复用"""
     assert is_placeholder("your-secret-key-here")
