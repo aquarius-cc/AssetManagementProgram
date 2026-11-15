@@ -63,6 +63,20 @@ def test_compose_required_interpolation_form_allowed():
     assert scan_staged(line) == []
 
 
+def test_staged_doc_prose_interpolation_reference_passes():
+    """B-42 附带误报：文档 prose 中 `${METRICS_TOKEN:-}` 引用形态（键被 ${ 前缀包裹，
+    正则捕获值为 `-}...` 尾段）不构成赋值，必须放行。"""
+    line = "+...`docker-compose.prod.yml:30` `${METRICS_TOKEN:-}`（空即放行启动）..."
+    assert scan_staged(line) == []
+    line2 = "+| F-04 | 三份 compose 均为 ${METRICS_TOKEN:-}。**此为 P3-10 已登记设计** |"
+    assert scan_staged(line2) == []
+
+
+def test_staged_real_metrics_token_still_red():
+    """插值引用放行不得稀释红线：真实赋值形态仍拦截"""
+    assert len(scan_staged("+METRICS_TOKEN=" + "Re" + "alToken99\n")) == 1
+
+
 def test_is_placeholder_public_entry():
     """G11：占位判定公共入口——指纹护栏（check_secret_fingerprints）按此单源复用"""
     assert is_placeholder("your-secret-key-here")

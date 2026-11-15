@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.64 | **最后更新**：2026-11-11 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.66 | **最后更新**：2026-11-13 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -703,11 +703,15 @@
 - **登记日期**：2026-11-02 | 关闭日期：2026-11-02 | 关联：**M-05**（同型首例，方向相反）；**P-1-4**（notifySubmitError 收编基准）；**B-27/B-28**（前序 FE 收敛条目）；`errorHandler.spec.ts`（双轨契约锚）
 
 ### B-30. 【新发现 2026-11-02】M-RC-09 手写双轨第 7 处漏网：RoleManage.vue handleDelete 删除失败双弹（前端；§1.8 新发现义务）
-- **编号**：顺延登记（B-29 后最大号 +1）。**状态**：☐ 待修复 | 登记日期：2026-11-02 | 登记来源：B-29 关闭后的文档同步（核查 2026-10-27 审计报告 RC-09 行）实测——RC-09 点名清单 8 处中 RoleManage 原点名 `:165`（获取列表失败）已收编 `notifyCallerError`，但 `handleDelete` 为**未点名的另一处漏网**，B-29 八触点清单亦未覆盖。
+- **编号**：顺延登记（B-29 后最大号 +1）。**状态**：✅ 已关闭（2026-11-12，批次 1/M-09）| 登记日期：2026-11-02 | 登记来源：B-29 关闭后的文档同步（核查 2026-10-27 审计报告 RC-09 行）实测——RC-09 点名清单 8 处中 RoleManage 原点名 `:165`（获取列表失败）已收编 `notifyCallerError`，但 `handleDelete` 为**未点名的另一处漏网**，B-29 八触点清单亦未覆盖。
 - **判定**：`src/views/system/RoleManage.vue:266-272` `handleDelete` catch 手写 `response?.data?.message || err.message || '删除失败'` 三级消息提取 + `ElMessage.error(msg)` 直弹——AxiosError 场景拦截器（request.ts `notifyApiError`）已提示 → **双弹**，与 B-29 六处同型；三级提取与 `getErrorMessage`（errorHandler.ts）逐语义重复（DR-1）。注意该 catch 当前**无显式 logError 行**（与 B-29 六处形态有别），收编时按 `notifySubmitError` 基准补 `logError` + `notifyCallerError` 两行并存还是仅 `notifyCallerError`（非 Axios 观测面取舍），执行前拍板。
 - **修复方案**：catch 收编 M-RC-09 单出口（`notifyCallerError(error, '删除失败')`），删手写三分支；`ElMessage` import 保留（业务成功分支仍在用）。
 - **验证命令**：`rg -n "response\?\.data\?\.message" vue-assetmanagement/src`（预期 0 命中）；`rg -n "ElMessage\.error" vue-assetmanagement/src/views/system/RoleManage.vue`（预期仅手写校验等业务分支）；`npx vitest run src/utils/__tests__/errorHandler.spec.ts`（双轨契约锚）。
 - **关联**：**B-29**（同型收编前批，形态差异 = 无 logError）；**M-05**（双 toast 家族首例）；RC-09 行续记见 `docs/Review/ExpiredAuditReport/20261027/opencode-codegraph-audit-2026-10-27.md`
+- **关闭证据（2026-11-12，批次 1/M-09）**：`RoleManage.vue::handleDelete` catch 收编为 `logError('views/system/RoleManage', '删除角色失败', error)` + `notifyCallerError(error, '删除失败')` 两行并存（B-29 基准，D2 已拍板），删手写三级提取与 `ElMessage.error`；`ElMessage` import 保留（成功分支在用）。**证红**：新增组件级用例（`RoleManage.spec.ts`「[B-30] 删除失败」）在修复前被 `ElMessage.error` 以参数 `数据库连接失败`（后端原文）命中 1 次；**证绿**：`npx vitest run src/views/system/__tests__/RoleManage.spec.ts src/utils/__tests__/errorHandler.spec.ts` → 21 passed（含 errorHandler 双轨契约 17 例零回归）；`rg -n "response\?\.data\?\.message|ElMessage\.error" vue-assetmanagement/src/views/system/RoleManage.vue` → 0 命中。
+- **预期双日志声明（防后续误判）**：AxiosError 删除失败路径产出 **2 条结构化日志**——① `views/system/RoleManage`「删除角色失败」（业务上下文）、② `utils/errorHandler`「删除失败（AxiosError 已由拦截器提示）」（helper 内部）。二者为同一事件的互补观测面，**非重复缺陷、非双弹**，后续审查不得据此重新立项；非 AxiosError 路径仅 ① 一条 + 单弹。判定基线：`errorHandler.ts:95-101`。
+- **验证命令口径订正**：原「`vue-assetmanagement/src` 全局 0 命中」不可达——收口时全量 `rg` 仍有 4 处：`errorHandler.ts:40` 为 `getErrorMessage` 单源实现（合法）；`OutAssetForm.vue:411-420`、`DepartmentForm.vue:209-218`、`stores/auth.ts:172-182` 为本条同型面，已按 §1.8 新发现义务登记为 **B-34 / B-35 / B-36**。
+- **提交哈希**：[待提交]（本轮未执行 git commit）
 
 ### B-31. 【新发现 2026-11-07】缺陷族「解码序/静默跳过」：护栏自实现 read_text 解码序缺失 + except/空文本 continue 静默跳过（DR-1 + fail-closed；merge-audit-20261107 M-02/M-17）
 - **编号**：顺延登记（B-30 后最大号 +1）。**状态**：☐ 待修复（BF-183 批次 1 关闭 ②③，④ 留尾）| 登记日期：2026-11-07 | 登记来源：批次 1 修复方案评审（2026-11-07）15/15 锚点直证，§1.8 新发现义务
@@ -728,6 +732,95 @@
 - **验证命令**：`npx vitest run src/__tests__/notificationDualImpl.contract.spec.ts src/stores/__tests__/notificationStore.spec.ts src/composables/__tests__/useNotification.spec.ts` + `npm run test:coverage`（stores ≥90 / .vue 棘轮只升不降）+ `npm run test:mutate`（≥80）。
 - **回归屏障与同步义务**：`src/__tests__/notificationDualImpl.contract.spec.ts` 是**契约快照**，固化四处经裁决分叉（错误语义 / 分页契约 / 容器 / WS unshift），文件头已标注「S12 收敛时必须同步改写本 spec」。S12 收敛时该文件断言必然变红，属预期行为，须同步改写或删除，**不得按线上缺陷回滚**。收敛完成后回写本条状态并附证据与验证命令（§1.8）。
 - **关联**：C-14（M-32 降级 / M-13 立条目）；BF-188；merge-audit-20261107 M-32 / M-13 / M-21。
+
+### B-33. 【新发现 2026-11-12】响应拦截器 default 分支结构化后端 msg 直弹（前端；§1.8 新发现义务）
+- **编号**：顺延登记（B-32 已占用，本账本 :724）。**状态**：✅ 已关闭（2026-11-12，批次 1/B-33 追加）| 登记日期：2026-11-12 | 登记来源：批次 1 / M-12 收口时的同型排查。
+- **判定**：`src/api/request.ts:315-316` `default: ElMessage.error(msg)` 对 4xx/5xx 结构化响应体（`detail` / `message` / `error` / 字段级）直出后端文案，与 500 分支同型。非 JSON 字符串/HTML 响应体经 `pickErrorMessage`（:275-284）回落「请求失败」，**不在本条范围**；网关 HTML 原文写日志的路径已由 M-12 收口。
+- **不本批修复的原因**：7 条字段级提示用例（`request.responseHandler.spec.ts:274-327`）依赖该文案，改固定文案属产品交互决策，须与 M-07 拍板包分离。
+- **验证命令**：`npx vitest run src/api/__tests__/request.responseHandler.spec.ts`；`rg -n "case 5|default:" vue-assetmanagement/src/api/request.ts`。
+- **M-12 收口留痕（2026-11-12）**：同文件的 **500 分支**已按 M-12/F-05 收口——固定文案「服务器内部错误，请稍后重试」+ trace 前 8 位短号，完整 trace_id 入结构化日志 `{status, request_trace_id}`，后端原文不再直出；导出失败非 JSON 响应的网关原文（原 `text.slice(0,200)`）改结构化 `logWarn({content_type, body_length})`。本条（default 分支）当时**未收口**，已于同日按下方「关闭证据」口径关闭。
+- **关联**：M-12（500 分支已收口）；M-07（产品口径包）。
+- **关闭证据（2026-11-12，口径：5xx 全族固定、4xx 保留）**：`showStatusMessage` 的 `case 500` 与 default 的 5xx 判定合并为单一 `notifyServerError(status, traceId)`（DR-1，一处实现两处调用），判定条件 `500 <= status < 600`——502/503/504 等网关/上游错误同构为「服务器内部错误，请稍后重试（追踪号：前 8 位）」+ 结构化日志 `{status, request_trace_id}`（真实状态码，非硬编码 500）；4xx 维持 `ElMessage.error(msg)`，表单字段级校验提示不吞（7 条既有字段级用例零改写）。**证红**：临时短路 5xx 判定后 `-t "[B-33]"` → exit 1（502/503 断言失败）；**证绿**：还原后 `npx vitest run src/api/__tests__/request.responseHandler.spec.ts src/api/__tests__/request.spec.ts` → **85 passed**（新增 3 例：502 带 trace / 503 无 trace / 4xx 保留）。**提交哈希**：[待提交]。
+
+### B-34. 【新发现 2026-11-12】OutAssetForm 提交失败三分支直弹后端原文（B-30 同型第 8 处）
+- **编号**：顺延登记（B-33 后最大号 +1）。**状态**：✅ 已关闭（2026-11-12，批次 1/M-09 追加）| 登记日期：2026-11-12 | 登记来源：批次 1 / M-09 关闭时全局 `rg "response\?\.data\?\.message"` 同型排查。
+- **判定**：`src/components/componentsdetails/detils/OutAssetForm.vue:410-420` `handleFormSubmitError` 按 `isAxiosError / Error / 兜底` 三分支各自 `ElMessage.error` 直弹；AxiosError 分支 `error.response?.data?.message || error.message` 直出后端原文，而拦截器 `notifyApiError` 已提示 → **双弹**；三分支消息提取与 `getErrorMessage`（`errorHandler.ts:35-45`）逐语义重复（DR-1）。
+- **修复口径（执行前拍板）**：按 B-29/B-30 基准收编 `logError + notifyCallerError`；既有 `操作失败：` 前缀是否保留（影响既有文案与用例）需拍板。
+- **验证命令**：`rg -n "ElMessage\.error" vue-assetmanagement/src/components/componentsdetails/detils/OutAssetForm.vue`；`npx vitest run src/components/componentsdetails/detils/__tests__`（相关 spec）。
+- **关联**：B-30（同型收编基准）；B-33。
+- **关闭证据（2026-11-12）**：`handleFormSubmitError` 收编为 `logError(...) + notifyCallerError(error, error instanceof Error ? \`操作失败：${error.message}\` : '操作失败，请检查网络连接后重试')`——AxiosError 由 helper 抑制二次弹窗，非 Axios 文案逐字保留（`操作失败：${message}` / 原兜底句）；`isApiError as isAxiosError` import 同步移除。**证红**：`OutAssetForm.spec.ts`「[B-34]」修复前 `ElMessage.error` 收到 `操作失败：数据库连接失败`；**证绿**：`npx vitest run .../__tests__/OutAssetForm.spec.ts .../DepartmentForm.spec.ts` → 7 passed；`rg -n "response\?\.data\?\.message" <OutAssetForm.vue>` → 0 命中；静态锚断言源码不含该提取。**提交哈希**：[待提交]。
+
+### B-35. 【新发现 2026-11-12】DepartmentForm 提交失败三分支直弹后端原文（B-30 同型第 9 处）
+- **编号**：顺延登记（B-34 后最大号 +1）。**状态**：✅ 已关闭（2026-11-12，批次 1/M-09 追加）| 登记日期：2026-11-12 | 登记来源：同 B-34 全局 `rg` 排查。
+- **判定**：`src/components/componentsdetails/detils/DepartmentForm.vue:209-218` catch 三分支（`isAxiosError / Error / 兜底`）直弹；AxiosError 分支 `const msg = error.response?.data?.message || error.message` 直出后端原文，与拦截器提示形成双弹。
+- **修复口径（执行前拍板）**：同 B-34。
+- **验证命令**：`rg -n "ElMessage\.error" vue-assetmanagement/src/components/componentsdetails/detils/DepartmentForm.vue`；`npx vitest run src/components/componentsdetails/detils/__tests__`（相关 spec）。
+- **关联**：B-30；B-34。
+- **关闭证据（2026-11-12）**：catch 收编为 `logError(...) + notifyCallerError(error, error instanceof Error ? \`操作失败：${error.message}\` : '操作失败：发生未知错误')`，非 Axios 文案逐字保留；`isApiError as isAxiosError` import 同步移除。**证红**：`DepartmentForm.spec.ts`「[B-35]」修复前 `ElMessage.error` 收到 `操作失败：数据库连接失败`；**证绿**：两 spec 合计 7 passed；`rg -n "response\?\.data\?\.message" <DepartmentForm.vue>` → 0 命中。**提交哈希**：[待提交]。
+
+### B-36. 【新发现 2026-11-12】auth store 自实现登录错误文案提取（DR-1 候选）
+- **编号**：顺延登记（B-35 后最大号 +1）。**状态**：✅ 已关闭（2026-11-12，核查并收编）| 登记日期：2026-11-12 | 登记来源：同 B-34 全局 `rg` 排查。
+- **判定**：`src/stores/auth.ts:172-182` `extractLoginErrorMessage` 自实现「`response.data.message || fallback`」，与 `errorHandler.getErrorMessage`（`errorHandler.ts:35-45`）语义重复（DR-1）。当前形态为**返回文案交由调用方展示**（`:224`），是否与拦截器 `notifyApiError` 构成双弹取决于 LoginView 是否再次 `ElMessage.error`——**尚未取证**，故先登记不改。
+- **核查结论（2026-11-12）**：
+  1. **双弹取证（否定）**：调用方是 `views/LogIn.vue:239`，写入内联 `el-alert` 横幅（`loginError`），**全文件零 `ElMessage.error`**；且 `/auth/login/` 的 401 在 `request.ts:211-213` 被 `handleUnauthorized` 提前 `reject`（凭据错误≠Token 过期），不进入 `notifyApiError`——**无双 toast**。非 401（400/500）时拦截器会 toast，内联横幅同时存在，属既有双通道展示，非重复实现，不纳入本条。
+  2. **实为功能缺陷**：原实现把 `error instanceof Error` 判在 axios 分支之前，而 `AxiosError extends Error`，故真实登录失败**恒返回 axios 英文文案**「Request failed with status code 401」，`response.data.message` 分支只对「非 Error 的普通对象」可达（既有用例 519 行正是这种假对象，掩盖了缺陷）。
+  3. **收编形态**：删除本地函数，改调 `getErrorMessage(error, '登录失败，请检查用户名和密码或后端服务器状态')`（axios 优先、后端 message 直取、无 message 时回落中文兜底），DR-1 单一实现，净减 14 行。
+- **验证命令**：`rg -n "extractLoginErrorMessage" vue-assetmanagement/src`（预期 0 命中）；`npx vitest run src/stores/__tests__/auth.spec.ts`。
+- **关联**：B-30 / B-34 / B-35；DR-1。
+- **关闭证据（2026-11-12）**：**证红**——先写真实形态用例（`Object.assign(new Error('Request failed with status code 401'), {isAxiosError:true, response:{...}})`）对旧实现跑 `-t "[B-36]"` → exit 1（返回 axios 英文文案）；**证绿**——收编后 `auth.spec.ts` **33 passed**（新增 2 例：AxiosError 取后端 message / 无 message 回落中文兜底；原假对象用例改写为「非 AxiosError 普通对象回落兜底」）。`vue-tsc` 0 error、`eslint` 0 error、`prettier --check` 全绿。**提交哈希**：[待提交]。
+
+### B-37. 【新发现 2026-11-12】批量导入成功后的裸 `setTimeout` 延时跳转（2 处重复 + 无句柄泄漏）
+- **编号**：顺延登记（B-36 后最大号 +1）。**状态**：✅ 已关闭（2026-11-12，批次 1/M-10）| 登记日期：2026-11-12 | 登记来源：M-10（F-02）修复时同型排查。
+- **判定**：`UserBatchImport.vue:273-275`（2000ms → `/main/departmentmanagement`）与 `DepartmentBatchImport.vue:292-294`（1500ms → `/main/departmentdetails`）各自内联 `setTimeout(() => router.push(...), N)`——① 同一「延时跳转」行为两处独立实现（DR-4 工具/行为收敛）；② 定时器句柄未保存、无任何清理路径，用户主动导航后被延时跳转覆盖（F-02 本体）。
+- **修复方案**：新增 `src/composables/useDelayedRoute.ts`（`schedule` / `cancel` + `onBeforeRouteLeave` / `onDeactivated` / `onUnmounted` 三钩子清理）；两处改调 `schedule(...)`，参数（延时与路径）逐字保留。
+- **验证命令**：`rg -n "setTimeout\(" vue-assetmanagement/src/components/componentsdetails/detils/{UserBatchImport,DepartmentBatchImport}.vue`（预期 0 命中）；`npx vitest run src/composables/__tests__/useDelayedRoute.spec.ts src/components/componentsdetails/detils/__tests__/UserBatchImport.spec.ts src/components/componentsdetails/detils/__tests__/DepartmentBatchImport.spec.ts`。
+- **关联**：M-10（F-02）；DR-4。
+- **关闭证据（2026-11-12）**：两处改调 `schedule(...)`，`setTimeout` 零残留（组件级静态锚断言 `not.toContain('setTimeout(')` 且 `schedule(` 恰 1 次）；composable 5 例（到时跳转 / 卸载取消 / 路由离开取消 / keepAlive 失活取消 / 重复 schedule 只执行最后一次）+ 两组件锚点 2 例，定向 9 passed；`vue-tsc --build` 0 error、`eslint` 0 error、`prettier --check` 全绿；`check_frontend_invariants.py` PASS（FR-6 composables 56 文件 / 0 超限）。**提交哈希**：[待提交]。
+
+### B-38. 【新发现 2026-11-12】审计适配器宽吞 + 内联计数重复面（批次 2 收敛到 core 单实现）
+- **编号**：顺延登记（B-37 后最大号 +1）。**状态**：✅ 已关闭（2026-11-12，批次 2/M-01+M-02）| 登记日期：2026-11-12 | 登记来源：`docs/Review/merge-audit-112.md` M-01/M-02（AtomCode A-02/A-03）。
+- **判定**：① `apps/authusermanagement/audit_adapter.py` 三处自写 try/except + `logger.error(..., exc_info=True)`（无指标）与 `apps/usermanagement/audit_helper.py::safe_audit_log` 同型，异常处理骨架重复 ≥ 4 处（DR-1）；② `apps/assetmanagement/audit.py:350` 装饰器 except 仅 logger.error 吞掉、无计数，与 `_safe_log:104` / `audit_service.py:69` 的分渠道计数口径不齐（AtomCode A-02 本体）。
+- **修复方案**：新建 `core/audit_failure.py` 唯一收口（`record_audit_failure` 计数+脱敏日志 / `safe_audit_call` 骨架）；装饰器接 `asset_audit_decorator` 渠道、auth 三方法与 audit_helper 薄委托接 `generic_audit_dispatch` 渠道（与写失败渠道互斥，单次失败只计一处）。
+- **验证命令**：`rg -n "except Exception" apps/authusermanagement/audit_adapter.py`（预期 0 命中）；`python -m pytest core/tests/test_audit_write_failure.py -q`（8 passed：新增 A1/A2/A3/A4/A6 + 既有 3 例含 A5 防双计断言）。
+- **子项（待阶段 B 收敛，本批不修）**：既有 4 处内联计数（`audit.py:105`、`audit_service.py:69`、`unregistered_adapter`、`unregistered_safe_call`）保持不动，迁移至 `core/audit_failure.record_audit_failure()` 单实现与 D-14 同型泄露面一并收敛。
+- **关联**：D-12 / D-14 / BF-189；M-01 / M-02。
+
+### B-39. 【新发现 2026-11-13】前端搜索表单接口三份拷贝（批次 4 收敛至 composable + types 单源；merge-audit-112 M-14/C-1）
+- **编号**：顺延登记（B-38 后最大号 +1）。**状态**：✅ 已关闭（2026-11-13，批次 4/M-14 → 归档于 A-56）| 登记日期：2026-11-13 | 登记来源：`docs/Review/merge-audit-112.md` C-1 仲裁（采信 AtomCode A-05，CG 报告「前端类型无重复」结论过时）+ M-14 行。
+- **判定**：`interface SearchForm` 三份逐字拷贝——`ScrapableAssetsSearch.vue:164` / `RecyclableOutAssetsSearch.vue:176` / `WastedAssetsSearch.vue:158`，同一搜索表单接口 ×3（DR-2/FR-2）；且 searched/buildExtraParams/handleSearch 提交链在四搜索组件内四份独立实现。
+- **修复方案**：`src/types/assetSearch.ts`（AssetSearchBase + 四表单类型，键名逐字保留——含 Wasted 无前缀 `contract_name/contract_code`）+ `src/composables/useAssetSearchForm.ts`（initial 深拷贝 + buildExtraParams 空值过滤 + resetPage 可选回调，Exportable 不传保留「不重置」语义）；四组件删本地 interface/reactive/searched/buildExtraParams/handleSearch，改消费单源。
+- **验证命令**：`rg -n "interface SearchForm" vue-assetmanagement/src` → 0 命中（2026-11-13 实测）；`npx vitest run src/components/componentsdetails/detils/detilschildcomponents/__tests__/` 四搜索 spec + `useAssetSearchForm.spec.ts` 全绿。
+- **关联**：A-56（收敛条目）；M-14；批次 4。
+
+---
+
+### B-40. 【新发现 2026-11-13】EP 输入框 `:deep(.el-input__wrapper)` focus 配色链 ×3 组件内联重复（批次 4 收敛至 SCSS mixin；merge-audit-112 M-16）
+- **编号**：顺延登记（B-39 后最大号 +1）。**状态**：✅ 已关闭（2026-11-13，批次 4/M-16 → 归档于 A-57）| 登记日期：2026-11-13 | 登记来源：`docs/Review/merge-audit-112.md` M-16 行（AtomCode A-07）。
+- **判定**：AssetTypeForm:252/262、DepartmentForm:287/299、StorageForm:279/291 三组件内联同语义 focus 配色链（wrapper `.is-focus` / textarea `:focus`，SHADOW_ORDER 三段等值）——同款样式逐字重复 ×3（DR-2/FR-2）。
+- **修复方案**：`common-forms.scss` 追加 `@mixin form-input-overrides` 单源；三表单删内联块改 `@include`；`LogIn.vue:401` 布局语义刻意保留（C-18）。
+- **验证命令**：`rg -n "is-focus" vue-assetmanagement/src/components/componentsdetails/detils/{AssetTypeForm,DepartmentForm,StorageForm}.vue` → 0 命中；护栏 `batch4DryInvariants.spec.ts` A 系列（三表单不含内联块断言）。
+- **关联**：A-57（收敛条目）；C-18（保留面）；M-16；批次 4。
+
+### B-41. 【新发现 2026-11-13】分页块 ×4 页手写 el-pagination + 本地样式重复（批次 4 收敛至 CommonPagination 单源组件；merge-audit-112 M-15 分页部分）
+- **编号**：顺延登记（B-40 后最大号 +1）。**状态**：✅ 已关闭（2026-11-13，批次 4/M-15 → 归档于 A-58）| 登记日期：2026-11-13 | 登记来源：`docs/Review/merge-audit-112.md` M-15 行（AtomCode A-06；义务「能接则接，不能接的至少收敛分页块」）。
+- **判定**：ContactsView:79,88 / NotificationList:204,259 / AuthUserManage:42,97 / RoleManage 四页手写 el-pagination + 本地分页状态与样式，绕开公共件——分页面 ×4 重复（DR-2/FR-1）。
+- **修复方案**：新建 `CommonPagination.vue` 单源（v-model 代理 + 事件转发 + align/hideWhenEmpty/M-27 单源）；4 页 + CommonList 接入删本地块；底座接入评估不通过降级 C-19。
+- **验证命令**：`rg -n "el-pagination" vue-assetmanagement/src/views/{ContactsView,NotificationList}.vue vue-assetmanagement/src/views/system/{AuthUserManage,RoleManage}.vue` → 0 命中；`CommonPagination.spec.ts` + `CommonList.spec.ts` 桥断言绿。
+- **关联**：A-58（收敛条目）；C-19（底座降级）；A-50；M-15；批次 4。
+
+### B-42. 【新发现 2026-11-15】check_secret_tracking.py 子进程管道 GBK 解码崩溃致钩子误阻断（B-31 解码缺陷族同型）
+- **编号**：顺延登记（B-41 后最大号 +1）。**状态**：✅ 已修复（2026-11-15，同批收口：两处 `subprocess.run` 显式 `encoding="utf-8"`，对齐 line_metrics.read_text 单源口径；B-31 同型收编）| 登记日期：2026-11-15 | 登记来源：根仓提交会话实测（pre-commit 钩子直跑触发）。
+- **判定**：`scripts/check_secret_tracking.py:70-73` 以文本模式读取 `git diff --cached` 子进程输出（未显式 `encoding="utf-8"`），Windows 默认 GBK 遇 staged 内容含非 GBK 可解码字节即 UnicodeDecodeError → reader 线程吐 None → `AttributeError: 'NoneType' object has no attribute 'splitlines'`，钩子以 HOOK-ABORT 阻断提交——属护栏自身崩溃误红，非真违规。
+- **修复方案**：子进程调用显式 `encoding="utf-8"`（对齐 line_metrics.read_text 单源口径，B-31 同型收编）；可顺手以 `errors="strict"` 保持 fail-closed 语义（真乱码仍红，但不再 None 崩溃）。
+- **验证命令**：`$env:PYTHONUTF8='1'` 下钩子 PASS（临时旁证）；修复后须在**不设** PYTHONUTF8 的 GBK 环境 staged 含 UTF-8 多字节内容时直跑 PASS。
+- **关联**：B-31（解码缺陷族）；G-0 fail-closed 口径；LT-1（显式 UTF-8 读取先例）。
+
+### B-43. 【新发现 2026-11-15】check_secret_tracking 键前缀 `${` 插值引用误判为赋值（B-42 同次会话连带发现）
+- **编号**：顺延登记（B-42 后最大号 +1）。**状态**：✅ 已修复（2026-11-15，同批收口：`scan_staged` 增键前缀 `${` 判定放行 + `test_staged_doc_prose_interpolation_reference_passes`/`test_staged_real_metrics_token_still_red` 先红后绿护栏）| 登记日期：2026-11-15 | 登记来源：根仓 docs 批次提交会话实测（docs/Review/merge-audit-112.md F-04 行 prose 触发 HOOK-ABORT）。
+- **判定**：文档 prose 中的 `${METRICS_TOKEN:-}` 引用形态：正则命中键后 `:` 取 `-}...` 尾段为「值」，不匹配占位前缀 → 误报 `[staged]` 违规阻断提交——护栏自身误红，非真凭据。
+- **修复方案**：键匹配起点前两字符为 `${` 时视为插值引用跳过；真实赋值形态（`KEY=值`）拦截效力以 `test_staged_real_metrics_token_still_red` 锁定，不放水。
+- **验证命令**：`python -m pytest scripts/tests -q` → 147 passed；红证：修复前新用例 1 failed（prose 两形态）、修复后全绿。
+- **关联**：B-42（同次会话登记）；BF-190（compose `:?` 必填形态前例）；G-0 fail-closed 口径。
 
 ---
 
@@ -794,6 +887,8 @@
 - **影响**：暗色模式下 EP 组件主色（#4a90e2）与自定义组件固化亮色（#2b5fd7）并排呈现两种蓝；三源同值但独立维护，任一改色即漂移。ECharts（useDashboardCharts.ts/useDashboardPage.ts）硬编码 #333/#e5e7eb/#fff，不读任何令牌，暗色完全失效。
 - **决策**：暗色修复**须先收敛三源**（SCSS 变量改引用 CSS 变量；dark.css 主色与亮色对齐或声明暗色专用色阶——后者需产品决策）；组件级替换（AsideMenu/LogIn/Dashboard）在三源收敛后进行，否则白做。
 - **优先级**：中（暗色模式前置阻塞项）。**状态**：✅ 已修复（2026-09-09，Phase 1 实施）——组件裸引用清零（AsideMenu/LoginDialog/DashboardPage/AssetDetails/ContractOfDetails/UserBatchImport.scss 全部换 var()，4 处 rgba 预派生 --color-primary-8/-12）；ECharts 经 useChartTheme.ts 主题化（theme computed 内消费 isDark.value，4 个 option computed 全部接入），硬编码色值清零；SCSS 变量定义保留（52 处 var(--x,$var) fallback 依赖）。遗留决策项：暗色主色色相统一（#4a90e2 vs #2b5fd7）待产品拍板。
+- **续记（2026-11-12，批次 1/M-06：首屏双蓝收口）**：`variables.css` 的 `:root` 补齐 `--el-color-primary: var(--color-primary)` 与 `--el-color-primary-rgb: 43, 95, 215`，新用户/清缓存首屏不再回落 EP 默认 `#409eff`；`dark.css` 主色改引 `var(--color-primary)`（rgb 同步 `74, 144, 226`），删 `global-reset.scss` 的 `, #409eff` 回退。**仍未收口**：交互态 `--el-color-primary-light-3/5/7/8/9`、`dark-2` 仍为 EP 默认蓝族派生值，随 **M-07 / 本条产品拍板**统一色阶；本批明确不做（避免未经色阶设计擅定 9 档）。验证：`npx vitest run src/styles/__tests__/primaryTokens.spec.ts`。
+- **续记（2026-11-15，批次 5 / M-07：主色色阶收敛，本条销项）**：M-06 遗留的「交互态 `--el-color-primary-light-3/5/7/8/9`、`dark-2` 仍为 EP 默认蓝族派生值」随本批**收口**——variables.css 亮 `:root` / 暗 `html.dark` 各补齐 8 档色阶（含 interactive 档 r=0.08 定稿），EP 桥 6 档改 var() 引用自定义色阶（亮/暗成对，构建期静态 hex）；暗主色 D0 = mix(#2b5fd7, #fff, 0.2) = #557fdf（D1=B 同色相提亮单列登记），暗 `--color-primary-dark` 保留品牌锚 #2b5fd7（双 dark token 登记）。C-9 三源契约（亮 CSS 变量 / 编译期 SCSS 变量 / 暗 EP 变量）至此全部锚定 variables.css 单一真源，**本条销项**。口径登记 `frontend-business-rules.md §3.3`（v1.8）；等值断言 `primaryTokens.spec.ts` 13 例 + 运行时直证 `walkthrough.cjs`（12 页明暗 206/206）。登记：BF-192。
 - **验证命令**：`rg -n "2b5fd7" vue-assetmanagement/src`；`rg -n '\$primary-color' vue-assetmanagement/src/assets/styles/common-forms.scss`；`rg -nE "#333|#e5e7eb|getComputedStyle" vue-assetmanagement/src/composables/useDashboardCharts.ts`
 - **登记日期**：2026-09-09 | 来源：前端设计与质量审计核验
 
@@ -868,6 +963,23 @@
 - **状态**：⚠️ 已降级至 C 区（2026-10-04，B4 落地时识别并留痕）——刻意保留，以测试护栏替代 DRY。
 - **登记日期**：2026-10-04 | 来源：v2.3 阶段 2 · B4（§1.8 新发现义务）
 - **验证命令**：`python -m pytest apps/assetmanagement/tests/test_asset_group_children_view.py -k pass_through -q`（预期 1 passed；键集分叉即红）
+
+### C-17. M-11 静态列表 index key 两处降级保留（批次 4 主体已修，影响微小）
+- **状态**：⏳ 降级保留（2026-11-13，批次 4 C8 登记）——刻意保留，理由：静态列表（无增删/splice）的 index key 无状态错位风险。
+- **判定**：merge-audit-112 M-11 的可增删列表主体（`AssetTypeDetails.vue` 批量行）已修复（`_rowId` 稳定 id + `batchRowSeq` 单调分配，行为锁 `AssetTypeDetails.batchRowKey.spec.ts` 先红转绿）；剩余 `DashboardStatCard.vue:31` / `BatchImportGuideCard.vue:56` 两处为纯静态渲染列表，v-for 无增删路径，index key 影响微小。
+- **验证命令**：`rg -n ":key=\"index\"" vue-assetmanagement/src/components/commoncomponents/DashboardStatCard.vue vue-assetmanagement/src/components/commoncomponents/BatchImportGuideCard.vue`（2 处保留）；主体修复面 `rg -n "_rowId" vue-assetmanagement/src/components/componentsdetails/AssetTypeDetails.vue` ≥ 3 处。
+
+### C-18. LogIn.vue:401 输入框覆盖刻意保留（M-16 布局语义非 focus 链，批次 4）
+- **状态**：⏳ 降级保留（2026-11-13，批次 4 C8 登记）——刻意保留，理由：该块为布局语义（radius/padding 塑形），非 focus 配色链（SHADOW_ORDER border-color-input → color-primary-light），与 mixin 收敛对象不同语义，不强行同源。
+- **判定**：`LogIn.vue:401` 附近的 `:deep(.el-input__wrapper)` 块仅含 radius/padding（布局塑形）；批次 4 M-16 收敛的是三表单（AssetTypeForm/DepartmentForm/StorageForm）的 focus 配色链，已收敛至 `@mixin form-input-overrides`。
+- **验证命令**：护栏断言 `src/__tests__/batch4DryInvariants.spec.ts` LogIn 登记项（断言源码仍含该块 + 三表单不含，防扩散）；`rg -n "deep\(\\.el-input" vue-assetmanagement/src/views/LogIn.vue`（1 处保留）。
+
+### C-19. M-15 四页不接 CommonList/SmartListContainer 底座（仅收敛分页块，C-6 同面）
+- **状态**：⏳ 降级保留（2026-11-13，批次 4 C8 登记）——刻意保留，理由：4 页（ContactsView/NotificationList/AuthUserManage/RoleManage）的 `usePagedList` 闭包 fetcher 与 `SmartListContainer` 的 `PaginationSearchConfig.store.getList` 契约不兼容（评估直证），接入成本 > 收益。
+- **判定**：merge-audit-112 M-15 义务为「逐页评估接入 CommonList 成本，能接则接；不能接的至少收敛分页块」——评估结论：不接底座（与 C-6「列表页骨架逐页组装」同面）；分页块已收敛至 `CommonPagination.vue`（单源，4 页 + CommonList 全接入）。
+- **验证命令**：`rg -n "CommonPagination" vue-assetmanagement/src/views/ContactsView.vue vue-assetmanagement/src/views/NotificationList.vue vue-assetmanagement/src/views/system/AuthUserManage.vue vue-assetmanagement/src/views/system/RoleManage.vue vue-assetmanagement/src/components/commoncomponents/CommonList.vue`（5 文件接入）；`CommonPagination.spec.ts` + `CommonList.spec.ts` 分页桥断言绿。
+
+---
 
 ---
 ### A-46. 【已关闭 2026-09-29】OpenAPI 声明失真的**第三个独立机制**：显式 `responses` 与分页推断的优先级（DR-1；BF-057）
@@ -977,6 +1089,30 @@
 - **修复内容**：① `assetCache.ts` 新增 `writeThenInvalidate<T>(write, invalidate)` 时序内核（await 写成功 → 失效 → 返回 data；写失败不失效）+ `invalidateAssetListCache()` 仅列表薄壳（P0-3 同构，禁止宽失效）；② `cache.ts` 新增 `epoch` 代际（clear/clearByPattern 内自增）+ `setIfFresh` 竞态安全写入，`request.ts::writeCache` 快照代际在 await 前、写入时守卫；③ 18 A 类必修（7 模块 fire-and-forget → 内核）+ asset.ts 5 处（update/delete 详情 pattern 显式化 + 失效移入写完成后——详情 key 生产中此前由拦截器按写 URL 清，行为等价；batchCreateAssets 列表薄壳；markBroken/batchDelete 纯收敛）+ 14 D 类收敛（既有 await 形态 → 内核，产出 pattern 含顺序不变，零行为变更）；④ damagedAsset 匿名审批类型抽具名 `DamagedApproveResult`；⑤ assetCache.ts 头注释行号锚改方法名锚（行号漂移修复）+ 接入清单 37/43 计数同步。
 - **验证命令**：rg 四连——`writeThenInvalidate\(` 合计 **37** / 调用侧 `invalidate*`（排除 assetCache.ts 定义文件）**43** / `const result = unwrapResponse` **0** / asset.ts `clearCacheByPattern\(` **0**；新增 `src/api/__tests__/assetCacheTiming.spec.ts` 45 用例（37 时序主用例全序全等 + 8 失败分支，先红后绿：asset.ts 3 红 → 修后绿）+ `cache.spec.ts` 5 条 + `responseHandler.spec.ts` 2 条全绿；8 件既有 spec（asset + 7 生命周期模块 + subResourceCache 契约）零改写原样绿；`npm run test:coverage` exit 0（192 files / 2521 tests，覆盖率 src ≥80 / stores ≥90）+ vue-tsc 零输出 + lint/format 绿。
 - **登记日期**：2026-11-05 | 关联：**BF-179**；审计 **M-13**（`merge-codegraph-audit-20261101.md:90`，与后端 M-13 同号消歧锚）；**B-29**（提示层单出口收敛先例，DR-1）；**A-54**（收敛 + 护栏先例）
+
+### A-56. 【关闭 2026-11-13】前端搜索表单接口三份拷贝收敛至 types + composable 单源（M-14，批次 4；DR-2/FR-2）
+- **状态**：✅ 已关闭 | 关闭日期：2026-11-13 | 本批修复（批次 4，merge-audit-112 M-14；登记来源 B-39）
+- **判定**：`interface SearchForm` 三份逐字拷贝（ScrapableAssetsSearch.vue:164 / RecyclableOutAssetsSearch.vue:176 / WastedAssetsSearch.vue:158，merge-audit-112 C-1 仲裁采信 AtomCode A-05）+ 四搜索组件 searched/buildExtraParams/handleSearch 提交链四份独立实现——同构业务规则多份实现（DR-1/DR-2）。
+- **修复内容**：新建 `src/types/assetSearch.ts`（`AssetSearchBase` + ScrapableSearchForm/ExportableSearchForm/RecyclableOutSearchForm/WastedSearchForm，键名逐字保留——含 Wasted 无前缀 `contract_name/contract_code`，跨端契约零改动）+ `src/composables/useAssetSearchForm.ts`（唯一实现：initial 深拷贝 + buildExtraParams 空值过滤 + resetPage 可选回调，Exportable 调用方不传保留「不重置分页」语义）；四组件删本地 interface/reactive/searched/buildExtraParams/handleSearch + 清未用 vue import，改消费单源。
+- **先红后绿**：新建 `useAssetSearchForm.spec.ts` + 四既有搜索 spec 行为锁（S9 同型），先红 4 后绿。
+- **验证命令**：`rg -n "interface SearchForm" vue-assetmanagement/src` → 0 命中；`npm run test:coverage` exit 0；type-check/lint/format 绿；护栏 `batch4DryInvariants.spec.ts` A 系列（含 A7 `rg "export (type|interface)" src/components → 0` 护栏，变异敏感性抽证：临时复活 `export type` 抓红 → 撤销回绿）。
+- **登记日期**：2026-11-13 | 关联：**B-39**；merge-audit-112 M-14/C-1（AtomCode A-05）；批次 4。
+
+### A-57. 【关闭 2026-11-13】EP 输入框 `:deep(.el-input__wrapper)` focus 配色链 ×3 组件收敛至 SCSS mixin（M-16，批次 4；DR-2 样式值级重复）
+- **状态**：✅ 已关闭 | 关闭日期：2026-11-13 | 本批修复（批次 4，merge-audit-112 M-16）
+- **判定**：`common-forms.scss` 表单基座之外，三个表单组件（AssetTypeForm:252/262、DepartmentForm:287/299、StorageForm:279/291）各自内联同语义 focus 配色链（`--el-input-border-color, var(--color-input)` → `--el-input-border-color, var(--color-input-dark)` → `var(--color-primary-light)`，wrapper 用 `.is-focus`、textarea 用 `:focus`）——同款样式逐字重复 ×3（DR-2）；`CommonList.vue:416-451` 同族块已随 M-15 迁入分页组件面。
+- **修复内容**：`common-forms.scss` 追加 `@mixin form-input-overrides`（SHADOW_ORDER 等值迁移，wrapper `.is-focus` / textarea `:focus` 混排）；三表单删内联块 + `@use '@/assets/styles/common-forms.scss' as *` + `@include form-input-overrides`；`LogIn.vue:401` 为布局语义（radius/padding）刻意保留（降级登记 C-18）。
+- **先红后绿**：`src/__tests__/batch4DryInvariants.spec.ts` 3 failed（三表单仍含内联块）→ 4/4 绿；零正则断言（AR-2，SHADOW_ORDER 用 indexOf 递增断言）。
+- **验证命令**：`rg -n "is-focus" vue-assetmanagement/src/components/componentsdetails/detils/{AssetTypeForm,DepartmentForm,StorageForm}.vue` → 0 命中（mixin 内 1 处）；`rg -n "form-input-overrides" vue-assetmanagement/src/assets/styles/common-forms.vue` 1 处定义 + 3 处消费；双主题目视走查 6 项（人工，验收单留痕）。
+- **登记日期**：2026-11-13 | 关联：**B-40**；C-18（LogIn 保留）；merge-audit-112 M-16；批次 4。
+
+### A-58. 【关闭 2026-11-13】分页块 ×4 页手写 el-pagination 收敛至 CommonPagination 单源组件（M-15 分页部分，批次 4；DR-2 重复 UI 面）
+- **状态**：✅ 已关闭 | 关闭日期：2026-11-13 | 本批修复（批次 4，merge-audit-112 M-15「不能接则至少收敛分页块」）
+- **判定**：ContactsView:79,88 / NotificationList:204,259 / AuthUserManage:42,97 / RoleManage 四页手写 `el-pagination` + 本地分页状态与样式，绕开公共表格件——分页面 ×4 重复（DR-2）；底座接入评估不通过（`usePagedList` 闭包 fetcher 与 `PaginationSearchConfig.store.getList` 契约不兼容，评估留痕 stage0-baseline.md → 降级登记 C-19）。
+- **修复内容**：新建 `src/components/commoncomponents/CommonPagination.vue`（v-model 代理原样转发 `$event`；size-change/current-change 转发；align center/end；hideWhenEmpty 默认 true；M-27 flex-shrink:0 单源；CommonList :deep pill 样式迁入）；4 页（三页默认 + NotificationList `align="end"` + jumper + `:hide-when-empty="false"`）+ CommonList 接入，删本地分页块与样式；`CommonList.spec.ts` 分页桥 5 断言等值改写（findComponent CommonPagination / props('page') / update:page 桥）。
+- **先红后绿**：`CommonPagination.spec.ts` 先红 6 断言 → 绿；NotificationList.spec shallow 补 CommonPagination 显式 stub（VTU stubs 实证）；`AssetTypeDetails.batchRowKey.spec.ts` 等行为锁零回归。
+- **验证命令**：`rg -n "el-pagination" vue-assetmanagement/src/views/{ContactsView,NotificationList}.vue vue-assetmanagement/src/views/system/{AuthUserManage,RoleManage}.vue` → 0 命中；`npm run test:coverage`（274 files / 2697 tests，exit 0）+ `npm run test:mutate`（85.75 ≥80）。
+- **登记日期**：2026-11-13 | 关联：**B-41**；C-19（底座降级）；A-50（页容量选项双源先例）；merge-audit-112 M-15；批次 4。
 
 ### D-4. ✅ 已关闭 2026-11-02 —— repair/broken/lost/found 四端点无导出列必 500（前端已接导出按钮）
 - **状态**：✅ 已关闭 | 关闭日期：2026-11-02 | 后端 `ae58902`
@@ -1118,6 +1254,25 @@
 - **迁移触发条件**：产品确认合同/仓储需要行级可见性 → 参照 A-43 员工域行级口径在同两 Selector 内加 scope 参数（禁止 View 内联过滤，DR-3）。
 - **本批不动手**：读面查询已是 Selector 单入口，无重复实现；仅权限取舍待决策，故落待核查区而非修复区。
 
+### D-12. 【批次 2 登记 2026-11-12】audit_operation 装饰器零调用点 + `asset_audit_decorator` 渠道恒 0（保留 + 补指标 + 禁按渠道名挂告警）
+- **判定**：`@audit_operation` 全仓零调用点（仅 `audit.py:319` 定义 + `:328` docstring/docs 示例）；其调度失败渠道 `asset_audit_decorator` 静态可达性推断生产近似恒 0（[推测]，未运行时采样）。
+- **本批处置**：保留装饰器 + 补指标（§1.2 小步，不删除）；`context="审计装饰器调度失败"`（去操作类型后缀，:350 except 对未来新增 operation_type 分支同样生效）。
+- **禁止事项**：告警规则**不得**按 `{channel="asset_audit_decorator"}` 过滤订阅（恒 0 面板无意义且掩盖聚合告警）；只订阅聚合式 `increase(asset_mgmt_audit_write_failed_total[5m]) > 0`（SOP §3.3 已同步）。
+- **关联**：B-38 / D-14 / BF-189；backend-business-rules §5.2。
+
+### D-13. 【批次 2 登记 2026-11-12】DB 探测 AR-3 未收口 + 编排侧 urlopen() 无 timeout + REDIS_URL dev 空值存量行为（另立批次）
+- **判定**：① DB 探测（`SELECT 1`）无语句级超时——PostgreSQL 会话级 timeout 会污染连接池，须用 `statement_timeout` 会话内单点设置，本批不收口；② compose healthcheck 探测 `urllib.request.urlopen('http://localhost:8000/health/')` 无 timeout 参数（`docker-compose.yml:54`），依赖 urllib 默认全局超时；③ `REDIS_URL` 在真实 dev/test 未注入时为空串 → `redis.Redis.from_url("")` 抛错 → 探针恒 unhealthy，属存量行为本批不收口（`production.py:117` fail-closed 与响应体均不动）。
+- **同型 AR-3 疑点归档**：与 M-04（Redis 探测超时/重试）同族；本批已收口 Redis 侧（配置化 + 编排层重试豁免），DB 侧与编排侧留待另批。
+- **验证命令**：`rg -n "urlopen" asset_management_backend/docker-compose.yml`（命中 1 处，无 timeout）；`rg -n "statement_timeout" asset_management_backend/core`（预期 0 命中）。
+- **关联**：D-12 / B-38 / BF-189；backend-business-rules §5.2。
+
+### D-14. 【范围外发现 2026-11-12】审计链三处同型异常泄露面（批次 2 不修，阶段 B 收敛）
+- **判定**：`apps/assetmanagement/audit.py:81`（AuditContext.__exit__ 业务异常，f-string 含 exc_val + exc_info）、`:105`（_safe_log 写失败，f"日志记录失败: {e}" + exc_info，M-01 同链路）、`core/audit_service.py:70`（通用审计写库失败，f"通用审计日志记录失败: {e}" + exc_info）三处与本批 M-03 修复的 `config/urls.py:121,133` 同型：异常对象与完整 traceback 经 StructuredJSONFormatter 的 exception 字段落盘，存在 DB/Redis 连接串与凭据泄露面（OC-3/SC-1）。
+- **本批不修依据（范围纪律）**：① `audit.py:105` / `audit_service.py:70` 的文案前缀被既有 `core/tests/test_audit_write_failure.py`、`core/tests/test_batch_d_fixes.py:63` 等断言依赖，改动会牵动既有测试并扩大回归面；② `audit.py:81` 属业务异常上下文，非 M-01~M-04 的审计写入失败路径；③ 本批仅新增路径执行「禁 str(exc)/exc_info」纪律，存量点不动。
+- **收敛计划**：与 B-38 子项「既有 4 处内联计数待阶段 B 收敛」一并迁移到 `core/audit_failure.record_audit_failure()` 单实现（DR-1 完整收口），届时同步改写上述文案断言。
+- **验证命令**：`rg -n "exc_info=True|logger.exception" asset_management_backend/apps/assetmanagement/audit.py asset_management_backend/core/audit_service.py`（本批落地后预期仍命中 3 处，属已登记范围外项，非回归）。
+- **关联**：B-38 / D-12 / D-13 / BF-189；M-03 同族。
+
 ---
 
 ## B-19. 【执行顺序清单】Bug 修复优先级排序（按复杂度分级）
@@ -1202,6 +1357,9 @@
 > 故同表登记；但实现与 CI 归属不同（`ci.yml` 而非 `duplicate-guard.yml`），不可混为一谈。
 
 ## 变更记录
+- **v2.9.66 (2026-11-13)**：批次 4（前端 DRY 重构，merge-audit-112.md 批次 4：M-14→M-13→M-16→M-08→M-11→M-15，方案 v5.2）收尾——关闭 **B-39/B-40/B-41**（→ 归档 A-56/A-57/A-58）：M-14 搜索表单三份拷贝收敛 `types/assetSearch.ts` + `useAssetSearchForm.ts` 单源（`rg "interface SearchForm"` → 0）；M-16 EP 输入框 focus 配色链 ×3 收敛 `@mixin form-input-overrides`（LogIn:401 布局语义降级 C-18）；M-15 分页块 ×4 收敛 `CommonPagination.vue`（底座不接评估降级 C-19）。M-13（四类型迁 `src/types/`，`rg "export (type|interface)" src/components` → 0 + A7 护栏）/ M-08（`resetAppState` 收敛走 setter 单源）/ M-11（`_rowId` 稳定 id，静态两处降级 C-17）属 Vue 反模式与机械迁移，不落 DRY 账本。棘轮上调 [PATCH-FE]（vitest.config.ts .vue 层 40.8/25.9/24.9/41.5 → 42.6/27.8/27.0/43.7，v8 直证基线，[HALT] 经用户批准 2026-11-13）。终态门禁：coverage 274 files / 2697 tests exit 0（整体 62.46%）、mutate 85.75 ≥80、type-check/lint/format 绿、护栏 batch4DryInvariants 15 passed（11 断言 + 4 夹具，零正则）。§5.4 不触发沙盒期（DRY 收敛为既有 DR-1/DR-2 执行，棘轮仅阈值上移）。**B-39/B-40/B-41 登记来源：本批执行对象在账本原 0 命中，依 §1.8 新发现义务登记即关闭；BF-191 见 Bug 修复活账本。**
+
+- **v2.9.65 (2026-11-12)**：批次 2（BF-189，merge-audit-112.md M-01~M-04）——关闭 **B-38**（审计适配器宽吞 + 内联计数重复面：新建 `core/audit_failure.py` 唯一收口，装饰器接 `asset_audit_decorator`、auth 三方法与 audit_helper 薄委托接 `generic_audit_dispatch` 渠道，与写失败渠道互斥、单次失败只计一处；子项「既有 4 处内联计数」留待阶段 B）；新登记 **D-12**（audit_operation 装饰器零调用点 + 渠道恒 0，保留 + 补指标 + 禁按渠道名挂告警）、**D-13**（DB 探测 statement_timeout + 编排侧 urlopen() 无 timeout + REDIS_URL dev 空值存量行为，另立批次）、**D-14**（审计链三处同型异常泄露面 `audit.py:81,105` / `audit_service.py:70`，范围外不修，阶段 B 与 B-38 子项一并收敛）。M-03/M-04（health_probe 配置化 + 脱敏 + WARNING + 结构化五字段）落 §1.3+§1.4，同族 AR-3 疑点归档 D-13。§5.4 不适用（护栏覆盖面扩展 + 口径登记，落地即 0 违规）。
 - **v2.9.64 (2026-11-11)**：批次 4 收尾（BF-188，merge-audit-20261107 M-32/M-13/M-21）——C-14 两行保持 ⏳ 降级态，补记「竞态面/评估面已完成」证据与验证命令（新增契约快照 `src/__tests__/notificationDualImpl.contract.spec.ts` 4 用例；全量 coverage 267 文件/2644 用例、stores 96.84/97.18/91.18/97.22 ≥90；变异 85.15 ≥80）并指向 **B-32**；**S12 由口头挂账转正式立项 B-32**（B 区，☐ 待修复，含触发条件、契约快照同步改写义务、验证命令）。M-13 维持 D13「不启用规则、不新增红线」，commit 1 的 ESLint diff 中 `no-floating-promises` 零命中留证；§5.4 适用性判定（既有 F11 执行面闭合 + 存量清零后落地零违规、CI 阻断行为不变，不触发沙盒期）见 BF-188。零新增重复模式入账：4 个收敛点复用 `@/utils/errorHandler::isApiError` 单一入口，`requestErrors.ts` 等 6 个 infra 文件维持豁免，`no-restricted-imports` 新块为既有正则的复用（非新增 regex）。
 - **v2.9.63 (2026-11-10)**：登记 **C-16**（批次 4b 阶段 0 口径固化，§1.8）——前端内联状态语义映射全量盘点：命令 A/B 固化可复现口径，真实收编面 **6 处**（NotificationBell ×2 / NotificationList ×2 / ContractPaymentRecord paymentMethodMap / StorageBatchImport 仓库名映射）；此前「13/14 处」系 `statusMap|getStatusType` 粗扫把 19 个 statusMapping import 点误计入（import 点即已合规）。types 层（auditlog/operationlog）5 个 *Mapping 为各域单源导出、Format.ts 为 G-3 子集，均排除留档。头部版本对齐（v2.9.59→v2.9.63，补记批次 5 C-15 未随 commit 对齐的脱节）。通知域值冲突（Bell vs List）待裁决门 ③。
 - **v2.9.62 (2026-11-07)**：登记 **B-31**（缺陷族「解码序/静默跳过」，§1.8 新发现义务）——护栏自实现 read_text 解码序缺失 + except/空文本 continue 静默跳过双缺陷四实例（① line_metrics 已关闭基线 ② G 护栏 M-02 本批关 ③ FR 护栏 M-17 收窄本批关 ④ BR-4/BR-6 不可解码面留尾另批）；附：回归护栏表新增 **G-0**（护栏自身不得静默跳过，fail-closed）并补录 **G-8** 行（v3.7.4 表内遗漏，与 AGENTS §1.8 对齐）。②③ 关闭与 G-0 实现属 BF-183 批次 1（执行方案 v3.1，4+2 补丁闭环）。

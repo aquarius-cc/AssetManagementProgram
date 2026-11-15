@@ -51,6 +51,7 @@ def _ls_files(repo: Path) -> str:
         ["git", "-C", str(repo), "ls-files"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=False,
     )
     return result.stdout if result.returncode == 0 else ""
@@ -74,6 +75,10 @@ def scan_staged(diff_text: str) -> list[str]:
         if not line.startswith("+") or line.startswith("+++"):
             continue
         for match in _SECRET_KEY_RE.finditer(line):
+            # ${KEY:-} / ${KEY:?msg} 插值引用内的键非赋值(B-42 误报): 键前缀为
+            # "${" 时正则捕获的是 "-}" 起的尾段, 不构成 键=凭据 语义, 放行
+            if line[max(0, match.start() - 2) : match.start()] == "${":
+                continue
             value = match.group(2).strip("\"'")
             if is_placeholder(value):
                 continue
@@ -88,6 +93,7 @@ def main() -> int:
         ["git", "diff", "--cached"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         cwd=ROOT,
         check=False,
     ).stdout
