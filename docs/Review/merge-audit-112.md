@@ -62,7 +62,7 @@ status: 融合成文 / 台账终态「待修」/ 不执行修复
 | M-04 | P3 | AI 鲁棒性 | 后端 | `config/urls.py:80,128` | 健康探测 | Redis 探测 `socket_timeout=3` 硬编码且无重试（存量代码，AR-3/AR-4 疑点） | Main F-09 | ✅ 已修复（2026-11-12，批次 2/M-04，BF-189：`HEALTH_REDIS_*` 配置化 + `max(0,n)` 兜底；编排层重试豁免，DB 侧/编排侧 urlopen() 留 D-13） |
 | M-05 | P2 | 权限安全/部署 | 后端 | `core/metrics.py:81-83`；`settings/base.py:32`；`docker-compose.prod.yml:30` | `_metrics_request_authorized` | `METRICS_TOKEN` 默认空即放行 `/metrics/`（P3-10 已登记设计，非新缺陷）；缺的是**部署期 token 非空 fail-closed 断言** | Main F-04 | ✅ 仓内已落地（2026-11-12，批次 3，BF-190：prod `:?` fail-closed + BR-D1 规则③④ + `--preflight` 自检 + §4.3 六步清单）**部署六步待生产环境**（开发环境无 docker/生产 host，[推测] 3 项待部署期事实化） |
 | M-06 | P2 | 设计令牌 | 前端 | `src/store/app.ts:99-103`；`src/styles/variables.css`（无 `--el-color-primary` 定义） | `initAppState` | 亮色主题未在 CSS 定义 `--el-color-primary`，仅当 localStorage 有值时由 JS 设置；新用户/清缓存首屏 EP 组件回落默认 `#409eff`，与品牌主色并存双蓝 | CG F-01 | 已修（2026-11-12，批次1/M-06：`:root` 映射 `--el-color-primary`/`-rgb`，暗色改引令牌，删 `#409eff` 回退；4 例静态断言） |
-| M-07 | P2 | 设计令牌 | 前端 | `variables.css:4-7,94-96,134-137`；`dark.css:10` | `--color-primary*` | 亮色派生色仍为 EP 默认蓝族，暗色整体换 `#4a90e2`，同一主色概念多源异色；即活账本 **C-9**，需产品拍板 | CG F-02 + Main 遗留债 C-9（仲裁 C-4） | 待产品决策 |
+| M-07 | P2 | 设计令牌 | 前端 | `variables.css:4-7,94-96,134-137`；`dark.css:10` | `--color-primary*` | 亮色派生色仍为 EP 默认蓝族，暗色整体换 `#4a90e2`，同一主色概念多源异色；即活账本 **C-9**，需产品拍板 | CG F-02 + Main 遗留债 C-9（仲裁 C-4） | 已关闭（2026-11-15：工程 BF-192 色阶表 + 设计签字落账；D1-D7 冻结口径执行） |
 | M-08 | P3 | 状态一致性/死代码 | 前端 | `src/stores/app.ts:117-137` | `resetAppState` | 重置未移除 `html.dark`、未复位 `--el-color-primary`、未更新 `document.title`；且全仓仅测试调用，属未接线公开 API | CG F-03 | 待修（低优先） |
 | M-09 | P2 | 前端交互/DRY | 前端 | `src/views/system/RoleManage.vue:262-269` | `handleDelete` | catch 手写三级消息提取 + `ElMessage.error` 直弹，AxiosError 场景与拦截器双弹；活账本 **B-30** 已登记待修，本次实证仍在（本次复核 `:268` 命中） | Main F-01 | 已修（2026-11-12，批次1/M-09：收编单出口 `notifyCallerError` + `logError`，B-30 关闭；先红后绿） |
 | M-10 | P2 | 前端生命周期 | 前端 | `detils/UserBatchImport.vue:275`；`detils/DepartmentBatchImport.vue:292-294` | 导入成功跳转 | 1.5~2s `router.push` 无句柄未清理，用户主动导航会被覆盖、组件卸载后仍执行（本次复核两文件 `setTimeout` 均命中） | Main F-02 | 已修（2026-11-12，批次1/M-10：新增 `useDelayedRoute`，三钩子清理 + 5 例/2 锚点，B-37 关闭） |
@@ -160,7 +160,7 @@ status: 融合成文 / 台账终态「待修」/ 不执行修复
 | B-30 | 待修复 | 即 M-09 |
 | B-31 ④ | 待修复 | 护栏自身 fail-closed 留尾面（融合台账不含，另行走护栏修复通道） |
 | B-32 / S12 | 立项 | `fetchNotifications` 双实现收敛，需先补架构决策（契约快照收敛时变红属预期） |
-| C-9 | 待产品拍板 | 即 M-07 |
+| C-9 | 已签关闭 | 即 M-07（2026-11-15 工程收口 + 设计签字） |
 | C-10 | 残余 1 处 | `MainView.vue:205` 的 `padding !important`（M-17 更新文档统计时一并覆盖口径） |
 | C-13 | 已登记豁免 | View 层直查 ORM 豁免，无需动作 |
 

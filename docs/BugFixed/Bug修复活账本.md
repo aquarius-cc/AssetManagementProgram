@@ -11394,7 +11394,7 @@ Commit 3（首跑红修复，head 8aa51b0）push 复验：
 
 - **编号说明**：登记前核账本最大号 **BF-191**（【已关闭】，文件尾 :11374 已核），顺延取 **BF-192**，无撞号。
 - **状态**：✅ 已关闭（2026-11-15，Step 7 文档收口完成）| 登记日期：2026-11-15
-- **外部依赖（不阻塞关闭）**：《主色色阶表》设计签字待办（`docs/compose/reports/batch4/primary-scale-table.md` 签字栏）——工程侧 Step 0-6 全部完成，签字为流程性确认。
+- **外部依赖（已完成）**：《主色色阶表》设计签字已于 2026-11-15 落账（签字栏三项勾选 + 批准人 + 日期，`primary-scale-table.md` 盘上留痕）——工程侧 Step 0-6 全部完成，签字为流程性确认，M-07 线全闭环。
 - **执行内容（7 步，各步绿点）**：
   1. **Step 0 色阶表**：一次性脚本生成 8 档亮/暗成对（mix 逐通道 round，半值 banker's rounding），r 候选 0.08/0.10/0.12/0.15 对比度实测——r=0.08 定稿（TI #3c6cda / DI #6389e2，active 4.83/4.94 + focus 4.83/5.45 全过且余量最大）；hover/登录渐变结构性不达标照实记录（C 区观察项）。
   2. **Step 1 等值断言**：`primaryTokens.spec.ts` 重写 13 例（真源解析 + stripComments 零正则 fail-closed），先红后绿。
@@ -11407,16 +11407,18 @@ Commit 3（首跑红修复，head 8aa51b0）push 复验：
 - **验证命令**：`npx vitest run src/styles/__tests__/primaryTokens.spec.ts`（13 passed）；`node docs/compose/reports/batch4/walkthrough/walkthrough.cjs`（需先重铸令牌池，见脚本头注）；`rg -n "409eff" vue-assetmanagement/src/styles` → 0 命中（EP 默认蓝清零）。
 - **关联**：**BF-191**（批次 4 前序）；**C-9**（complete-patterns.md:867，本批销项）；**BF-193**（走查新发现 F-1）；merge-audit-112.md 批次 5 M-07；`frontend-business-rules.md` §3.3（v1.8）。
 
-## BF-193【未修】P2 数量胶囊暗色对比度不达 AA——`:global(html.dark)` 编译退化为裸 `html.dark`（后代选择器丢失）｜来源：M-07 Step 6 走查新发现（2026-11-15）
+## BF-193【已关闭】P2 数量胶囊暗色对比度不达 AA——`:global(html.dark)` 编译退化为裸 `html.dark`（后代选择器丢失）｜来源：M-07 Step 6 走查新发现（2026-11-15）
 
 - **编号说明**：随 **BF-192** 同批登记，顺延取 **BF-193**，无撞号。
-- **状态**：☐ 待修复（B 区）| 登记日期：2026-11-15
+- **状态**：✅ 已关闭（2026-11-15，方案 v3 批准执行）| 登记日期：2026-11-15
 - **现象**：数量胶囊 `.asset-count-tag`（`GroupedAssetTable.vue:417-419`）暗色背景实际取 `--color-primary` 暗值 `#557fdf`（白字 3.83:1 < AA 4.5:1），非设计意图的 `--color-primary-dark` 品牌锚 `#2b5fd7`（5.65:1）。
 - **根因**：`<style scoped>` 中 `:global(html.dark) .asset-count-tag` 经 Vue SFC 编译在生产 dist 退化为裸 `html.dark{--el-tag-bg-color:var(--color-primary-dark)}`（后代选择器丢失，抽证 `walkthrough/extract-tag-css.cjs`）；元素级规则 `.asset-count-tag[data-v-6de8ca4f]`（特异性 (0,2,1)）对元素直接设值，胜过自 html.dark 继承的值 → 暗覆写从未生效。
 - **归属**：**既有缺陷**（本批对该文件仅注释色值同步 #4a90e2→#557fdf，`:global` 规则未动，git diff 直证）；M-07 Step 6 暗色断言暴露。
 - **修复方向**（执行需另行批准）：整条后代选择器入 `:global(html.dark .asset-count-tag)`（编译为全局后代规则，与元素级规则同特异性、按 CSS 顺序后写者胜），或移至非 scoped `<style>` 块；修复后走查 countTag 暗断言改回 `#2b5fd7` 锁定。
+- **修复内容（2026-11-15）**：`GroupedAssetTable.vue:417` 改为 `:global(html.dark .asset-count-tag)`（原文修复方向中「同特异性、按 CSS 顺序后写者胜」系沿用走查报告 §5 的误标口径，此处订正：元素级 `.asset-count-tag[data-v-6de8ca4f]` = class+attribute = **(0,2,0)**，修复后全局后代规则 = element+2 class = **(0,2,1)**，属**特异性直胜**，不依赖 CSS 顺序——原文不回溯，以本行留痕）。注释块（:409-412）设计意图不动。
+- **验证（先红后绿）**：修复前走查 countTag 暗期望 #557fdf 绿（缺陷实况锁定）→ 源码改后 `npm run build` + `node docs/compose/reports/batch4/walkthrough/extract-tag-css.cjs` 重抽 dist：暗规则恢复后代选择器 `html.dark .asset-count-tag`（后代选择器不再丢失）→ `walkthrough.cjs:227` 期望改 #2b5fd7 后全量走查重跑 206/206（重跑即红转绿，天然回归证明）→ 定向 vitest 四 spec（primaryTokens/useChartTheme/CommonPagination/CommonList）+ 三检查（type-check/lint:ci/format:check）。走查报告 §5 F-1 节尾收口注记同步登记（特异性订正原文不回溯）。
 - **验证命令**：`node docs/compose/reports/batch4/walkthrough/extract-tag-css.cjs`（预期暗规则含 `.asset-count-tag`）；walkthrough countTag dark。
-- **关联**：BF-192；`frontend-business-rules.md` §3.3（暗 `--color-primary-dark` 品牌锚口径）；`walkthrough-report.md` §5。
+- **关联**：BF-192；`frontend-business-rules.md` §3.3（暗 `--color-primary-dark` 品牌锚口径）；`walkthrough-report.md` §5；C-20（complete-patterns.md，同批设计签字观察项）。
 
 ## BF-194【已关闭】批次 5 CI 覆盖率门禁固化——M-21（证据 step + 断言七 + 红绿直证 + [PENDING] 撤销）｜来源：`docs/Review/merge-audit-112.md` M-21（治理异步项，Q1-Q5 冻结，2026-11-14 批准执行）
 

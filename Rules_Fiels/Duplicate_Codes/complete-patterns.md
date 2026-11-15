@@ -1,5 +1,5 @@
 # 重复代码模式活账本（Living Ledger）
-> **版本**：v2.9.66 | **最后更新**：2026-11-13 | **性质**：动态账本，取代 v1.0 静态清单
+> **版本**：v2.9.67 | **最后更新**：2026-11-15 | **性质**：动态账本，取代 v1.0 静态清单
 >
 > 本账本为"重复代码/重复实现"问题的唯一事实来源。凡新增/关闭/降级条目，必须在此登记并附证据与验证命令。
 >
@@ -979,7 +979,11 @@
 - **判定**：merge-audit-112 M-15 义务为「逐页评估接入 CommonList 成本，能接则接；不能接的至少收敛分页块」——评估结论：不接底座（与 C-6「列表页骨架逐页组装」同面）；分页块已收敛至 `CommonPagination.vue`（单源，4 页 + CommonList 全接入）。
 - **验证命令**：`rg -n "CommonPagination" vue-assetmanagement/src/views/ContactsView.vue vue-assetmanagement/src/views/NotificationList.vue vue-assetmanagement/src/views/system/AuthUserManage.vue vue-assetmanagement/src/views/system/RoleManage.vue vue-assetmanagement/src/components/commoncomponents/CommonList.vue`（5 文件接入）；`CommonPagination.spec.ts` + `CommonList.spec.ts` 分页桥断言绿。
 
----
+### C-20. 设计签字观察项：hover 上限 ≈3.5:1 / 登录渐变浅端 ≈2.19:1（结构性，不承诺 4.5:1）
+- **状态**：⏳ 降级保留（观察项，2026-11-15 设计签字确认接受现状）——hover 是「较深主色文字 × 极浅底色」、登录是「渐变浅端白字」，在任何候选 r（含 r→0 极限）下两项都无法同时达 4.5:1，属结构性上限（hover 极限 ≈3.5:1；登录浅端白字 ≈2.19:1）。
+- **现值**（色阶表换值后实测，较 EP 旧值单调改善）：hover 亮 2.83→4.19 / 暗 1.84→1.31（唯一略降因暗底色改深，仍属同量级）；登录浅端白字 1.86→4.83。
+- **消费点**：`CommonPagination.vue:109-114`（pager hover 链）；`LogIn.vue:383-388`（渐变背景）。
+- **处置**：`frontend-business-rules.md` §3.3 防扩散条款不含这两项达标承诺；重开条件 = 未来立项「深一档文字或加深 hover 底色」（属设计决策，需产品拍板）。设计签字依据见 `primary-scale-table.md:36-45` 签字栏（gitignore 区，盘上留痕，2026-11-15）。
 
 ---
 ### A-46. 【已关闭 2026-09-29】OpenAPI 声明失真的**第三个独立机制**：显式 `responses` 与分页推断的优先级（DR-1；BF-057）
@@ -1357,6 +1361,8 @@
 > 故同表登记；但实现与 CI 归属不同（`ci.yml` 而非 `duplicate-guard.yml`），不可混为一谈。
 
 ## 变更记录
+- **v2.9.67 (2026-11-15)**：C 区新增 **C-20**（设计签字观察项，状态同步非重复面变更）——hover 上限 ≈3.5:1（亮 4.19/暗 1.31）与登录渐变浅端 ≈2.19:1（现值 4.83）两项结构性遗留，经 2026-11-15 设计签字确认接受现状（`primary-scale-table.md` 签字栏三项勾选），§3.3 防扩散条款不含达标承诺，重开条件「深一档文字或加深 hover 底色」需产品拍板。同步收口：M-07 设计签字落账（BF-192 外部依赖线闭环，`merge-audit-112.md` M-07/C-9 → 已关闭/已签关闭）。零代码改动，护栏不涉及，不触发沙盒期（观察项登记 + 状态同步）。
+
 - **v2.9.66 (2026-11-13)**：批次 4（前端 DRY 重构，merge-audit-112.md 批次 4：M-14→M-13→M-16→M-08→M-11→M-15，方案 v5.2）收尾——关闭 **B-39/B-40/B-41**（→ 归档 A-56/A-57/A-58）：M-14 搜索表单三份拷贝收敛 `types/assetSearch.ts` + `useAssetSearchForm.ts` 单源（`rg "interface SearchForm"` → 0）；M-16 EP 输入框 focus 配色链 ×3 收敛 `@mixin form-input-overrides`（LogIn:401 布局语义降级 C-18）；M-15 分页块 ×4 收敛 `CommonPagination.vue`（底座不接评估降级 C-19）。M-13（四类型迁 `src/types/`，`rg "export (type|interface)" src/components` → 0 + A7 护栏）/ M-08（`resetAppState` 收敛走 setter 单源）/ M-11（`_rowId` 稳定 id，静态两处降级 C-17）属 Vue 反模式与机械迁移，不落 DRY 账本。棘轮上调 [PATCH-FE]（vitest.config.ts .vue 层 40.8/25.9/24.9/41.5 → 42.6/27.8/27.0/43.7，v8 直证基线，[HALT] 经用户批准 2026-11-13）。终态门禁：coverage 274 files / 2697 tests exit 0（整体 62.46%）、mutate 85.75 ≥80、type-check/lint/format 绿、护栏 batch4DryInvariants 15 passed（11 断言 + 4 夹具，零正则）。§5.4 不触发沙盒期（DRY 收敛为既有 DR-1/DR-2 执行，棘轮仅阈值上移）。**B-39/B-40/B-41 登记来源：本批执行对象在账本原 0 命中，依 §1.8 新发现义务登记即关闭；BF-191 见 Bug 修复活账本。**
 
 - **v2.9.65 (2026-11-12)**：批次 2（BF-189，merge-audit-112.md M-01~M-04）——关闭 **B-38**（审计适配器宽吞 + 内联计数重复面：新建 `core/audit_failure.py` 唯一收口，装饰器接 `asset_audit_decorator`、auth 三方法与 audit_helper 薄委托接 `generic_audit_dispatch` 渠道，与写失败渠道互斥、单次失败只计一处；子项「既有 4 处内联计数」留待阶段 B）；新登记 **D-12**（audit_operation 装饰器零调用点 + 渠道恒 0，保留 + 补指标 + 禁按渠道名挂告警）、**D-13**（DB 探测 statement_timeout + 编排侧 urlopen() 无 timeout + REDIS_URL dev 空值存量行为，另立批次）、**D-14**（审计链三处同型异常泄露面 `audit.py:81,105` / `audit_service.py:70`，范围外不修，阶段 B 与 B-38 子项一并收敛）。M-03/M-04（health_probe 配置化 + 脱敏 + WARNING + 结构化五字段）落 §1.3+§1.4，同族 AR-3 疑点归档 D-13。§5.4 不适用（护栏覆盖面扩展 + 口径登记，落地即 0 违规）。
