@@ -1,5 +1,5 @@
 # AI 执行引擎总配置 (Root Engine)
-> 版本：v3.7.7 | 最后更新：2026-11-10
+> 版本：v3.7.8 | 最后更新：2026-11-15；§10 追加变更日志（C-2 仲裁、:31/:39 双处订正、Q1/Q2 拍板、九项固化点、免沙盒判定及所援引先例）
 > 职责：跨端契约仲裁、全局红线、宪法级规则（测试/DRY/安全/可观测性/AI鲁棒性/交互写作）、子引擎路由
 
 ## §1 核心执行协议（所有子引擎必须遵守）
@@ -28,7 +28,7 @@
 | ID | 规则内容 | 违规后果 |
 |:---|:---|:---|
 | CT-1 | **核心业务逻辑必须有测试覆盖**：资产状态流转（Service层）、数据查询（Selector层）、API鉴权等关键路径，**禁止**无测试代码。 | 触发 `[HALT]`，强制补充测试 |
-| CT-2 | **覆盖率硬门槛**：整体测试覆盖率**不得低于 80%**，核心模块（后端Service/前端Store）**不得低于 90%**。 | CI失败，**禁止**合并代码 |
+| CT-2 | **覆盖率硬门槛**：整体测试覆盖率**不得低于 80%**，核心模块（后端Service/前端Store）**不得低于 90%**。前端按分层前缀阈值落地：`src/**/*.ts` 80 / `src/stores/**/*.ts` 90 / `src/**/*.vue` 棘轮只升不降（见 `frontend-testing-rules.md` T14）；三者共同构成整体门槛，不设无前缀全局块。 | CI失败，**禁止**合并代码 |
 
 > **执行方式**（CI 配置完成前可本地执行）：<br>
 > 1. 首次安装：`pip install pytest pytest-cov mutmut`<br>
@@ -36,12 +36,17 @@
 > 3. 核心模块专项：<br>
 > &nbsp;&nbsp;&nbsp;&nbsp;- 后端 Service 层：`pytest --cov=apps.assetmanagement.services --cov-fail-under=90 -v`<br>
 > &nbsp;&nbsp;&nbsp;&nbsp;- 前端 Store 层：`npx vitest run --coverage --coverage.include="src/stores/**/*.ts"`<br>
-> 4. CI 就绪前，覆盖率检查标记为 `[PENDING]`，不阻断合并；CI 就绪后自动转为硬性门禁。
+> 4. **门禁状态订正（M-21，2026-11-15）**：覆盖率门禁已在 `ci.yml` 的
+>    `backend-test`（整体 80 / 四个 Service 各 90）与 `frontend-test`（ts 80 / stores 90 /
+>    `.vue` 棘轮只升不降）固化并阻断，`CI 汇总` 收全门禁 job。原「CI 就绪前标 `[PENDING]`、
+>    不阻断合并」的表述作废。**权威覆盖率数字以 CI run 的 `$GITHUB_STEP_SUMMARY` 为准**；
+>    本地实测数字只能作讨论中间量，不得充当基线。前端分层口径见上表 CT-2 与 T14。
+>    九项固化点由 `scripts/check_ci_orchestration.py` 断言七守护，删除任一命令即判红。
 | CT-3 | **状态机全路径测试**：资产状态机（参见 `backend-business-rules.md` §3）的每一条流转路径，**必须**有至少一个集成测试用例验证。 | 触发 `[HALT]`，补全路径用例 |
 | CT-4 | **回归屏障**：修复Bug或新增功能后，必须同步补充测试用例，确保该场景不会再次出现。 | 审查时打回，要求补充测试 |
 | CT-5 | **测试失败即阻塞**：任何测试用例失败，**禁止**提交代码或部署。 | 必须修复所有失败后再提交 |
 | CT-6 | **迁移文件安全性验证**：任何包含数据库迁移（`migrations/`）的 PR，必须执行以下三步验证：<br>① `python manage.py makemigrations --dry-run 2>&1 | findstr "No changes detected"` — 确认无遗漏迁移<br>② `python manage.py migrate --plan` — 预览待执行列表，人工确认顺序正确<br>③ 对本次新增迁移文件执行 `findstr /N "RemoveIndex RemoveField RenameField" <文件名>` — 若命中任一操作，须在 PR 描述中注明"已人工确认数据无损"，并在 Code Review 阶段重点审查。<br>**禁止**执行 `migrate <app> zero --dry-run` 进行反向迁移验证。 | 触发 `[HALT]`，修复迁移文件 |
-| CT-7 | **门禁结论必须以 CI 工具链复核**：静态门禁（类型检查 / lint / 覆盖率）的结论**必须**在 `requirements/dev.txt`（及前端 `package.json`）**声明的版本**下取得。禁止用本地漂移环境的数字充当 CI 基线；本地版本与声明不一致时，**必须先对齐再下结论**，或显式标注「本地环境漂移，该数字不代表 CI」。 | 触发 `[HALT]`，结论作废并以声明版本重测 |
+| CT-7 | **门禁结论必须以 CI 工具链复核**：静态门禁（类型检查 / lint / 覆盖率）的结论**必须**在 `requirements/dev.txt`（及前端 `package.json`）**声明的版本**下取得。禁止用本地漂移环境的数字充当 CI 基线；本地版本与声明不一致时，**必须先对齐再下结论**，或显式标注「本地环境漂移，该数字不代表 CI」。前端「声明版本」= `package.json` 声明范围 + `package-lock.json` 精确解析版本；CI 须打印 `vitest` / `@vitest/coverage-v8` 生效版本方可引用覆盖率结论。 | 触发 `[HALT]`，结论作废并以声明版本重测 |
 
 > **执行监督**：各子引擎在最终审计票中必须包含宪法级测试规则的符合情况（格式：`CT-1[√] CT-2[√] ...`）。
 
@@ -337,6 +342,7 @@ AI 在任务完成后，必须输出以下审计票：
 > **执行监督**：审计票自检项中必须包含 `Fact-1[√]` 和 `Style-1~Style-3[√]`。
 
 ## §10 变更日志
+- **v3.7.8 (2026-11-15)**：**CT-2 门禁状态订正（M-21，Q1/Q2 拍板 + C-2 仲裁）**——三处条文订正：① :31 CT-2 主条文补前端分层前缀口径（`src/**/*.ts` 80 / `src/stores/**/*.ts` 90 / `src/**/*.vue` 棘轮只升不降，见 T14），三者共同构成整体门槛、不设无前缀全局块（Q1=A 分层棘轮书面归一）；② :39 原「CI 就绪前标 `[PENDING]` 不阻断合并」表述作废（Q2=A 撤销），门禁已在 ci.yml `backend-test` / `frontend-test` 固化阻断，权威覆盖率数字以 CI run 的 `$GITHUB_STEP_SUMMARY` 为准，本地实测仅讨论中间量；③ :44 CT-7 补前端声明版本口径（package.json 范围 + lock 精确解析版本，CI 打印 vitest / @vitest/coverage-v8 生效版本方可引用覆盖率结论，Q3=B 配套）。九项覆盖率门禁固化点由 `scripts/check_ci_orchestration.py` 断言七守护（删任一命令即红），PR #2 红绿直证完成（绿 43618743325 / 红 43623022911 / 最终绿 43623471892，run 记录已贴 PR）。C-2 三报告覆盖率口径仲裁关闭：本机 90.28% 标注「本机实测、非 CI 基线」，权威口径归一为 CI run。**§5.4 适用性判定：不触发沙盒期**——本条为状态订正与证据固化，与 v3.7.0 / v3.7.1 / v3.7.3 先例同类；若把 Q1 改为「强制全局 80」则属收紧红线，须重走沙盒。
 - **v3.7.7 (2026-11-10)**：**SC-7 ④ 审计豁免登记（批次 5/M-12，仅规范补录零代码）**——§6 增设 ④「审计豁免登记」块：audit 门禁现存两条经人工批准的例外（twisted CVE-2026-106454 的 --ignore-vuln、node-audit 的 --omit=dev 口径）以表格登记（漏洞/豁免方式/批准依据/Owner 角色/失效日期 2026-12-10/复核节奏），规则化「新增例外必须登记 + §5.2 审批 + 过期自动失效」，并将「报告可见性不豁免」固化为条文。此前两条例外仅散落于 security-scan.yml 步骤注释，根级契约不可见（SC-2 执行状态段缺豁免台账，属规范缺口）。同时修复头部版本漂移（v3.7.5/2026-11-03 → v3.7.7，§10 已有 v3.7.6 条目而头部未跟进）。**§5.4 适用性判定：不触发沙盒期**——本条为既有 CI 行为（2026-10-17 已落地并 CI 直证）的登记补录，不新增/收紧任何红线阈值。
 - **v3.7.6 (2026-11-08)**：**BF-183 批次 1——护栏/门禁自洽（M-01/M-02/M-18 + P-1~P-4，零业务代码）**——① G-0 fail-closed：`check_duplicate_invariants.py` 复用 `line_metrics.read_text`（utf-8-sig 打头），非空文件解码/解析失败判红（B-31 缺陷族第四实例收口，complete-patterns.md 登记），§1.8 守护枚举更新为 G-0、G-1~G-3、G-5~G-8；② M-17 收窄：前端护栏 read_text 收编 line_metrics 单源（计数口径收编留独立批次）；③ M-18：`security-scan.yml` 的 `security-summary` needs 纳入 `weekly-report`（schedule 分支 always() + 按 event 分流），判定外部化 `scripts/security_summary.py` 六态纯函数；④ 删 `duplicate-guard.yml`（方案 C：三 job 与 backend-lint 护栏自测同覆盖重复；push 面由「三点断言」S-1/P-3 锁死——ci.yml 自测 step + 4 真仓绿锚 + BR-4/BR-6 直跑文本）；⑤ `migration-check.yml` 唤醒：on 增 push、删触发级 paths，③/④ 变更面解析改根仓 gitlink 指针 diff 单源（S-2：BASE 空/全零 → 全量扫描、fail_closed 仅留运行中真实 git 故障），步骤①全量跑计入 gate 600s 轮询预算（O-1，3b 为 3c 硬前置）；⑥ `ci-cd.yml` gate 第二步升级双名单回查（Dependency Security Scan + Migration Safety Check，`scripts/gate_recheck.py` 双名单唯一真源，缺失/超时/非 success 一律 fail-closed）。**§5.4 适用性判定：不触发沙盒期**——依 v3.7.2/v3.7.3 先例：G-0、双名单回查落地即 0 违规（现实仓文件全部可解码、双名单对象均为既有必跑链），属护栏覆盖面扩展 + 门禁稀释面闭合（去伪存真）；migration-check push 唤醒是既有红线（CT-6）的激活而非新设阈值。
 - **v3.7.5 (2026-11-03)**：**FR-8 口径收编（批次 7 OP-06，§2 子域条文同步）**——前端 `frontend-business-rules.md` FR-8 版本 v1.4→v1.5：废除「非 `use*.ts`」前缀排除，改**目录全量（`__tests__` 除外）**。原口径以 `startswith("use")` 排除致 `userStore.ts`（"userStore" 以 "use" 开头）落在 FR-8 扫描外（护栏 31 / 实际 32 假绿盲区），护栏 `is_store_target`（`scripts/check_frontend_invariants.py:74-78`）与条文同步收编；护栏自测 +5 用例（先证红 3 failed→证绿 49 passed）。经 §5.2 流程人工批准（FR-8 条文改写 [HALT] 已确认，2026-11-03）后应用；历史台账「31 文件」记载不回溯改写。子域索引（§1.3/§2）无变化，仅条文文本与本条日志。

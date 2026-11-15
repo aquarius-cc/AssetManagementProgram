@@ -29,6 +29,8 @@
 | 服务健康检查失败 | /health 连续 3 次失败 | P0 | 运维 |
 | JWT 令牌异常 | 刷新失败率 > 10% | P1 | 后端开发 |
 | 业务操作失败率 | 出库/回收失败率 > 5% | P1 | 后端开发 |
+| 通知持久化死信 | 日志关键字 `NOTIFICATION_DEAD_LETTER` 命中，或 `increase(asset_mgmt_notification_dead_letter_total[5m]) > 0`（M-25，2026-11-10） | P2 | 后端开发 |
+| 审计写入失败 | `increase(asset_mgmt_audit_write_failed_total[5m]) > 0`（批次 2/M-01+M-02，2026-11-12）——**仅聚合式订阅，禁止按 `{channel=...}` 过滤**（D-12：`asset_audit_decorator` 为恒 0 面） | P2 | 后端开发 |
 
 ---
 
@@ -43,6 +45,7 @@
 | 错误率 | 4xx/5xx 比例 | Prometheus |
 | 数据库 | 连接数、慢查询数、锁等待 | PostgreSQL metrics |
 | 业务 | 出库/回收/报废操作量 | 自定义指标 |
+| 审计写入失败 | 按渠道分维度的失败计数 | `asset_mgmt_audit_write_failed_total`（Prometheus） |
 
 ### 3.2 告警通知渠道
 
@@ -85,6 +88,22 @@ groups:
           severity: critical
         annotations:
           summary: "数据库连接池使用率超过 80%"
+
+      # 通知持久化死信(M-25): 指标增量兜底 + 日志关键字(对应表行, 二选一或并行)
+      - alert: NotificationDeadLetter
+        expr: increase(asset_mgmt_notification_dead_letter_total[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "通知持久化死信(请人工补偿): 按 NOTIFICATION_DEAD_LETTER 关键字检索日志重建载荷"
+
+      # 审计写入失败(批次 2/M-01+M-02, 2026-11-12): 仅聚合式, 禁止按 channel 过滤(D-12 恒 0 面板)
+      - alert: AuditWriteFailed
+        expr: increase(asset_mgmt_audit_write_failed_total[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "审计写入失败(请人工补偿): 按 audit.failure 关键字检索结构化日志(context 字段定位渠道)"
 ```
 
 ### 3.4 Grafana Dashboard 关键面板
@@ -125,6 +144,8 @@ groups:
 1. 检查服务进程是否存在 → systemctl status asset-management
 2. 检查端口是否监听 → netstat -tlnp | grep 8000
 3. 检查日志 → journalctl -u asset-management --since "10 minutes ago"
+   - 健康探测失败日志统一为 WARNING 级、固定文案 `health probe failed (dependency=redis, exception_type=...)`
+     （批次 2/M-03+M-04 起脱敏：不含异常对象与连接串；重试预算 0 ≤ HEALTH_REDIS_MAX_RETRIES ≤ 1）
 4. 紧急处理 → 重启服务
 ```
 
@@ -185,5 +206,6 @@ docker exec asset-management-backup sh -c 'S3_BUCKET=no-such-bucket-demo /backup
 
 | 版本 | 日期 | 修订内容 |
 |:---|:---|:---|
+| V2.1 | 2026-11-12 | 批次 2（BF-189）：§2/§3.3 新增审计写入失败告警（`asset_mgmt_audit_write_failed_total`，仅聚合式订阅，D-12 禁按渠道名过滤）；§3.1 新增审计失败看板面板；§4.3 补健康探测脱敏日志口径（WARNING、固定文案、重试预算） |
 | V2.0 | 2026-09-22 | 新增 §6 备份告警链路验证（BF-003 收口） |
 | V1.0 | 2026-07-09 | 初始版本 |

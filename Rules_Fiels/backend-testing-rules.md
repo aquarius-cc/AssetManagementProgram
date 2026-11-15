@@ -1,5 +1,5 @@
 # 后端测试细则 (Backend Testing Rules)
-> 版本：v1.6 | 最后更新：2026-10-10
+> 版本：v1.10 | 最后更新：2026-11-15
 > 适用范围：pytest + pytest-django + factory_boy + mutmut（变异测试）
 
 ## 一、测试目录与命名 [T1]
@@ -26,7 +26,7 @@
 - 测试项目：
   - 鉴权失败返回 401。
   - 参数缺失/格式错误返回 400。
-  - 成功请求返回 200，响应结构符合 `{"code":0, "data":..., "message":"success"}`。
+  - 成功请求返回 200，响应结构符合 `{"code":0, "data":..., "message":"<展示文案>"}`（`message` 值不固定，按 `code` 判定，对齐 `backend-business-rules.md` B1 / M-22）。
   - 分页接口验证 `page`/`page_size` 参数生效。
 
 ## 五、断言与代码风格 [T5]
@@ -45,6 +45,8 @@ pytest --cov=apps.assetmanagement.services --cov-fail-under=90
 - **apps.notification.services**（BF-160，2026-10-27）：M-46 覆盖盲区已按「补测」路径闭环（专项实测 **98.41%**，`pytest apps/notification/ --cov=apps.notification.services --cov-fail-under=90`）；**未**纳入上述 CI 逐 App 清单——扩清单属规则收紧，依根级 §5.4 沙盒流程另行立项。
 
 - 在审计票中必须分别报告：整体覆盖率：XX% 与 Service 覆盖率：XX%。
+
+> **M-21 注记（2026-11-15）**：后端覆盖率门禁已在 `ci.yml` `backend-test`（整体 80 + 四个 Service 各 90，即上述逐 App 清单）固化并阻断；**权威覆盖率数字以 CI run 的 `$GITHUB_STEP_SUMMARY` 为准**（`pytest-coverage.log` 尾 25 行），本地实测仅讨论中间量、不得充当基线（CT-7）。门禁工具链声明版本钉于 `requirements/dev.txt`（`pytest==9.1.1` / `pytest-cov==7.1.0` / `ruff==0.17.1`），CI 于覆盖率 step 前打印生效版本（「门禁工具链版本（CT-7）」step）；引用覆盖率结论前须先核对本地/声明/CI 版本一致。九项固化点由 `scripts/check_ci_orchestration.py` 断言七守护（删任一命令即红）；红绿直证见 PR #2（绿 43618743325 / 红 43623022911 / 终绿 43623471892）。
 
 ## 七、变异测试（强化测试有效性）[T7]
 | 规则ID	| 内容 |
@@ -118,6 +120,8 @@ findstr /N "RemoveIndex RemoveField RenameField" <迁移文件名>
 ```
 
 ## 十、变更日志
+- **v1.10 (2026-11-15)**：**[M-21] §六 T6 增门禁状态订正注记**——后端覆盖率门禁（整体 80 + 四 Service 各 90）已在 ci.yml `backend-test` 固化阻断；权威覆盖率数字以 CI run 的 `$GITHUB_STEP_SUMMARY` 为准，本地实测仅讨论中间量（CT-7）；CT-7 声明版本（pytest==9.1.1 / pytest-cov==7.1.0 / ruff==0.17.1）由 CI 覆盖率 step 前打印（「门禁工具链版本（CT-7）」step）；九项固化点由 `check_ci_orchestration.py` 断言七守护（删任一命令即红），红绿直证 PR #2（绿 43618743325 / 红 43623022911 / 终绿 43623471892）。**§5.4 适用性**：注记属状态订正（门禁已固化）与口径补全，不新增/收紧任何红线、不改变 CI 阻断行为，不触发沙盒期。配套根级 AGENTS.md v3.7.8（:39 [PENDING] 表述作废、:44 CT-7 声明版本口径）。
+- **v1.9 (2026-11-10)**：**[PATCH-BE] 批次 6 一次审批包**——① T4 第 29 行订正（M-22）：成功请求 `message` 改为 `<展示文案>` 口径（值不固定、按 `code` 判定），对齐 `backend-business-rules.md` v1.26 B1，跨端契约 §3 的 `message: "str"` 不变；② 头部版本字段漂移收敛：v1.6（最后更新 2026-10-10）→ v1.9，与变更日志 v1.8 对齐（头部漏升系 v1.7 时既有缺陷）。批准依据：批次 6 方案 D1-D7 / 用户拍板 2026-11-10。登记：BF-187（原登记号 BF-186 已被批次 4b 占用，顺延）。
 - **v1.8 (2026-10-27)**：§六 补注 M-46 闭环留痕（BF-160）——`apps.notification.services` 覆盖盲区按「补测」路径修复（专项 98.41%），**未**扩入 CI 逐 App 专项清单（扩清单属规则收紧，依根级 §5.4 沙盒另行立项）；本条为状态留痕，非红线/门禁口径变更。来源：`docs/Review/Merge-audit-2026-10-26.md` M-46 行。
 
 - **v1.7 (2026-10-12)**：T7 恢复 80% 绝对红线（C批终态，人工审批双重门禁方案）——沙盒期解除：C 批补测抬分至 **83.25676365492598**（CI run `38224467353` 实证，killed=1631 survived=310 no_tests=18 tested=1959）达 80% 红线，依根级 §5.4「期满人工复核」经用户审批（2026-10-12）恢复。门禁改为**双重门禁**：① 绝对红线 `score ≥ 80.0`（硬地板）；② 相对基线 `score ≥ mutmut-baseline.json` 现值（防滑斜坡，防 80~基线区间静默回归）。任一不满足 exit 1。基线取值规则定稿（BF-067 截断教训复现后）：**存全精度**（Python float 十进制全位），禁用四舍五入/截断值——run 38220043308 实测截断值 83.2568 比真实值 83.25676365492598 高致门禁恒红。本次为解除沙盒、恢复既定红线，非新增/收紧红线，不触发新 14 日沙盒期。配套：`ci.yml` backend-mutation 门禁脚本（step 名、注释、exit 条件改双条件）、后端 `AGENTS.md` §1.3 条目（顺带修正 v9.3.2 残留的「当前基线 68.6064」漂移）。登记于 BF-064【已关闭】。

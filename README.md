@@ -235,12 +235,14 @@ in_store ──outasset──→ in_use ──recycle──→ recycled_pending 
               ▼                                                    │
            damaged ──approve──→ scrapped                           │
               │                                                    │
-              └──reject──→ broken/lost ────────────────────────────┘
+              └──reject / cancel──→ 按 original_status 回退（原申请前状态）
 
 找回: lost ──found_and_return──→ recycled_pending（重新进入发放池）
 ```
 
 > 语义约定：维修完成/找回的资产（已使用过）回到 `recycled_pending` 待发放池；`in_store` 仅表示首次入库的新资产。
+>
+> **导航示意声明（M-37，2026-11-10）**：上图仅描述资产状态主干流转，**不是完整规则**。完整且权威的转换表（含 `recycled_pending / broken / lost / repairing → damaged` 的 `to_damaged` 入口、`approve`、`reject` / `cancel` 按 `original_status` 的多目标回退、`repairing → damaged` 双入口共边 `repair_failed` + `to_damaged`、终态 `scrapped`）以 [`Rules_Fiels/backend-business-rules.md`](Rules_Fiels/backend-business-rules.md) §三 与 `apps/assetmanagement/state_machine/transitions.py` 为准。图与规则不一致时，**以规则为准**。
 
 ---
 
