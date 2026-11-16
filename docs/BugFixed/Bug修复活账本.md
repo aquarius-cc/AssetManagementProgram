@@ -11435,3 +11435,16 @@ Commit 3（首跑红修复，head 8aa51b0）push 复验：
 - **验证命令**：`python scripts/check_ci_orchestration.py`（PASS）；`python -m pytest scripts/tests/test_ci_orchestration.py -q`（22 passed）；`gh run view 43623471892 --json status,conclusion`（success）。
 - **关联**：merge-audit-112.md M-21/C-2；AGENTS.md v3.7.8；BF-188（未推 gitlink 根因）；BF-192（同批 M-07）。
 
+## BF-195【已关闭】批次 A 上线前必修五包——缓存身份隔离/幂等补建 500/导入链闸门/仪表盘时区/日志卫生三级处置｜来源：`docs/Review/merge-audit-20261116.md` 批次 A（MA-01~05，2026-11-16 批准执行）
+
+- **编号说明**：登记前核账本最大号 **BF-194**（文件尾已核），顺延取 **BF-195**，无撞号。
+- **状态**：✅ 已关闭（2026-11-16，五包原子提交 + 双端门禁绿）| 登记日期：2026-11-16
+- **执行内容（五包，对应 merge-audit-20261116.md §三批次 A）**：
+  1. **A2/MA-02**（后端 `0ae152e`）：asset_lifecycle_mixin.py:97-98 幂等补建分支补 `refresh_from_db()`（对齐 :42-44 正常路径，DateField datetime 序列化 500）+ `operator_employee` 解析落库；rebuild_branch 2 用例先红后绿（date 类型断言 + operator 断言）。
+  2. **A5/MA-05**（后端 `357738a`）：新增 `core/error_reporting.py` 唯一收敛点（exception_type/log_channel_failure/capture_exception_safe 懒加载 Sentry）；18 处吞异常/上抛路径三级处置（notification/mixins×5/batch_mixins:153,234/adapter×4/token_blacklist/services/exception_handler:100 捕获+type；batch_mixins:149,230/exception_handler:95 仅删）；3 处豁免登记保留（audit.py:82,106、audit_service.py:70）；`core/tests/test_log_hygiene.py` 结构门先红（21→白名单 3）后绿；test_notification 断言同步（"notify boom" 原文禁落盘）。
+  3. **A1/MA-01**（前端 `89d5f3f`）：request.ts 新增 clearAllCache（cache.clear epoch 防在途回填 + degradedCacheKeys.clear）+ setCacheIdentityScope（工号单维）；buildCacheKey 拼 scope 前缀（空串与历史形态逐字节一致）；auth.ts 五个身份赋值点接线（登录/profile/restoreBearerSession 同步直调 + resetAuthState 全量清）；authCacheIsolation.spec 5 用例。
+  4. **A4/MA-04**（前端 `913cd2b`）：Format.ts toBusinessDateTimeParts 补 year + 新增 toBusinessWeekday（zh-CN weekday formatter 单独建，en-CA weekday:'long' 输出 Monday 非星期一）；useDashboardPage.updateTime 移除 toLocale 改走业务时区单源（M-15 口径等价重建）；Format.spec 追加边界用例（UTC 00:30Z→08:30/星期一 + 午夜 h23 00:00:00）；composables toLocale 归零。
+  5. **A3/MA-03**（前端 `08404c1`）：constants/import.ts（IMPORT_MAX_BATCH_ROWS=100 对齐后端 MAX_BATCH_SIZE + IMPORT_MAX_FILE_BYTES=10MB）；readExcelFile 可选 maxRows/maxBytes 三道闸（体积 FileReader 前置/actualRowCount 上限/循环内计数兜底）；接线 batchImport types + useBatchImport + assetBatchImport.config；readExcelFile.spec +3 用例。
+- **终态门禁（本机实测，CT-7 口径：权威以 CI run 为准）**：后端定向（lifecycle_gaps 39 / log_hygiene 3 / notification）+ ruff/C90/mypy 绿；前端 authCacheIsolation 5 + subResourceCache/cache/request 88 + Format.spec 77 + readExcelFile.spec 13 全绿 + type-check 绿；双端全量门禁见 merge-audit-20261116.md §七（收口小节）。
+- **豁免/留痕**：A5 三处豁免（audit.py:82,106、audit_service.py:70）未改动（complete-patterns.md「范围外项非回归」口径）；MA-25 已由 BF-164 先行闭合，本批仅作 subResourceCache 回归门。
+- **关联**：merge-audit-20261116.md MA-01~05/MA-25；`docs/Review/merge-audit-20261116.md` §三/§七；BF-164（M-CACHE-1 前序）；M-15（业务时区口径）；BF-183（G-0 口径先例）。

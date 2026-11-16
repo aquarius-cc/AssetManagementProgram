@@ -180,3 +180,20 @@ B-N-03（前端 useDashboardPage.ts:150-160 `toLocaleTimeString` 按浏览器时
 - **已确认无遗漏**的账本区：活账本 B 区 B-1~B-30、B-33~B-35 全部已关闭（B-34/B-35 于 2026-11-12 批次 1/M-09 收口，故 MiMo N-02 的 13 文件清单不含 OutAssetForm/DepartmentForm 是正确的）；B-5/B-8/B-10/B-26 已关闭；mutmut 基线双端越红线（后端 83.26 / 前端 82.29），Bug待修复计划 D6 已关闭。
 - **MA-01 与 MA-25 的关系（订正）**：两者是同一缓存面的两层缺口（身份切换清缓存 vs 子资源失效接线）。**MA-25 已由 BF-164 先行闭合**（提交 `5ec910e`/`0a9a399`），故批次 A1 仅剩 MA-01 实修；MA-01 的 clearAllCache 须与既有 epoch 代际守卫（cache.ts）协同，且不得破坏 14 处子资源失效接线（以 subResourceCache.spec.ts 回归门保证）。
 - 其余账本（BugBackLog 2026-10-10 主体、活账本 C 区降级项、D 区待核查项）经抽样核对均处于已决策/已核查态，无新增代码缺口。
+
+## 七、批次 A 收口小节（2026-11-16 执行后追加）
+
+批次 A 五包（A2/A5 后端、A1/A4/A3 前端）已全部执行完毕并原子提交，收口状态：
+
+| 工作包 | 条目 | 提交（子仓） | 关键产出 | 回归证据 |
+|:--|:--|:--|:--|:--|
+| A2 | MA-02 | 后端 `0ae152e` | asset_lifecycle_mixin.py 补建分支补 refresh_from_db + operator_employee 解析 | test_lifecycle_mixin_gaps 39 passed（rebuild_branch 2 用例先红后绿） |
+| A5 | MA-05 | 后端 `357738a` | 新增 core/error_reporting.py 唯一收敛点（exception_type/log_channel_failure/capture_exception_safe）；18 处接线 + 3 处上抛/400 仅删 + 3 处豁免登记保留 | test_log_hygiene 结构门先红（21→3）后绿；test_notification 断言同步 |
+| A1 | MA-01（MA-25 已闭合仅作回归门） | 前端 `89d5f3f` | request.ts clearAllCache/setCacheIdentityScope（工号单维）+ buildCacheKey 前缀；auth.ts 五个身份赋值点接线 | authCacheIsolation 5 用例 + subResourceCache/cache/request 回归 88 passed + type-check 绿 |
+| A4 | MA-04 | 前端 `913cd2b` | Format.ts 补 year + toBusinessWeekday（zh-CN formatter 单独建）；useDashboardPage updateTime 等价重建；toLocale composables 归零 | Format.spec 77 passed（A4 边界用例：UTC 00:30Z→08:30/星期一 + 午夜 h23） |
+| A3 | MA-03 | 前端 `08404c1` | constants/import.ts（100 行 + 10MB）+ readExcelFile 三道闸 + 接线 3 处 | readExcelFile.spec 13 passed（行数超限/体积超限/不误拒） |
+
+收口核对：
+- **豁免面**：A5 三处豁免（audit.py:82,106、audit_service.py:70）未改动，结构门白名单锁定。
+- **台账终态**：MA-02/03/04/05 → 待修复 → **已修复（本批）**；MA-25 → 已关闭（BF-164，非本批）；其余批次 B/C/D 条目维持待修。
+- **双端全量门禁（本机实测，2026-11-16；CT-7 口径：权威以 CI run `$GITHUB_STEP_SUMMARY` 为准）**：后端 `pytest --cov=. --cov-fail-under=80` = **2460 passed / 总覆盖 90.47% ≥ 80 / exit 0**（35 分 35 秒）；前端 `vitest run` 全量 = **2721 passed / 275 文件 / exit 0**（204 秒）；双端 ruff/mypy --strict/C90 抽验全绿（本批触碰文件）。
