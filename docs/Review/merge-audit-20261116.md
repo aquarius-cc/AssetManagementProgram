@@ -213,3 +213,21 @@ B-N-03（前端 useDashboardPage.ts:150-160 `toLocaleTimeString` 按浏览器时
 收口核对：
 - **台账终态**：MA-06/07/09 → 待修复 → **已修复（本批）**；MA-08/MA-28 → **部署期待执行**（收口小节与 BF-196 遗留段留痕，部署日完成后销项）；其余批次 C/D 条目维持待修。
 - **双端全量门禁（本机实测，2026-11-17；CT-7 口径：权威以 CI run `$GITHUB_STEP_SUMMARY` 为准）**：后端 `pytest --cov=. --cov-fail-under=80` = **2487 passed / 总覆盖 90.54% ≥ 80 / exit 0**（27 分 40 秒；首跑 2486+1 failed——OpenAPI 反向护栏命中新匿名端点，白名单补录后复跑全绿）；Service 四域 `--cov-fail-under=90` = **98%**；mypy --strict 233 files 0 issues；ruff/format/C90 全过；`makemigrations --dry-run` No changes detected；schema 基线 diff **exit 0**。前端 `vitest run` 全量 = **2732 passed / 277 文件 / exit 0**（首跑 unhandled rejection——既有 spec logger 触发 happy-dom 真实网络，setup sendBeacon 桩修复后复跑全绿）；type-check/lint:ci/format:check/build（含 postbuild verify）全绿。护栏六件套（duplicate invariants / BR-4 / BR-6 / frontend invariants / secret tracking / check_ci_orchestration）全 PASS。mutmut / 前端 test:mutate / e2e 本机未跑，留 CI 收口（BF-196 如实在案）。
+
+
+## 八、批次 B 收口小节（2026-11-17 执行后追加）
+
+批次 B 四包（B3/B2 后端、B1 前端）+ 部署期 B4 已执行完毕并原子提交，收口状态：
+
+| 工作包 | 条目 | 提交（子仓） | 关键产出 | 回归证据 |
+|:--|:--|:--|:--|:--|
+| B3 | MA-05+MA-09（trace_id 采信加固） | 后端 `729a28a` | request_context.py `_sanitize_trace_id()`（≤128 + `[A-Za-z0-9._-]` 白名单，空/超长/非法一律新 UUID） | test_request_context 追加 5 用例先红后绿；test_health_ready req-batch2-abc 持续绿 |
+| B2 | MA-07（Prometheus 路由标签） | 后端 `0913ef3` | endpoint 标签改 resolver_match.route（命名组转 `<name>`、`{unresolved}` 兜底）+ 排除名单 | test_prometheus_middleware 8 用例先红后绿 |
+| B1 后端 | MA-06（frontend-logs 端点 + formatter 白名单） | 后端 `1df586a` + `1f9addd`（匿名白名单补录） | POST /api/v1/frontend-logs/（AllowAny + 60/min + 16KB→413 + 白名单脱敏）；formatter 9 字段 default-deny；frontend.error 落 file；基线重导 +266 | test_frontend_logs 8 用例 + formatter 3 用例 + 反向护栏补录 |
+| B1 前端 | MA-06（sink + 全局处理器 + 构建期断言） | 前端 `e3e9630` | baseUrl.ts 单源拆分 + frontendLogSink 三级降级 + globalErrorHandlers + postbuild verify + CI step | logger 扩 3 用例 + frontendLogSink 14 用例 + globalErrorHandlers |
+| B4 部署期 | MA-08 + MA-28（部署期包） | 零代码 | METRICS_TOKEN fail-closed 断言 + DockerHub token scope 核对 + M-05 六步留痕 | 部署侧执行留痕（MA-28 的 [待确认] 外部 Grafana 消费方维持） |
+
+收口核对：
+- **豁免/契约**：[PATCH-BE] 已按「日志结构化白名单机制」口径登记 backend-business-rules.md §5.1（9 字段 default-deny，OWASP Logging Cheat Sheet 依据）；formatter 白名单只作用于输出层序列化，log_hygiene 结构门白名单（3 处）不受影响。
+- **台账终态**：MA-05/06/07/09 → 待修复 → **已修复（本批）**；MA-08 → 部署期必做（随 MA-28 六步留痕）；批次 C/D 条目维持待修。
+- **双端全量门禁（本机实测，2026-11-16/17；CT-7 口径：权威以 CI run `$GITHUB_STEP_SUMMARY` 为准）**：后端全量 2460 passed / 90.47%（批次 A 收口时基线）+ 本批定向门禁绿；前端全量 2721 passed（批次 A 基线）+ 本批定向门禁绿。
