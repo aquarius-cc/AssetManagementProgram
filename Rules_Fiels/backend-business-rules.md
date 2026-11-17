@@ -4,7 +4,7 @@
 ### 📄 文档 4：后端业务规范 `/Rules_Fiels/backend-business-rules.md` (v1.27)
 
 # 后端业务规范与设计思路 (Backend Business Rules)
-> 版本：v1.27 | 最后更新：2026-11-12
+> 版本：v1.28 | 最后更新：2026-11-17
 > 适用范围：Django 6.0 + DRF 3.16 + PostgreSQL 16
 
 ## 一、设计思路（防腐与一致性）
@@ -169,7 +169,7 @@ repairing ──repair_done──┘    │               │                  �
 | 损坏/遗失 | 登记/找回/送修 | ✅ | ✅ 本部门+下级 | ✅ 本部门 | ❌ | ❌ |
 | 报废审批 | 申请（单条 create）/审批通过/拒绝/批量删除 | ✅ | ✅ 本部门+下级 | ❌ | ❌ | ❌ |
 | 未登记资产 | 处理审批 | ✅ | ✅ 本部门+下级 | ❌ | ❌ | ❌ |
-| 系统配置 | 类型/仓库/合同/员工/部门/用户 | ✅ | ❌ | ❌ | ❌ | ❌ |
+| 系统配置 | 类型/仓库/合同/员工/部门/用户 | ✅（「用户」写操作含自助例外：本人经 `IsSystemAdminOrSelf` 可 update/partial_update/destroy 自己的账号，MA-11） | ❌ | ❌ | ❌ | ❌ |
 | 审计日志 | 查看 | ✅ | ❌ | ❌ | ❌ | ✅ |
 | 操作日志 | 查看 | ✅ | ✅ 本部门 | ✅ 本部门 | ✅ 本部门 | ✅ 全部 |
 | 仪表盘 | 查看 | ✅ | ✅ 本部门+下级 | ✅ 本部门 | ✅ 本部门 | ✅ 全部 |
@@ -209,7 +209,7 @@ P3-9 读面收口后，`RoleViewSet`（list/retrieve）与 `PermissionViewSet`�
 
 | ID | 规范项 | 约束内容 | 违规补救 |
 |:---|:---|:---|:---|
-| B11 | **RBAC 权限检查** | 所有写操作（create/update/destroy）**必须**通过权限类校验角色，**禁止**仅用 `IsAdminUser` 作为唯一写权限控制 | 补充角色权限类 |
+| B11 | **RBAC 权限检查** | 所有写操作（create/update/destroy）**必须**通过权限类校验角色，**禁止**仅用 `IsAdminUser` 作为唯一写权限控制；「用户」域写操作已归一至具名权限类 `IsSystemAdminOrSelf`（system_admin 任意 / 本人 `auth_id` 自助），自助为 §4.2 矩阵「用户」行**有登记例外**，非 IsAdminUser 单控 | 补充角色权限类 |
 | B12 | **行级数据隔离** | Selector 层**必须**实现 `get_queryset_for_user(user)` 方法，根据用户角色和部门范围过滤查询结果 | 补充 Selector 方法 |
 | B13 | **部门归属动态解析** | 资产的部门归属**禁止**使用冗余字段存储，**必须**通过 `resolve_asset_department_codes()` 动态解析 | 删除冗余字段，改用动态解析 |
 | B14 | **批量操作逐条校验** | 批量删除/批量更新**必须**逐条校验权限，无权限的条目跳过并返回错误，**禁止**整体校验 | 改为逐条校验 |
@@ -367,6 +367,7 @@ P3-9 读面收口后，`RoleViewSet`（list/retrieve）与 `PermissionViewSet`�
 | 端点日志范围 | 豁免仅限健康探测端点的 SDK 级重试与日志级别；不扩展至其他外部调用。DB 探测语句超时、编排侧 `urlopen()` 无 timeout 另挂 D-13 | D-13 |
 
 ## 六、变更日志
+- v1.28 (2026-11-17): **[PATCH-BE] MA-11 AuthUser 写权限例外登记**——§4.2「系统配置…用户」行与 B11 条文补注 self-service 例外（本人经具名权限类 `IsSystemAdminOrSelf` 自助改/删自己账号；system_admin 任意操作），措辞为「写操作经具名权限类校验，自助为 §4.2/B11 有登记例外」。代码落点 `core/permissions.py` + `apps/authusermanagement/views.py`（提交 `d0bd300`）；矩阵 :172 原无此例外登记（实测订正）。**§5.4 不适用**：仅登记补注，不收紧阈值、不改变 CI 阻断行为。登记：BF-197（批次 C 收口）。
 - v1.27 (2026-11-12): **[PATCH-BE] 批次 2 一次审批包**（M-01~M-04）——① §3 业务约束 8 渠道清单扩充两个调度层渠道（`asset_audit_decorator` / `generic_audit_dispatch`），沿用「单次失败只计一处」，渠道唯一事实源收敛至 `core/audit_failure.py` docstring；② 新增 §5.2 健康探测与审计失败口径登记（编排层重试豁免、10s 预算、WARNING 级别、脱敏、五字段来源、REDIS_URL 存量声明）。**§5.4 不适用**：均为口径/登记订正，不收紧阈值、不改变 CI 阻断行为，零跨端契约变更。登记：BF-189。
 - v1.26 (2026-11-10): **[PATCH-BE] 批次 6 一次审批包**（M-22/M-38/M-23 三处合并共用一次 §4.2 人工审批与一次版本升级，参照 v1.24 先例）——① B1 订正（M-22）：`message` 改为展示文案口径（值不固定、成功与否以 `code` 判定、前端不得按字面值分支；跨端契约 §3 的 `message: "str"` 一字不改）；② 业务约束第 4 条拍板「有值必验、缺值可略」（M-38）：`repair_asset_service.py` 现行实现升格为规范口径，零代码变更，配套契约用例 `test_repair_done_grade_optional_but_validated_when_present` / `test_repair_done_grade_omitted_keeps_asset_grade`（`test_repair_service_gaps.py`）；③ 新增 §5.1 日志通道口径豁免登记（M-23，D4-A′）：dev/test console 为人读通道豁免（OC-2 权威载体 = file handler），production console 单点覆写 JSON 为环境分流、非重复实现；`simple` formatter 含 `{trace_id}` 占位符，消费 handler 必须挂 `TraceIDFilter`。**§5.4 不适用**：三条均为口径/登记订正，不收紧任何阈值、不改变 CI 阻断行为。登记：BF-187（原登记号 BF-186 已被批次 4b 占用，顺延）。
 - v1.25 (2026-11-09): **demo-seed 豁免行转正 + 旁路消除（§4.2 审批通过）**——① §3「特殊回退操作」demo-seed 行 [待确认] → 经 §4.2 审批（2026-11-09）确认豁免；② 残留③（无创建审计）消除：`seed_grouped_assets` 实际新建 Asset 时经 `transaction.on_commit` 以系统标识 `SYSTEM-SEED` 补 `AuditLog`（`seed_action=demo_inject`），残留收敛为两条（未走 `create_asset` / `DEMO-A###` 固定编码与 `--reset` 幂等耦合）；③ 同批收口 M-05②：合同支付审计四载荷 `operator_jobcode` 改 kw-only 必填（TypeError 契约用例，防无操作人审计行，对齐 M-07 形态）。登记：批次 3 收尾。
