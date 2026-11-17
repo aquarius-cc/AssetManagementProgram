@@ -213,3 +213,24 @@ B-N-03（前端 useDashboardPage.ts:150-160 `toLocaleTimeString` 按浏览器时
 收口核对：
 - **台账终态**：MA-06/07/09 → 待修复 → **已修复（本批）**；MA-08/MA-28 → **部署期待执行**（收口小节与 BF-196 遗留段留痕，部署日完成后销项）；其余批次 C/D 条目维持待修。
 - **双端全量门禁（本机实测，2026-11-17；CT-7 口径：权威以 CI run `$GITHUB_STEP_SUMMARY` 为准）**：后端 `pytest --cov=. --cov-fail-under=80` = **2487 passed / 总覆盖 90.54% ≥ 80 / exit 0**（27 分 40 秒；首跑 2486+1 failed——OpenAPI 反向护栏命中新匿名端点，白名单补录后复跑全绿）；Service 四域 `--cov-fail-under=90` = **98%**；mypy --strict 233 files 0 issues；ruff/format/C90 全过；`makemigrations --dry-run` No changes detected；schema 基线 diff **exit 0**。前端 `vitest run` 全量 = **2732 passed / 277 文件 / exit 0**（首跑 unhandled rejection——既有 spec logger 触发 happy-dom 真实网络，setup sendBeacon 桩修复后复跑全绿）；type-check/lint:ci/format:check/build（含 postbuild verify）全绿。护栏六件套（duplicate invariants / BR-4 / BR-6 / frontend invariants / secret tracking / check_ci_orchestration）全 PASS。mutmut / 前端 test:mutate / e2e 本机未跑，留 CI 收口（BF-196 如实在案）。
+
+
+## 九、批次 C 收口小节（2026-11-17 执行后追加）
+
+批次 C 六包（C1~C5 代码 + C6 三层）已执行完毕并原子提交，收口状态：
+
+| 工作包 | 条目 | 提交（子仓/根仓） | 关键产出 | 回归证据 |
+|:--|:--|:--|:--|:--|
+| C1 | MA-12 | 后端 `70de4f2` | 两 ViewSet 类级 queryset 置 .none()（authuser 两步法）+ 守卫注释 | 新闸门用例先红后绿；67 用例零回归；schema 零漂移 |
+| C2 | MA-11 | 后端 `d0bd300`；根 `accc364`（[PATCH-BE] v1.28） | IsSystemAdminOrSelf 归一 + 删手写对象检查分支；§4.2/B11 �注 self-service 登记例外 | test_authuser_rbac_self 9 用例（含 403 文案逐字）；schema 零漂移 |
+| C3 | MA-10 | 前端 `e6e51d9`/`1824ee1`/`6d9ab47`；根 `5bd1aa7` | failedMap 单源（B-44）+ dashboard 8 处收编（B-45）+ 15 处文案规则式收口（B-46）；complete-patterns.md 登记 | failedMap 7 + dashboard 52 用例；stryker 84.32 ≥ 80；rg 双验收归零 |
+| C4 | MA-13 | 后端 `30b23a5` | 11 处 date.today()/now().date() → localdate()（CST 日历日，容器 TZ 解耦）；夹具与断言同源化 | test_localdate_cst 冻结 now 先红后绿；定向 203 passed |
+| C5 | MA-14 | 前端 `3d7bdf6` | 三条 echarts 链组件异步化 + manualChunks vue 前置 + 移除 echarts manualChunk（备选实测启用） | index.html modulepreload echarts 0 命中；首屏 preload gzip 422.8KB（原 630KB+） |
+| C6 | MA-15 | 后端 `3bc4260` + nginx `2a19073` + 前端探针 `dc3967f` | CspMiddleware 三态 fail-closed + 指令 dict-of-lists 单源 + unsafe-eval 移除 + 上报端点 + nginx 单源下发 + VITE_CSP_PROBE 探针默认关 | test_csp_middleware 14 用例；core 387 passed；schema 零漂移 |
+
+收口核对：
+- **台账终态**：MA-10/11/12/13/14/15 → 待修复 → **已修复（本批）**；MA-11 拍板①（代码归一 + §4.2/B11 文档补注例外，[PATCH-BE] v1.28）。
+- **如实标注**：后端 mutmut 本机未跑（官方仅支持 WSL/Unix，Windows 直接退出——参照 BF-196 先例留 CI 收口；C4 的 services 两文件在变异范围内）；nginx -t 与「全站控制台零 CSP 违规」为部署日验证项（本机无 docker）。
+- **C6 观察期门禁（全部满足才切 enforce 注释行）**：/_csp-violation-report 日志无 connect-src 违规 + 前端 securitypolicyviolation 零事件 + 五页冒烟干净（含 WS 铃铛）+ 双 rg 归零；跨域 WS 发现时写入 CSP_CONNECT_SRC_EXTRA 重走门禁。
+- **双端门禁（本机实测，2026-11-17）**：定向逐包绿（见 BF-197 终态门禁段）；护栏六件套 PASS（随各根仓提交钩子）。
+- **留待部署日**：nginx -t + 观察期启用 + 探针开关决策 + MA-08 六步留痕（BF-196 遗留段同口径）。

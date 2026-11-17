@@ -11467,3 +11467,18 @@ Commit 3（首跑红修复，head 8aa51b0）push 复验：
   - **如实标注**：mutmut / 前端 test:mutate / e2e 本机未跑（Windows 平台限制），留 CI 收口；前端覆盖率分层门禁权威以 CI run `$GITHUB_STEP_SUMMARY` 为准。
 - **遗留（B4 部署期包，待部署日执行并留痕）**：MA-08（METRICS_TOKEN fail-closed 断言 + Bearer 抓取核对 + `/metrics/` 401/200 演练）+ MA-28（DockerHub secrets 权限 Read & Delete 核对）+ M-05 六步留痕；`verify_metrics_deploy.py --preflight` 需 docker compose config（本机无 docker，scripts/tests 147 passed 已覆盖脚本逻辑）；外部/手工 Grafana dashboard 与告警是否消费旧 `endpoint` 标签待生产 UI 核对（仓内 dashboard/alert rules 已确认零消费）。
 - **关联**：merge-audit-20261116.md MA-06/07/08/09/28 与 §三批次 B/§八收口小节；BF-190（M-05 六步前序）；BF-195（批次 A 收口先例）；BF-051（OpenAPI 反向护栏前序）；根级 §1.4 CT-3/CT-7、§8 AR-2。
+
+## BF-197【已关闭】批次 C 上线后治理六包——死闸门/AuthUser 权限归一/前端 DRY 收编/时区口径/echarts 懒加载/CSP 收紧｜来源：`docs/Review/merge-audit-20261116.md` 批次 C（MA-10~15，v3.1 锁定版）
+
+- **编号说明**：登记前核账本最大号 **BF-196**（文件尾已核），顺延取 **BF-197**，无撞号。
+- **状态**：🔒 收口中（2026-11-17，六包代码原子提交 + 定向门禁绿；nginx -t 与控制台零违规留部署日验证）| 登记日期：2026-11-17
+- **执行内容（六包，对应 merge-audit-20261116.md §三批次 C）**：
+  1. **C1/MA-12**（后端 `70de4f2`）：死闸门治理——EmployeeViewSet 类属性 queryset 置 .none()（真实取行唯一入口 get_queryset/BF-048 不变）+ AuthUserViewSet 两步法（新增 get_queryset=all 逐字等价迁移后类属性置 .none()）；新闸门用例 2 文件先红后绿，rbac/pagination/dual-channel 67 用例零回归，schema 零漂移。
+  2. **C2/MA-11**（后端 `d0bd300` + [PATCH-BE] v1.28 根 `accc364`）：AuthUser 写权限归一——新增具名权限类 IsSystemAdminOrSelf（system_admin 任意/本人 auth_id 自助），get_permissions 收编 + 删 check_object_permissions 手写分支，403 文案逐字不变；test_authuser_rbac_self.py 9 用例；§4.2「系统配置…用户」行与 B11 条文补注 self-service 登记例外（HALT 人工确认后落盘）。
+  3. **C3/MA-10**（前端 `e6e51d9`/`1824ee1`/`6d9ab47` + DRY 账本根 `5bd1aa7`）：C3-1 failedMap 单源下沉（utils/batchImport/failedMap.ts，4 消费方去重，7 用例）；C3-2 dashboard 8 处内联 catch 收编 notifyCallerError（edge spec 3 用例零改，stryker 84.32 ≥ break 80）；C3-3 9 文件 15 处硬编码文案规则式收口（M-RC-09 单出口全量归一）；complete-patterns.md 登记 B-44~B-46。
+  4. **C4/MA-13**（后端 `30b23a5`）：时区口径统一 localdate——实测 11 处（dashboard_selector ×3、out_asset_selector ×1、handlers ×3、services ×2、damaged_asset_view ×1）date.today()/timezone.now().date() → timezone.localdate()（CST 日历日，容器 TZ 解耦）；test_dashboard_alert_window 7 处夹具与 test_repair_service_gaps 断言同源化；新增 test_localdate_cst.py 冻结 now=2026-11-15T16:30Z 先红后绿；定向 203 passed。
+  5. **C5/MA-14**（前端 `3d7bdf6`）：echarts 移出首屏——DashboardPage 三条 echarts 链组件 defineAsyncComponent 异步化 + manualChunks vue/@vue 前置 + 备选方案启用（移除 echarts manualChunk：rolldown manualChunk preload 策略实测归零验证）；dist/index.html modulepreload echarts 0 命中，首屏 preload gzip 422.8KB（echarts 207KB gz 不再买单）。
+  6. **C6/MA-15**（后端 `3bc4260` + nginx `2a19073` + 前端探针 `dc3967f`）：CSP 三态收紧——CspMiddleware 改名 + CSP_MODE off/report-only/enforce fail-closed + 指令值 dict-of-lists 单源归一 + 移除 unsafe-eval + connect-src 收敛 + frame-ancestors/report-uri；/_csp-violation-report/ 上报端点（纯 Django 视图 + 16KB→413 + 双 content-type + 白名单脱敏 + csp_report 桶双注册）；nginx 两 tpl server 级 CSP-Report-Only + 7 proxy 剥离行 + static/media 显式重复 + 上报 proxy location（HALT 人工确认后落盘）；前端探针 VITE_CSP_PROBE 默认关闭；test_csp_middleware.py 14 用例，core 387 passed。
+- **终态门禁（本机实测，CT-7 口径：权威以 CI run 为准）**：后端定向（C1 闸门+67 回归 / C2 10 / C4 203 / C6 14+core 387）+ ruff/mypy/schema 零漂移逐包绿；前端 type-check/lint:ci 绿 + failedMap 7 / dashboard 52 / 图表挂载 5 passed；stryker 前端 84.32 ≥ break 80（exit 0）。
+- **如实标注**：后端 mutmut 本机未跑（官方仅支持 WSL/Unix，Windows 直接退出，参照 BF-196 先例留 CI 收口）；C4 services 两文件在变异范围内，CI 变异红先查基线漂移；nginx -t 与「全站控制台零 CSP 违规」为本机无 docker 不可验证项，留部署日（观察期门禁：违规日志零 + 探针零事件 + 五页冒烟 + 双 rg 归零，全满足才切 enforce 注释行）。
+- **关联**：merge-audit-20261116.md MA-10~15 与 §九收口小节；BF-195/BF-196（批次 A/B 先例）；[PATCH-BE] v1.28；complete-patterns.md B-44~B-46；M-RC-09/DR-2/BF-048。
