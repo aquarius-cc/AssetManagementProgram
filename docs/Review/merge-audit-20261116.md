@@ -197,3 +197,19 @@ B-N-03（前端 useDashboardPage.ts:150-160 `toLocaleTimeString` 按浏览器时
 - **豁免面**：A5 三处豁免（audit.py:82,106、audit_service.py:70）未改动，结构门白名单锁定。
 - **台账终态**：MA-02/03/04/05 → 待修复 → **已修复（本批）**；MA-25 → 已关闭（BF-164，非本批）；其余批次 B/C/D 条目维持待修。
 - **双端全量门禁（本机实测，2026-11-16；CT-7 口径：权威以 CI run `$GITHUB_STEP_SUMMARY` 为准）**：后端 `pytest --cov=. --cov-fail-under=80` = **2460 passed / 总覆盖 90.47% ≥ 80 / exit 0**（35 分 35 秒）；前端 `vitest run` 全量 = **2721 passed / 275 文件 / exit 0**（204 秒）；双端 ruff/mypy --strict/C90 抽验全绿（本批触碰文件）。
+
+## 八、批次 B 收口小节（2026-11-17 执行后追加）
+
+批次 B 四包中 B1/B2/B3 已全部执行完毕并原子提交，B4 为部署期包待生产环境执行，收口状态：
+
+| 工作包 | 条目 | 提交（子仓） | 关键产出 | 回归证据 |
+|:--|:--|:--|:--|:--|
+| B3 | MA-09 | 后端 `729a28a` | `_sanitize_trace_id()`：X-Request-ID 仅接受 1~128 位 `[A-Za-z0-9._-]`，非法/超长/空值一律新 UUID（防日志注入） | request_context 5 用例先红后绿 |
+| B2 | MA-07 | 后端 `0913ef3` | endpoint 标签改用 `resolver_match.route`（命名组→`<name>`）+ 排除 metrics/health/ready 与 static/media；`_PATH_PATTERNS` 猜测正则整块移除 | prometheus_middleware 8 用例先红后绿 |
+| B1 | MA-06 | 后端 `1df586a` + `1f9addd`（反向护栏白名单补录） | POST `/api/v1/frontend-logs/`（AllowAny + 限流 + 16KB + 白名单脱敏）；`StructuredJSONFormatter` 9 字段 extra 白名单 default-deny；OpenAPI 基线 266 op | 端点 8 + formatter 3 用例；反向护栏命中→白名单补录后 7 passed |
+| B1 | MA-06 | 前端 `e3e9630` | baseUrl 单源 + frontendLogSink（sendBeacon→IndexedDB→内存三级降级）+ globalErrorHandlers + logger 接线 + postbuild verify + CI step | frontendLogSink 14 用例 + globalErrorHandlers + logger 扩展；vitest 全量 2732/277 |
+| B4 | MA-08+28 + M-05 | **待部署日** | METRICS_TOKEN fail-closed 断言 + Bearer 核对 + `/metrics/` 401/200 演练 + DockerHub token 权限核对 + 六步留痕 | `verify_metrics_deploy.py` 逻辑已由 scripts/tests 覆盖（147 passed）；compose preflight 需 docker（本机未装），生产执行并留痕 |
+
+收口核对：
+- **台账终态**：MA-06/07/09 → 待修复 → **已修复（本批）**；MA-08/MA-28 → **部署期待执行**（收口小节与 BF-196 遗留段留痕，部署日完成后销项）；其余批次 C/D 条目维持待修。
+- **双端全量门禁（本机实测，2026-11-17；CT-7 口径：权威以 CI run `$GITHUB_STEP_SUMMARY` 为准）**：后端 `pytest --cov=. --cov-fail-under=80` = **2487 passed / 总覆盖 90.54% ≥ 80 / exit 0**（27 分 40 秒；首跑 2486+1 failed——OpenAPI 反向护栏命中新匿名端点，白名单补录后复跑全绿）；Service 四域 `--cov-fail-under=90` = **98%**；mypy --strict 233 files 0 issues；ruff/format/C90 全过；`makemigrations --dry-run` No changes detected；schema 基线 diff **exit 0**。前端 `vitest run` 全量 = **2732 passed / 277 文件 / exit 0**（首跑 unhandled rejection——既有 spec logger 触发 happy-dom 真实网络，setup sendBeacon 桩修复后复跑全绿）；type-check/lint:ci/format:check/build（含 postbuild verify）全绿。护栏六件套（duplicate invariants / BR-4 / BR-6 / frontend invariants / secret tracking / check_ci_orchestration）全 PASS。mutmut / 前端 test:mutate / e2e 本机未跑，留 CI 收口（BF-196 如实在案）。

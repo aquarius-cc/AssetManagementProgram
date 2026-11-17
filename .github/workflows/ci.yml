@@ -393,6 +393,9 @@ jobs:
       # 引 v3.5.1/G-5 先例不触发 §5.4 沙盒期。
       - name: TypeScript 类型检查
         run: npm run type-check
+      # B1：构建产物断言前端日志 sink 真实打包（sendBeacon + /api/v1/frontend-logs/）
+      - name: Build bundle and verify frontend log sink
+        run: npm run build-only && node scripts/verify-frontend-log-sink.mjs
 
   frontend-complexity:
     name: "前端 - 复杂度检查 (ESLint complexity)"
