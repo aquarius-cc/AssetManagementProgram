@@ -824,6 +824,26 @@
 
 ---
 
+### B-44. 【新发现 2026-11-17】导入提交管线 failedMap 三份同型 + useBatchImport 内联 id map（4 处消费方）
+- **编号**：顺延登记（B-43 后最大号 +1）。**状态**：单源下沉（2026-11-17，C3-1/MA-10）| 登记日期：2026-11-17 | 登记来源：`docs/Review/merge-audit-20261116.md` MA-10（A-FE-3 + B-N-01/02）。
+- **判定**：AssetBatchImport.vue / AssetTypeBatchImport.vue 各 4 helper（extract400Items/isFailItem/buildFailedMap/applyFailedMapToRows）同型复制；ContractBatchImport.vue:222-248 内联 index map；useBatchImport.ts:105-124 内联 id map。
+- **修复方案**：新建 `src/utils/batchImport/failedMap.ts` 单源——extract400Items（统一取带 status===400 闸的版本）+ isFailItem + buildFailedMapByIndex + applyFailedMapToRows + buildFailedMapFromIds；两套映射语义（index/id）并存不合并；4 消费方全部切单源。
+- **验证命令**：`npx vitest run src/utils/batchImport/__tests__/failedMap.spec.ts` → 7 passed；`npm run type-check` 全绿；`git log` 前端 `e6e51d9`。
+
+### B-45. 【新发现 2026-11-17】dashboard.ts 8 处内联 catch（logError + isApiError 分支 + ElMessage.error）与 notifyCallerError 同构
+- **编号**：顺延登记（B-44 后最大号 +1）。**状态**：单源收编（2026-11-17，C3-2/MA-10）| 登记日期：2026-11-17 | 登记来源：`docs/Review/merge-audit-20261116.md` MA-10（B-N-01）。
+- **判定**：stores/dashboard.ts 行 197/221/244/271/295/315/336/356 八处同型三行 catch，与 M-RC-09 双轨契约单出口 notifyCallerError 同构。
+- **修复方案**：保留 logError('stores/dashboard') 补上下文，弹窗交 notifyCallerError；删 isApiError 分支与 ElMessage/element-plus import；fetchAssetTrend requestId 竞态守卫原位保留。
+- **验证命令**：`rg "isApiError\(" src/stores/dashboard.ts` → 0；`npx vitest run src/stores/__tests__/dashboard.edge.spec.ts` → 3 passed（8 条断言零改）；dashboard 全量 52 passed；`git log` 前端 `1824ee1`。
+
+### B-46. 【新发现 2026-11-17】9 文件 15 处删除/批量删除硬编码文案（ElMessage.error 直弹无 logError）
+- **编号**：顺延登记（B-45 后最大号 +1）。**状态**：规则式收口（2026-11-17，C3-3/MA-10）| 登记日期：2026-11-17 | 登记来源：`docs/Review/merge-audit-20261116.md` MA-10（B-N-02）。
+- **判定**：componentsdetails 下 9 文件 catch 块硬编码「删除失败，请重试/请刷新页面重试/批量删除失败，请重试」15 处，未走 M-RC-09 单出口。
+- **修复方案**：Type A（已有 logError）12 处——ElMessage.error → notifyCallerError；Type B（无 logError）3 处（StorageDetails:222、AssetTypeDetails :402/:438 else 分支）——补 logError + notifyCallerError；AssetTypeDetails 400 专项文案分支保留。
+- **验证命令**：`rg "ElMessage\.error\((['\`])[^'\`]*删除失败" src` → 0；type-check 全绿；eslint 9 文件 0 告警；本批 C3-3 提交。
+
+---
+
 ## C — 降级/待决策（Downgraded / Decision Gate）
 
 ### C-1. 前端资产状态回退行为三态分歧（已解决）
