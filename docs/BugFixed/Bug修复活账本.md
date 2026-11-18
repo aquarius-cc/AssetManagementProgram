@@ -11482,3 +11482,16 @@ Commit 3（首跑红修复，head 8aa51b0）push 复验：
 - **终态门禁（本机实测，CT-7 口径：权威以 CI run 为准）**：后端定向（C1 闸门+67 回归 / C2 10 / C4 203 / C6 14+core 387）+ ruff/mypy/schema 零漂移逐包绿；前端 type-check/lint:ci 绿 + failedMap 7 / dashboard 52 / 图表挂载 5 passed；stryker 前端 84.32 ≥ break 80（exit 0）。
 - **如实标注**：后端 mutmut 本机未跑（官方仅支持 WSL/Unix，Windows 直接退出，参照 BF-196 先例留 CI 收口）；C4 services 两文件在变异范围内，CI 变异红先查基线漂移；nginx -t 与「全站控制台零 CSP 违规」为本机无 docker 不可验证项，留部署日（观察期门禁：违规日志零 + 探针零事件 + 五页冒烟 + 双 rg 归零，全满足才切 enforce 注释行）。
 - **关联**：merge-audit-20261116.md MA-10~15 与 §九收口小节；BF-195/BF-196（批次 A/B 先例）；[PATCH-BE] v1.28；complete-patterns.md B-44~B-46；M-RC-09/DR-2/BF-048。
+
+## BF-198【已关闭】批次 D 卫生与文档六包——兜底日志/迁移 logger/updated_at/lazy 日志/状态未知键告警/DR 收敛/契约豁免/护栏 G-0｜来源：`docs/Review/merge-audit-20261116.md` 批次 D（MA-16~26/29/30，v2.4 定稿）
+
+- **编号说明**：登记前核账本最大号 **BF-197**（批次 C，文件尾已核），顺延取 **BF-198**，无撞号。
+- **状态**：🔒 收口中（2026-11-18，六包代码原子提交 + 定向门禁绿；MA-22③ 7 处标注删除待逐条批准；nginx -t/烟测留部署日）| 登记日期：2026-11-18
+- **执行内容（四包）**：
+  1. **包1 后端卫生**（后端 `7ddf0b4`）：MA-16 scrapping.py 两处兜底补 warning（original_status 原值留痕，caplog 断言 + 合法回退不告警锚定）；MA-17 0010 迁移 print→logger.error/info（exception_type 口径，新验收：直接调用 + mock 失败行断言，新用例 2 个）；MA-18 recycle_asset_service 三处 update_fields 显式带 updated_at（broken/lost/cancel_recycle，倒退一天基线断言防同微秒假阴性，跨文件同型点另批核对表）；MA-19 notification_service 三处 f-string→lazy %s + exception_type（异常原文不落盘）+ 脱敏登记机制可扩展用例（P0/P1/P3，登记表暂不扩待 P1 清单确认）。定向 106+35 passed。
+  2. **包2 前端卫生**（前端 `f631cae`）：MA-20 getStatusInfo 单点告警（warnOnUnknown 默认参数兼容 22 调用点，StatusTag 传 false 防重复，statusMapping.spec 40 passed）；MA-21 三小收敛——(a) DEFAULT_PAGE_SIZE 硬归零 37 处（步骤 0 实测基线 baseline-batchD-20261117.txt）+ 新增 DEFAULT_SUGGESTION_LIMIT 语义隔离常量（联想桶 5 处，反向断言两条）；(b) formatPriceWithThousands 下沉 Format.ts + ContractPaymentRecord 复用（千分位/null/NaN 用例）；(c) useNotification 裸 catch 补 logError（conn 两处 JSON.parse 判定有意设计登记）。
+  3. **包3 契约文档**（后端 `62e1167` + 根 `0f4e1d6`/`7fbe3ad`）：MA-22① B1 信封豁免登记表（根级 6 端点+消费方+理由，v1.29 变更日志）；② api_root 删 "admin" 键 + H10 注释改写「根路径不重定向」（schema 零漂移已验证）；③ 7 处 AI_REVIEW_NEEDED 复核意见另行呈现（逐条批，AI 不自删）；MA-24 前置清单归档 + 清理 .stryker-tmp/sandbox-* ×6 与 everything-claude-code/；MA-29 R-3 计划销项标注；MA-30 交叉引用留痕。
+  4. **包4 护栏账本**（根 `0398228`）：MA-26 B-31 缺陷族第④⑤处收编——三护栏（BR-4/BR-6/前端⑤）统一 G-0 fail-closed（零字节豁免、非空不可解码→BLOCKING、SyntaxError→BLOCKING 不再 WARN 跳过），三套测试先红后绿补 7 用例（含 docstring 用例夹具修正——旧版静默跳过曾使其假绿）；真仓三护栏 PASS；MA-27 维持登记态（C-14 裁决在场）。
+- **终态门禁（本机实测，CT-7 口径：权威以 CI run 为准）**：后端定向（state_machine 71 / 迁移日志 2 / recycle 三件 56 / notification+masking 35 / health_ready 12）+ ruff/mypy 逐包绿；前端 type-check/lint:ci/format:check 绿 + 定向（statusMapping 40 / paginationDefaults / Format+ContractPaymentRecord 80 / useNotification 172）。
+- **如实标注**：后端 mutmut 本机未跑（Windows 限制，参照 BF-196 先例留 CI 收口）；MA-22③ 7 处 AI_REVIEW_NEEDED 删除待用户逐条批准（复核意见已出：全部建议删除）；MA-19 P1 脱敏字段清单出样待确认（枚举自 core/audit_service.py:51 入参与 employee/department 适配器键）。
+- **关联**：merge-audit-20261116.md MA-16~30 与 §十收口小节；BF-195/196/197（批次 A/B/C 先例）；[PATCH-BE] v1.28/v1.29；complete-patterns.md B-44 语义决策追加。

@@ -234,3 +234,27 @@ B-N-03（前端 useDashboardPage.ts:150-160 `toLocaleTimeString` 按浏览器时
 - **C6 观察期门禁（全部满足才切 enforce 注释行）**：/_csp-violation-report 日志无 connect-src 违规 + 前端 securitypolicyviolation 零事件 + 五页冒烟干净（含 WS 铃铛）+ 双 rg 归零；跨域 WS 发现时写入 CSP_CONNECT_SRC_EXTRA 重走门禁。
 - **双端门禁（本机实测，2026-11-17）**：定向逐包绿（见 BF-197 终态门禁段）；护栏六件套 PASS（随各根仓提交钩子）。
 - **留待部署日**：nginx -t + 观察期启用 + 探针开关决策 + MA-08 六步留痕（BF-196 遗留段同口径）。
+
+
+## 十、批次 D 收口小节（2026-11-18 执行后追加）
+
+批次 D 六包（包1 后端卫生 / 包2 前端卫生 / 包3 契约文档 / 包4 护栏账本）已执行完毕并原子提交，收口状态：
+
+| 工作包 | 条目 | 提交（子仓/根仓） | 关键产出 | 回归证据 |
+|:--|:--|:--|:--|:--|
+| MA-16 | 兜底补日志 | 后端 `7ddf0b4` | scrapping.py 两处兜底补 warning（original_status 原值留痕） | state_machine 71 passed（caplog 断言 + 合法回退不告警锚定） |
+| MA-17 | 迁移 print→logger | 后端 `7ddf0b4` | 0010 迁移 logger.error/info + exception_type 口径；新验收替代 dry-run 口径 | test_migration_paid_record_logging 2 用例（mock 失败行断言 error_count） |
+| MA-18 | updated_at 显式带戳 | 后端 `7ddf0b4` | recycle_asset_service 三处（broken/lost/cancel_recycle）；跨文件同型点另批核对表 | recycle 三件 56 passed（倒退一天基线断言防同微秒假阴性） |
+| MA-19 | lazy 日志 + 脱敏分层 | 后端 `7ddf0b4` | notification_service 三处 f-string→lazy %s + exception_type；脱敏登记机制可扩展用例（P0/P3） | notification+masking 35 passed |
+| MA-20 | 状态未知键告警 | 前端 `f631cae` | getStatusInfo 单点告警（warnOnUnknown 默认参数）+ StatusTag 传 false 防重复 | statusMapping.spec 40 passed |
+| MA-21 | DR 三小收敛 | 前端 `f631cae` | DEFAULT_PAGE_SIZE 硬归零 37 处 + DEFAULT_SUGGESTION_LIMIT 语义隔离（联想桶 5 处）+ formatPriceWithThousands 下沉 + 裸 catch 补 logError | paginationDefaults 反向断言 + Format/statusMapping/useNotification 172 passed |
+| MA-22 | 契约口径 | 后端 `62e1167` + 根 `0f4e1d6` | B1 信封豁免登记表（6 端点）+ 删 admin 键 + H10 注释改写 | health_ready 12 passed；schema 零漂移 |
+| MA-24 | 文档与本地清理 | 根 `0f4e1d6` | 前置清单归档 baseline-batchD-20261117.txt；.stryker-tmp ×6 + everything-claude-code/ 已删 | git status 干净 |
+| MA-26 | 护栏 G-0 第④⑤处 | 根 `0398228` | 三护栏统一 fail-closed（零字节豁免/解码失败/SyntaxError → BLOCKING） | 三套测试 29 passed（先红后绿 + docstring 夹具修正）；真仓三护栏 PASS |
+| MA-27/29/30 | 账本遗留 | 无代码 | MA-27 保持登记态（C-14 裁决在场）；MA-29 R-3 销项标注；MA-30 交叉引用留痕 | complete-patterns.md:730 裁决在场 |
+
+收口核对：
+- **台账终态**：MA-16/17/18/19/20/21/22/24/26 → 待修复 → **已修复（本批）**；MA-23 factory_boy 另批；MA-27 维持登记态；MA-28 部署期留痕；MA-29 销项；MA-30 留痕。
+- **如实标注**：后端 mutmut 本机未跑（Windows 限制，参照 BF-196 先例留 CI 收口；C4 services 两文件在变异范围内）；MA-22③ 7 处 AI_REVIEW_NEEDED 删除待用户逐条批准（复核意见已出：全部建议删除）；MA-19 P1 脱敏字段清单出样待确认；nginx -t 与「全站控制台零 CSP 违规」为部署日验证项。
+- **混入边界**：根仓非本批产物（.github/workflows/ci.yml、.codebuddy/、docs/Review/ExpiredAuditReport/）保持不纳入。
+- **留待部署日**：nginx -t + C6 观察期启用 + 探针开关决策 + MA-08 六步留痕（BF-196 遗留段同口径）。
