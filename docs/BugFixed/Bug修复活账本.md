@@ -11560,3 +11560,14 @@ Commit 3（首跑红修复，head 8aa51b0）push 复验：
 - **修复方向（待批）**：改父成功后取新父下兄弟（含本节点）按「追加末尾」重排并 `sortDepartments`，与 BF-203 的 `buildSortItems` 共用同一排序构造逻辑（DR-1，避免第三处独立实现）；同时复核新增路径（无父变更）是否需要补 `sort_order`。
 - **关联**：BF-203（同域剩余链路）；`DepartmentFormDialog.vue` 提交流程；`departmentStore.sortDepartments`。
 
+## BF-205【已关闭】MA-23 后端遗留 ruff format 漂移——CI `backend-lint` 在 `0e1db91` 判红，连带 CD 部署门禁拒部署
+
+- **编号说明**：登记前核账本最大号 **BF-204**（同批新登记），顺延取 **BF-205**，无撞号。
+- **状态**：🔒 已关闭（2026-11-18，`0196496` + 根仓指针 `3855b6c`）| 登记日期：2026-11-18
+- **现象**：根仓 `96906ab`（MA-23 收口）的 `CI Pipeline` 结论 `failure`，唯一红 job 为 `backend-lint`：`ruff format --check .` 报「5 files would be reformatted, 464 files already formatted」（`apps/assetmanagement/tests/conftest.py`、`apps/authusermanagement/tests/conftest.py`、`apps/unregisteredasset/tests/conftest.py`、`config/settings/base.py`、`core/tests/test_factory_equivalence.py`）。`backend-test` / `backend-mutation` / api-schema 系列因 `needs` 未执行（skipped），`CI 汇总` 判红，进而 `CD Pipeline` 的 `部署门禁校验` 以「CI 汇总未通过（failure）」fail-closed 拒绝部署。
+- **根因**：MA-23 后端两次提交（`7a190f9` / `0e1db91`）本地只跑了 `python -m ruff check .`，**漏跑 `python -m ruff format --check .`**——`requirements/dev.txt` 注释已明写「提交前请本地双闸」，属执行漏项而非工具链不一致（本地与 CI 同为 ruff 0.17.1，CT-7 无漂移）。
+- **修复**（后端子仓 `0196496`，纯格式零语义）：三域 conftest 的 `AuthUserFactory.create(...)` 多行调用并一行；`config/settings/base.py` 的 `CSP_CONNECT_SRC_EXTRA` 列表推导并一行；`core/tests/test_factory_equivalence.py` 的 `assert` 消息并一行。
+- **验证**：5 文件 `ruff format --check` 通过、`ruff check .` 全通过（All checks passed）；`pytest core/tests/test_factory_equivalence.py apps/assetmanagement/tests/test_state_machine.py` **89 passed**。
+- **取证陷阱（值得记）**：本地另报 4 文件（`config/urls.py`、`config/settings/development.py`、`config/settings/test.py`、`apps/assetmanagement/tests/test_state_machine.py`）需格式化，`ruff format --diff` 逐条核实**仅有一处 LF→CRLF 归一化**（工作树 `core.autocrlf=true` 造成个别行混行），仓库内存量为 LF，CI 不受影响，故未纳入提交——若盲目 `ruff format` 全仓会引入 4 个纯换行噪声 diff。
+- **关联**：MA-23 后端包（BF-199）；CT-5（测试/门禁失败即阻塞）；CT-7（本次本地与 CI 版本一致，红因执行漏项）；BF-103（此前同类「本地漏报 format → CI 红」教训，本次为复发）。
+
