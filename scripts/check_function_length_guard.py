@@ -54,13 +54,17 @@ def scan(scope_dir: Path):
         if is_migration(path) or is_test(path):
             continue
         relative = path.relative_to(scope_dir).as_posix()
+        # 【MA-26】G-0 fail-closed: 零字节豁免（合法空文件），非空不可解码 → BLOCKING 不跳过
+        if path.stat().st_size == 0:
+            continue
         source = read_text(path)
         if not source:
+            BLOCKING.append(f"{relative}: 非空文件不可解码（G-0 fail-closed，不跳过）")
             continue
         try:
             tree = ast.parse(source)
         except SyntaxError:
-            WARNINGS.append(f"{relative}: SyntaxError, skipped")
+            BLOCKING.append(f"{relative}: SyntaxError（G-0 fail-closed，不跳过）")
             continue
         funcs = []
         for node in ast.walk(tree):

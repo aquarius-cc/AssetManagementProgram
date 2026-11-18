@@ -220,9 +220,12 @@ def scan(scope_dir: Path, target_iter, counter=None):
     result = {}
     for path in target_iter(scope_dir):
         relative = path.relative_to(scope_dir).as_posix()
+        # 【MA-26】G-0 fail-closed: 零字节豁免（合法空文件），非空不可解码 → BLOCKING 不跳过
+        if path.stat().st_size == 0:
+            continue
         source = read_text(path)
         if not source:
-            WARNINGS.append(f"{relative}: 读取失败，已跳过")
+            BLOCKING.append(f"{relative}: 非空文件不可解码（G-0 fail-closed，不跳过）")
             continue
         result[relative] = counter(source)
     return result

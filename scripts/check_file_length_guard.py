@@ -78,13 +78,17 @@ def scan() -> dict:
     result = {}
     for path in iter_scope_files():
         relative = path.relative_to(BACKEND).as_posix()
+        # 【MA-26】G-0 fail-closed: 零字节豁免（合法空文件），非空不可解码 → BLOCKING 不跳过
+        if path.stat().st_size == 0:
+            continue
         source = read_text(path)
         if not source:
+            BLOCKING.append(f"{relative}: 非空文件不可解码（G-0 fail-closed，不跳过）")
             continue
         try:
             tree = parse_module(source)
         except SyntaxError:
-            WARNINGS.append(f"{relative}: SyntaxError, skipped")
+            BLOCKING.append(f"{relative}: SyntaxError（G-0 fail-closed，不跳过）")
             continue
         result[relative] = logical_line_count(source, tree)
     return result

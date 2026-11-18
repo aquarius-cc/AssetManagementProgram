@@ -58,6 +58,22 @@ def test_unregistered_over_limit_vue_is_red(tmp_path, capsys):
     assert "未登记超限 .vue 文件" in out and VUE_RELPATH in out
 
 
+def test_nonempty_undecodable_vue_is_red(tmp_path, capsys):
+    """【MA-26】非空但三种编码均不可解码 → BLOCKING（fail-closed），不得静默跳过"""
+    vue_file = tmp_path / "vue-assetmanagement" / "src" / VUE_RELPATH
+    vue_file.parent.mkdir(parents=True, exist_ok=True)
+    vue_file.write_bytes(b"\xff\xff\xff")  # utf-8-sig/utf-8/gbk 全部解码失败
+    ledger = tmp_path / "Rules_Fiels" / "FR6_composable_ledger.md"
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    ledger.write_text("", encoding="utf-8")
+    vue_ledger = tmp_path / "Rules_Fiels" / "FR5_vue_ledger.md"
+    vue_ledger.write_text("", encoding="utf-8")
+    rc = fr.main(["--root", str(tmp_path), "--ledger", str(ledger), "--vue-ledger", str(vue_ledger)])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "G-0" in out and VUE_RELPATH in out
+
+
 def test_exactly_500_lines_passes(tmp_path):
     """恰好 500（边界）→ 通过（退出码 0）"""
     # template 1 有效行 + script 499 = 500，不越线
