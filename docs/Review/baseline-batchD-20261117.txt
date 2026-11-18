@@ -1,0 +1,275 @@
+=== 1. AI_REVIEW_NEEDED（全仓,排 docs/tests）===
+asset_management_backend\apps\usermanagement\services\employee_service.py:252:            # AI_REVIEW_NEEDED: auth_user 同为 FK 与唯一约束,token 无法区分 unique/FK 违例
+asset_management_backend\apps\assetmanagement\services\asset_lifecycle_mixin.py:458:        # AI_REVIEW_NEEDED: 抑制 model.objects 的 attr-defined，实为 Django Manager 注入
+vue-assetmanagement\vite.config.ts:17:// AI_REVIEW_NEEDED: vite proxy error 过滤判据（AR-2①）
+asset_management_backend\core\request_context.py:24:# AI_REVIEW_NEEDED: regex validation required
+asset_management_backend\core\prometheus_middleware.py:30:# AI_REVIEW_NEEDED: regex validation required
+
+=== 2. pageSize 字面量 20（生产代码）===
+vue-assetmanagement/src\stores\auditLogStore.ts:24:  const pageSize = ref(20)
+
+=== 3. save(update_fields 全量枚举）===
+asset_management_backend/apps\notification\migrations\0002_notification_is_active_notification_is_deleted_and_more.py:12:        notification.save(update_fields=['recordcode'])
+asset_management_backend/apps\notification\services\notification_service.py:151:    notification.save(update_fields=["is_read"])
+asset_management_backend/apps\notification\tests\test_notification.py:408:        n.save(update_fields=["is_deleted"])
+asset_management_backend/apps\unregisteredasset\handlers.py:161:    asset.save(update_fields=["asset_current_status", "asset_storage_recordcode"])
+asset_management_backend/apps\unregisteredasset\handlers.py:196:    asset.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\unregisteredasset\handlers.py:242:    asset.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\assetmanagement\services\repair_asset_service.py:89:        asset.save(update_fields=["asset_current_status", "updated_at"])
+asset_management_backend/apps\assetmanagement\services\repair_asset_service.py:255:        asset.save(update_fields=["asset_current_status", "physical_grade", "updated_at"])
+asset_management_backend/apps\assetmanagement\services\repair_asset_service.py:260:        repair_record.save(update_fields=["repair_status", "actual_return_date", "physical_grade_after", "updated_at"])
+asset_management_backend/apps\assetmanagement\services\repair_asset_service.py:300:        asset.save(update_fields=["asset_current_status", "updated_at"])
+asset_management_backend/apps\assetmanagement\services\repair_asset_service.py:313:        repair_record.save(update_fields=["repair_status", "updated_at"])
+asset_management_backend/apps\assetmanagement\services\recycle_asset_service.py:213:        asset.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\assetmanagement\services\recycle_asset_service.py:302:        asset.save(update_fields=update_fields)
+asset_management_backend/apps\assetmanagement\services\recycle_asset_service.py:418:            asset.save(update_fields=update_fields)
+asset_management_backend/apps\notification\tests\test_ws_consumer.py:116:        user.save(update_fields=["auth_is_active"])
+asset_management_backend/apps\assetmanagement\services\out_asset_service.py:178:            outasset.save(update_fields=["outasset_previous_status"])
+asset_management_backend/apps\assetmanagement\services\out_asset_service.py:190:        asset.save(update_fields=update_fields)
+asset_management_backend/apps\assetmanagement\services\out_asset_service.py:265:                asset.save(update_fields=update_fields)
+asset_management_backend/apps\assetmanagement\services\out_asset_service.py:407:        asset.save(update_fields=update_fields)
+asset_management_backend/apps\notification\tests\test_pagination_order_stability.py:60:        n.save(update_fields=["created_at"])
+asset_management_backend/apps\usermanagement\migrations\0004_department_is_deleted_department_recordcode_and_more.py:15:            dept.save(update_fields=['recordcode'])
+asset_management_backend/apps\usermanagement\migrations\0004_department_is_deleted_department_recordcode_and_more.py:26:            emp.save(update_fields=['recordcode'])
+asset_management_backend/apps\authusermanagement\tests\test_self_registration_flag.py:47:    user.save(update_fields=["is_superuser"])
+asset_management_backend/apps\authusermanagement\tests\test_my_permissions.py:47:    user.save(update_fields=["is_superuser"])
+asset_management_backend/apps\authusermanagement\tests\test_dual_channel_auth.py:54:    user.save(update_fields=["is_superuser"])
+asset_management_backend/apps\authusermanagement\tests\test_dual_channel_auth.py:147:        emp.save(update_fields=["role"])
+asset_management_backend/apps\authusermanagement\tests\test_dual_channel_auth.py:214:        user.save(update_fields=["auth_is_active"])
+asset_management_backend/apps\authusermanagement\tests\test_create_throttle.py:99:        admin.save(update_fields=["is_superuser"])
+asset_management_backend/apps\authusermanagement\tests\test_authuser_rbac_self.py:34:    user.save(update_fields=["is_superuser"])
+asset_management_backend/apps\assetmanagement\migrations\0009_fill_recycle_record_code_unique.py:39:                record.save(update_fields=["recycle_record_code"])
+asset_management_backend/apps\unregisteredasset\tests\test_handlers.py:73:        unregistered_asset_s3.save(update_fields=["unregistered_asset_storage"])
+asset_management_backend/apps\assetmanagement\migrations\0011_assettype_recordcode_contract_recordcode_and_more.py:15:            obj.save(update_fields=['recordcode'])
+asset_management_backend/apps\assetmanagement\migrations\0011_assettype_recordcode_contract_recordcode_and_more.py:26:            obj.save(update_fields=['recordcode'])
+asset_management_backend/apps\assetmanagement\migrations\0011_assettype_recordcode_contract_recordcode_and_more.py:37:            obj.save(update_fields=['recordcode'])
+asset_management_backend/apps\assetmanagement\migrations\0010_migrate_paid_record_to_json.py:111:            contract.save(update_fields=['paid_record', 'amount_paid', 'has_payment', 'updated_at'])
+asset_management_backend/apps\assetmanagement\migrations\0010_migrate_paid_record_to_json.py:142:        contract.save(update_fields=['paid_record', 'updated_at'])
+asset_management_backend/apps\authusermanagement\migrations\0003_authuser_recordcode_alter_authuser_auth_phone_and_more.py:14:            obj.save(update_fields=['recordcode'])
+asset_management_backend/apps\assetmanagement\services\asset_lifecycle_mixin.py:157:    asset.save(update_fields=["asset_current_status", "updated_at"])
+asset_management_backend/apps\assetmanagement\services\asset_lifecycle_mixin.py:283:        asset.save(update_fields=["asset_current_status", "updated_at"])
+asset_management_backend/apps\assetmanagement\services\asset_lifecycle_mixin.py:337:        obj.save(update_fields=["is_deleted", "updated_at"])
+asset_management_backend/apps\assetmanagement\services\asset_lifecycle_mixin.py:366:        obj.save(update_fields=["is_deleted", "updated_at"])
+asset_management_backend/apps\assetmanagement\services\asset_lifecycle_mixin.py:395:        obj.save(update_fields=["is_deleted", "updated_at"])
+asset_management_backend/apps\assetmanagement\services\asset_lifecycle_mixin.py:424:        obj.save(update_fields=["is_deleted", "updated_at"])
+asset_management_backend/apps\assetmanagement\services\asset_lifecycle_mixin.py:468:        obj.save(update_fields=[*update_data.keys(), "updated_at"])
+asset_management_backend/apps\assetmanagement\services\contract_service.py:130:    contract.save(update_fields=["paid_record", "updated_at"])
+asset_management_backend/apps\assetmanagement\services\contract_service.py:199:        contract.save(update_fields=["amount_paid", "amount_unpaid", "updated_at"])
+asset_management_backend/apps\assetmanagement\services\contract_service.py:271:        contract.save(update_fields=["paid_record", "amount_paid", "amount_unpaid", "updated_at"])
+asset_management_backend/apps\assetmanagement\services\contract_service.py:380:        contract.save(update_fields=["contract_status", "amount_paid", "amount_unpaid", "updated_at"])
+asset_management_backend/apps\assetmanagement\services\contract_service.py:409:        contract.save(update_fields=["amount_paid", "amount_unpaid", "updated_at"])
+asset_management_backend/apps\assetmanagement\services\contract_service.py:545:        contract.save(update_fields=["paid_record", "amount_paid", "amount_unpaid", "updated_at"])
+asset_management_backend/apps\assetmanagement\services\contract_service.py:595:        contract.save(update_fields=["paid_record", "amount_paid", "amount_unpaid", "updated_at"])
+asset_management_backend/apps\unregisteredasset\tests\test_services.py:334:        existing_asset.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\usermanagement\tests\test_role_service.py:334:    user.save(update_fields=["auth_phone"])
+asset_management_backend/apps\usermanagement\tests\test_employee_queryset_gate.py:21:    superuser.save(update_fields=["is_superuser"])
+asset_management_backend/apps\unregisteredasset\tests\test_models.py:103:        asset1.save(update_fields=["is_deleted"])
+asset_management_backend/apps\assetmanagement\tests\conftest.py:237:    asset.save(update_fields=["asset_current_status", "updated_at"])
+asset_management_backend/apps\usermanagement\services\role_service.py:248:        - 必须 instance.save(update_fields=["role"]) 触发 role_changed 黑名单钩子(G3 去重)
+asset_management_backend/apps\usermanagement\services\role_service.py:282:            employee.save(update_fields=["role"])
+asset_management_backend/apps\assetmanagement\tests\test_asset_service_gaps.py:176:        asset.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\assetmanagement\tests\test_asset_service_gaps.py:248:        asset.save(update_fields=["asset_applicant_recordcode", "asset_manager_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_asset_service.py:286:        asset.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\assetmanagement\tests\test_asset_service.py:304:        asset.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\assetmanagement\tests\test_asset_service.py:313:        asset.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\usermanagement\services\employee_service.py:119:        employee.save(update_fields=["auth_user", "updated_at"])
+asset_management_backend/apps\usermanagement\services\employee_service.py:166:        employee.save(update_fields=["auth_user", "updated_at"])
+asset_management_backend/apps\usermanagement\services\employee_service.py:218:        employee.save(update_fields=["auth_user", "updated_at"])
+asset_management_backend/apps\usermanagement\services\employee_service.py:311:        employee.save(update_fields=["employee_status"])
+asset_management_backend/apps\assetmanagement\tests\test_contract.py:163:            contract.save(update_fields=["contract_status"])
+asset_management_backend/apps\usermanagement\services\department_service.py:208:        department.save(update_fields=["parent", "level", "path"])
+asset_management_backend/apps\usermanagement\services\department_service.py:269:        department.save(update_fields=["parent", "level", "path"])
+asset_management_backend/apps\assetmanagement\tests\test_asset_selector.py:261:        asset.save(update_fields=["is_deleted"])
+asset_management_backend/apps\assetmanagement\tests\test_asset_selector.py:325:        asset.save(update_fields=["is_deleted"])
+asset_management_backend/apps\assetmanagement\tests\test_check_data_consistency.py:22:    asset.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\assetmanagement\tests\test_asset_lifecycle_service.py:88:        repair_asset.save(update_fields=["repair_status", "updated_at"])
+asset_management_backend/apps\assetmanagement\tests\test_asset_lifecycle_service.py:103:        repair_asset.save(update_fields=["repair_status", "updated_at"])
+asset_management_backend/apps\assetmanagement\tests\test_asset_view_api.py:303:        asset.save(update_fields=["asset_manager_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_asset_view_api.py:390:        asset.save(update_fields=["asset_contract_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_asset_view_api.py:514:        asset.save(update_fields=["asset_manager_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_asset_view_api.py:532:        asset.save(update_fields=["asset_manager_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_asset_view_api.py:574:        asset.save(update_fields=["asset_manager_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_asset_view_api.py:593:        asset.save(update_fields=["asset_manager_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_create_row_isolation.py:78:    asset.save(update_fields=["asset_manager_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_create_row_isolation.py:87:    asset.save(update_fields=["asset_manager_recordcode", "asset_current_status"])
+asset_management_backend/apps\assetmanagement\tests\test_create_row_isolation.py:95:    dept_b_asset.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\assetmanagement\tests\test_create_row_isolation.py:304:    asset.save(update_fields=["asset_current_status", "updated_at"])
+asset_management_backend/apps\assetmanagement\tests\test_create_row_isolation.py:509:        owned_asset.save(update_fields=["asset_current_status", "updated_at"])
+asset_management_backend/apps\assetmanagement\tests\test_create_row_isolation.py:518:        dept_b_asset.save(update_fields=["asset_current_status", "updated_at"])
+asset_management_backend/apps\assetmanagement\tests\test_create_row_isolation.py:568:        dept_b_asset.save(update_fields=["asset_current_status", "updated_at"])
+asset_management_backend/apps\assetmanagement\tests\test_create_row_isolation.py:582:        owned_asset.save(update_fields=["asset_current_status", "updated_at"])
+asset_management_backend/apps\assetmanagement\tests\test_create_row_isolation.py:596:        dept_b_asset.save(update_fields=["asset_current_status", "updated_at"])
+asset_management_backend/apps\assetmanagement\tests\test_contract_payment_lock_and_settlement.py:72:        c.save(update_fields=["is_deleted"])
+asset_management_backend/apps\assetmanagement\tests\test_contract_payment_lock_and_settlement.py:126:    """I-4: add_payment_record 定向 save(update_fields)"""
+asset_management_backend/apps\assetmanagement\tests\test_damaged_asset_service.py:39:    asset.save(update_fields=["asset_applicant_recordcode", "asset_manager_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_damaged_asset_service.py:58:    asset.save(update_fields=["asset_applicant_recordcode", "asset_manager_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_damaged_asset_service.py:77:    asset.save(update_fields=["asset_applicant_recordcode", "asset_manager_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_damaged_asset_service.py:95:    asset.save(update_fields=["asset_applicant_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_damaged_asset_service.py:756:        asset.save(update_fields=["asset_current_status", "updated_at"])
+asset_management_backend/apps\assetmanagement\tests\test_damaged_asset_view_api.py:50:        asset.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\assetmanagement\tests\test_damaged_asset_view_api.py:221:        asset.save(update_fields=["asset_manager_recordcode", "asset_current_status"])
+asset_management_backend/apps\assetmanagement\tests\test_lifecycle_view_api.py:209:        asset.save(update_fields=["asset_current_status", "updated_at"])
+asset_management_backend/apps\assetmanagement\tests\test_lifecycle_view_api.py:292:        asset.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\assetmanagement\tests\test_dashboard_view_api.py:171:    asset.save(update_fields=["asset_manager_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_models.py:43:        asset.save(update_fields=["is_deleted"])
+asset_management_backend/apps\assetmanagement\tests\test_outasset_selector.py:39:        asset.save(update_fields=["asset_current_status", "asset_applicant_recordcode", "asset_manager_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_outasset_selector.py:68:        user.save(update_fields=[])
+asset_management_backend/apps\assetmanagement\tests\test_outasset_selector.py:74:        user_b.save(update_fields=[])
+asset_management_backend/apps\assetmanagement\tests\test_outasset_selector.py:79:        asset.save(update_fields=["asset_current_status", "asset_manager_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_outasset_selector.py:129:        asset.save(update_fields=["asset_applicant_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_outasset_selector.py:150:        asset.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\assetmanagement\tests\test_outasset_selector.py:162:        asset.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\assetmanagement\tests\test_outasset_selector.py:174:        asset.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\assetmanagement\tests\test_out_asset_mutants.py:152:        asset.save(update_fields=["asset_applicant_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_out_asset_mutants.py:169:        asset.save(update_fields=["asset_applicant_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_out_asset_mutants.py:185:        asset.save(update_fields=["asset_applicant_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_out_asset_mutants.py:202:        asset.save(update_fields=["asset_manager_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_out_asset_mutants.py:219:        asset.save(update_fields=["asset_using_location"])
+asset_management_backend/apps\assetmanagement\tests\test_out_asset_mutants.py:233:        asset.save(update_fields=["asset_applicant_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_out_asset_mutants.py:251:        asset.save(update_fields=["asset_applicant_recordcode", "asset_storage_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_out_asset_mutants.py:350:        asset.save(update_fields=["asset_applicant_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_out_asset_mutants.py:413:        asset.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\assetmanagement\tests\test_out_asset_mutants.py:421:        asset.save(update_fields=["asset_applicant_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_operation_log_mutants.py:42:    asset.save(update_fields=["asset_specification"])
+asset_management_backend/apps\assetmanagement\tests\test_operation_log_mutants.py:266:        asset.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\assetmanagement\tests\test_operation_log_mutants.py:596:        asset.save(update_fields=["asset_entry_person_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_out_asset_mutants_round2.py:126:        asset.save(update_fields=["asset_manager_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_out_asset_mutants_round2.py:141:    """_restore #63 / _apply #33:save(update_fields=None) 全量落库触碰 updated_at"""
+asset_management_backend/apps\assetmanagement\tests\test_out_asset_mutants_round2.py:147:        asset.save(update_fields=["asset_applicant_recordcode", "asset_storage_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_public_scan_api.py:55:        asset.save(update_fields=["asset_manager_recordcode"])
+asset_management_backend/apps\assetmanagement\tests\test_public_scan_api.py:93:        asset.save(update_fields=["is_deleted"])
+asset_management_backend/apps\assetmanagement\tests\test_recycle_service_gaps.py:60:        outasset.asset_recordcode.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\assetmanagement\tests\test_recycle_service_gaps.py:213:        outasset.asset_recordcode.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\assetmanagement\tests\test_recycle_service_gaps.py:267:        recycle_asset.asset_recordcode.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\assetmanagement\tests\test_recycle_service_gaps.py:328:        created.asset_recordcode.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\assetmanagement\tests\test_repair_service_gaps.py:62:        asset.save(update_fields=["physical_grade"])
+asset_management_backend/apps\assetmanagement\tests\test_repair_service_mutants.py:32:        asset.save(update_fields=["asset_current_status", "asset_name", "asset_specification"])
+asset_management_backend/apps\assetmanagement\tests\test_repair_service_mutants.py:45:        asset.save(update_fields=["asset_current_status", "asset_name", "asset_specification"])
+asset_management_backend/apps\assetmanagement\tests\test_recycle_asset_service.py:37:    asset.save(update_fields=["asset_applicant_recordcode", "asset_manager_recordcode", "asset_using_location"])
+asset_management_backend/apps\assetmanagement\tests\test_recycle_asset_service.py:95:        asset.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\assetmanagement\tests\test_recycle_asset_service.py:184:        asset.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\assetmanagement\tests\test_recycle_asset_service.py:343:        asset.save(update_fields=["asset_current_status"])
+asset_management_backend/apps\assetmanagement\tests\test_repair_status_readonly.py:26:    asset.save(update_fields=["asset_current_status", "updated_at"])
+asset_management_backend/apps\assetmanagement\tests\test_repair_status_readonly.py:79:        asset.save(update_fields=["asset_current_status", "updated_at"])
+asset_management_backend/apps\assetmanagement\tests\test_recordcode_lookup_mixin.py:60:        asset_type_row.save(update_fields=["recordcode"])
+asset_management_backend/apps\assetmanagement\services\damaged_asset_service.py:80:        asset.save(update_fields=["asset_current_status", "updated_at"])
+asset_management_backend/apps\assetmanagement\services\damaged_asset_service.py:129:            damaged_asset.save(update_fields=update_fields)
+asset_management_backend/apps\assetmanagement\services\damaged_asset_service.py:182:        asset.save(update_fields=["asset_current_status", "updated_at"])
+asset_management_backend/apps\assetmanagement\services\damaged_asset_service.py:294:        asset.save(update_fields=["asset_current_status", "updated_at"])
+asset_management_backend/apps\assetmanagement\services\damaged_asset_service.py:367:        asset.save(update_fields=["asset_current_status", "updated_at"])
+asset_management_backend/apps\assetmanagement\tests\test_services.py:174:        asset.save(update_fields=["asset_applicant_recordcode", "asset_manager_recordcode", "asset_using_location"])
+asset_management_backend/apps\assetmanagement\tests\test_waste_asset_service.py:101:        asset.save(update_fields=["asset_applicant_recordcode"])
+
+=== 4. git status --ignored 摘要 ===
+ D docs/Review/merge-audit-112.md
+?? .codebuddy/
+?? docs/Review/ExpiredAuditReport/20261111/merge-audit-112.md
+?? docs/Review/ExpiredAuditReport/20261116/
+?? docs/Review/baseline-batchD-20261117.txt
+
+=== 2b. pageSize 字面量 20（修正则复扫,以此为准）===
+vue-assetmanagement/src\api\authusers.ts:119:    const response = await userAPI.getFuzzySearch({ keyword, page_size: 20 })
+vue-assetmanagement/src\components\asset\GroupedAssetChildTable.vue:145:  pageSize: 20,
+vue-assetmanagement/src\composables\useAssetListConfig.ts:172:    defaultPageSize: 20,
+vue-assetmanagement/src\composables\useEmployeeSuggestionFetcher.ts:26:      const response = await userAPI.getFuzzySearch({ keyword: query, page_size: 20 })
+vue-assetmanagement/src\components\commoncomponents\CommonList.vue:144:  pageSize: 20,
+vue-assetmanagement/src\composables\useNotification.ts:145:  async function fetchNotifications(pageSize = 20) {
+vue-assetmanagement/src\composables\useGroupedAssetList.ts:81: * } = useGroupedAssetList({ pageSize: 20 })
+vue-assetmanagement/src\components\componentsdetails\UserDetails.vue:253:  defaultPageSize: 20,
+vue-assetmanagement/src\composables\useUnregisteredFormLinkage.ts:56:        { search: query, page: 1, page_size: 20 },
+vue-assetmanagement/src\composables\useUnregisteredFormLinkage.ts:120:        { search: query, page: 1, page_size: 20 },
+vue-assetmanagement/src\composables\useSmartListConfig.ts:61:    defaultPageSize = 20,
+vue-assetmanagement/src\components\componentsdetails\OperationLogDetails.vue:361:  defaultPageSize: 20,
+vue-assetmanagement/src\components\componentsdetails\DamagedAssetDetails.vue:262:  defaultPageSize: 20,
+vue-assetmanagement/src\components\componentsdetails\detils\DamagedAssetForm.vue:306:      (await storageStore.getList({ search: q, page: 1, page_size: 20 }, { silent: true })) ?? []
+vue-assetmanagement/src\stores\departmentStore.ts:117:  defaultPageSize: 20,
+vue-assetmanagement/src\stores\damagedAssetStore.ts:57:    defaultPageSize: 20,
+vue-assetmanagement/src\stores\wasteAssetStore.ts:47:  defaultPageSize: 20,
+vue-assetmanagement/src\stores\contractStore.ts:67:  defaultPageSize: 20,
+vue-assetmanagement/src\stores\userStore.ts:230:  defaultPageSize: 20,
+vue-assetmanagement/src\stores\brokenAssetStore.ts:49:    defaultPageSize: 20,
+vue-assetmanagement/src\stores\unregisteredAssetStore.ts:74:    defaultPageSize: 20,
+vue-assetmanagement/src\stores\authUserStore.ts:107:  defaultPageSize: 20,
+vue-assetmanagement/src\stores\storageStore.ts:67:  defaultPageSize: 20,
+vue-assetmanagement/src\stores\roleStore.ts:83:  defaultPageSize: 20,
+vue-assetmanagement/src\stores\auditLogStore.ts:24:  const pageSize = ref(20)
+vue-assetmanagement/src\stores\assetTypeStore.ts:50:  defaultPageSize: 20,
+vue-assetmanagement/src\stores\assetStore.ts:170:  defaultPageSize: 20,
+vue-assetmanagement/src\stores\repairAssetStore.ts:90:    defaultPageSize: 20,
+vue-assetmanagement/src\stores\app.ts:35:    pageSize: 20,
+vue-assetmanagement/src\stores\app.ts:129:      pageSize: 20,
+vue-assetmanagement/src\stores\recycleAssetStore.ts:55:    defaultPageSize: 20,
+vue-assetmanagement/src\stores\outAssetStore.ts:65:  defaultPageSize: 20,
+vue-assetmanagement/src\stores\harddiskSnStore.ts:88:  defaultPageSize: 20,
+vue-assetmanagement/src\stores\operationLogStore.ts:55:    defaultPageSize: 20,
+vue-assetmanagement/src\stores\notificationStore.ts:32:    page_size: 20,
+vue-assetmanagement/src\stores\foundAssetStore.ts:49:    defaultPageSize: 20,
+vue-assetmanagement/src\stores\lostAssetStore.ts:83:  defaultPageSize: 20,
+
+=== 3b. git ignored 清单（stryker/everything）===
+sandbox-4oZGQe
+sandbox-CUHbXq
+sandbox-eVcDDd
+sandbox-qHTsVS
+sandbox-vkQFhe
+sandbox-ylKV8J
+AGENTS.md
+CHANGELOG.md
+CLAUDE.md
+CODE_OF_CONDUCT.md
+COMMANDS-QUICK-REF.md
+CONTRIBUTING.md
+EVALUATION.md
+LICENSE
+README.md
+README.zh-CN.md
+REPO-ASSESSMENT.md
+RULES.md
+SECURITY.md
+SOUL.md
+SPONSORING.md
+SPONSORS.md
+TROUBLESHOOTING.md
+VERSION
+WORKING-CONTEXT.md
+agent.yaml
+agents
+assets
+commands
+commitlint.config.js
+contexts
+docs
+ecc2
+ecc_dashboard.py
+eslint.config.js
+examples
+hooks
+install.ps1
+install.sh
+manifests
+mcp-configs
+node_modules
+package-lock.json
+package.json
+plugins
+pyproject.toml
+research
+rules
+schemas
+scripts
+skills
+src
+tests
+the-longform-guide.md
+the-security-guide.md
+the-shortform-guide.md
+yarn.lock
+=== MA-24 前置清单（git status --ignored 摘要,2026-11-18）===
+ M Rules_Fiels/backend-business-rules.md
+ M asset_management_backend
+ D docs/Review/merge-audit-112.md
+ M vue-assetmanagement
+?? .codebuddy/
+?? docs/Review/ExpiredAuditReport/20261111/merge-audit-112.md
+?? docs/Review/ExpiredAuditReport/20261116/
+?? docs/Review/baseline-batchD-20261117.txt

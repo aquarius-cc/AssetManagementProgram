@@ -4,7 +4,7 @@
 ### 📄 文档 4：后端业务规范 `/Rules_Fiels/backend-business-rules.md` (v1.27)
 
 # 后端业务规范与设计思路 (Backend Business Rules)
-> 版本：v1.28 | 最后更新：2026-11-17
+> 版本：v1.29 | 最后更新：2026-11-18
 > 适用范围：Django 6.0 + DRF 3.16 + PostgreSQL 16
 
 ## 一、设计思路（防腐与一致性）
@@ -32,6 +32,18 @@
 | B8 | **模型标准字段** | 所有模型**必须**包含 `created_at`(auto_now_add)、`updated_at`(auto_now)、`is_deleted`(软删) | 继承抽象基类 |
 | B9 | **枚举约束** | 状态字段**必须**使用 `models.TextChoices`，**禁止**使用整型或字符串硬编码 | 重构为 TextChoices |
 | B10 | **外键约束** | 外键**必须**显式指定 `on_delete`，多对多关系**必须**指定 `db_table` | 补充声明 |
+
+#### B1 信封豁免登记（【MA-22】，2026-11-18 用户批准）
+
+以下根级端点**豁免信封包装**，各自响应形态为对外契约、不得单方变更：
+
+| 端点 | 形态 | 消费方 | 理由 |
+|:--|:--|:--|:--|
+| `/`（api_root） | 裸 JsonResponse | 人工探视 / AI 根路径探视 | API 信息页，非业务数据接口 |
+| `/health/`、`/ready/` | 裸 JsonResponse | docker healthcheck / 冒烟脚本 | §5.2 已登记对外契约 |
+| `/metrics/` | Prometheus 文本协议 | Prometheus 抓取 | 文本协议物理上无法套信封 |
+| `/api/v1/frontend-logs/` | 204/信封混合 | 前端 sendBeacon | MA-15 上报端点，失败静默 204 |
+| `/_csp-violation-report/` | 204 | 浏览器 CSP 上报 | 浏览器原生上报不带信封 |
 
 ## 三、资产状态机（业务流转路径）
 
@@ -367,6 +379,7 @@ P3-9 读面收口后，`RoleViewSet`（list/retrieve）与 `PermissionViewSet`�
 | 端点日志范围 | 豁免仅限健康探测端点的 SDK 级重试与日志级别；不扩展至其他外部调用。DB 探测语句超时、编排侧 `urlopen()` 无 timeout 另挂 D-13 | D-13 |
 
 ## 六、变更日志
+- v1.29 (2026-11-18): **[MA-22] B1 信封豁免登记**——根级 6 端点（`/`、`/health/`、`/ready/`、`/metrics/`、`/api/v1/frontend-logs/`、`/_csp-violation-report/`）豁免信封包装，各自响应形态为对外契约不得单方变更（消费方：healthcheck/Prometheus/浏览器原生上报/前端 sendBeacon）；api_root 删除 `"admin"` 键（H10 注释改写为「根路径不重定向」，/admin/ 挂载事实不变）。**§1.3 不触发**：未改信封端点响应体。登记：BF-198（批次 D 收口）。
 - v1.28 (2026-11-17): **[PATCH-BE] MA-11 AuthUser 写权限例外登记**——§4.2「系统配置…用户」行与 B11 条文补注 self-service 例外（本人经具名权限类 `IsSystemAdminOrSelf` 自助改/删自己账号；system_admin 任意操作），措辞为「写操作经具名权限类校验，自助为 §4.2/B11 有登记例外」。代码落点 `core/permissions.py` + `apps/authusermanagement/views.py`（提交 `d0bd300`）；矩阵 :172 原无此例外登记（实测订正）。**§5.4 不适用**：仅登记补注，不收紧阈值、不改变 CI 阻断行为。登记：BF-197（批次 C 收口）。
 - v1.27 (2026-11-12): **[PATCH-BE] 批次 2 一次审批包**（M-01~M-04）——① §3 业务约束 8 渠道清单扩充两个调度层渠道（`asset_audit_decorator` / `generic_audit_dispatch`），沿用「单次失败只计一处」，渠道唯一事实源收敛至 `core/audit_failure.py` docstring；② 新增 §5.2 健康探测与审计失败口径登记（编排层重试豁免、10s 预算、WARNING 级别、脱敏、五字段来源、REDIS_URL 存量声明）。**§5.4 不适用**：均为口径/登记订正，不收紧阈值、不改变 CI 阻断行为，零跨端契约变更。登记：BF-189。
 - v1.26 (2026-11-10): **[PATCH-BE] 批次 6 一次审批包**（M-22/M-38/M-23 三处合并共用一次 §4.2 人工审批与一次版本升级，参照 v1.24 先例）——① B1 订正（M-22）：`message` 改为展示文案口径（值不固定、成功与否以 `code` 判定、前端不得按字面值分支；跨端契约 §3 的 `message: "str"` 一字不改）；② 业务约束第 4 条拍板「有值必验、缺值可略」（M-38）：`repair_asset_service.py` 现行实现升格为规范口径，零代码变更，配套契约用例 `test_repair_done_grade_optional_but_validated_when_present` / `test_repair_done_grade_omitted_keeps_asset_grade`（`test_repair_service_gaps.py`）；③ 新增 §5.1 日志通道口径豁免登记（M-23，D4-A′）：dev/test console 为人读通道豁免（OC-2 权威载体 = file handler），production console 单点覆写 JSON 为环境分流、非重复实现；`simple` formatter 含 `{trace_id}` 占位符，消费 handler 必须挂 `TraceIDFilter`。**§5.4 不适用**：三条均为口径/登记订正，不收紧任何阈值、不改变 CI 阻断行为。登记：BF-187（原登记号 BF-186 已被批次 4b 占用，顺延）。
