@@ -1,0 +1,61 @@
+# MA-23 独立迁移批次 步骤 0 基线存档（2026-11-18，只读取证）
+# 纪律：本地数字仅为讨论中间量，覆盖率/门禁权威结论以 CI run 为准（根级 CT-7）。
+
+=== 1. 后端 pytest 基线 ===
+命令：python -m pytest -q --no-header -p no:cacheprovider
+结果：2517 passed, 0 failed, 0 skipped（6 warnings，707.97s）
+collect：2517 tests collected in 2.63s
+
+命令：python -m pytest --cov --cov-report=term -q --no-header -p no:cacheprovider
+结果：TOTAL 11069 813 93%；Required test coverage of 80.0% reached. Total coverage: 92.66%（本机，非 CI 基线）
+
+=== 2. 工具链版本（CT-7 声明版本对齐）===
+dev.txt / base.txt 声明 → 本机实测（一致）：
+  pytest==9.1.1            → 9.1.1
+  pytest-django==4.12.0    → 4.12.0
+  pytest-cov==7.1.0        → 7.1.0
+  factory-boy==3.3.3       → 3.3.3
+  Django==6.0.8            → 6.0.8
+结论：本机与声明一致，无环境漂移；覆盖率权威值仍以 CI 为准。
+
+=== 3. 测试夹具规模（替换半径基线）===
+test_*.py 文件数：164（rg --files -g 'test_*.py' apps core）
+tests/conftest.py 夹具内 Model.objects.create / create_user / create_superuser 命中：875
+既有 tests/factories 形态文件：apps/assetmanagement/tests/grouped_factories.py（手写 helper，非 factory_boy）
+factory_boy 使用次数（基线）：0（B-N-09 前提成立）
+
+=== 4. 前端 vitest 基线 ===
+命令：npm run test:coverage
+结果：Test Files 278 passed (278)；Tests 2746 passed (2746)；Errors 1（Unhandled Rejection：
+      EnvironmentTeardownError: Cannot load '/src/plugins/echarts.ts' ... DashboardPage.spec.ts，预存问题，非本批引入）
+
+src/**/*.vue 四指标（本机实测，由 coverage-final.json 逐文件聚合，lines 口径与 vitest 报错值 43.67 一致）：
+  statements 42.70 (3313/7759)  阈值 42.6  余量 +0.10
+  branches   27.82 (1288/4630)  阈值 27.8  余量 +0.02
+  functions  27.00 (803/2974)   阈值 27.0  余量 +0.00（贴边）
+  lines      43.67 (3128/7162)  阈值 43.7  余量 -0.03 【已红】
+
+★ 关键更正（相对 merge-audit N-11 的「余量 0.03pt」）：
+  N-11 实际不是「余量仅 0.03pt」，而是 **.vue lines 棘轮在基线即已红**（43.67 < 43.7）。
+  前注释记载实测 43.71（2026-11 批次4 重基），当前 43.67 已回落 0.04pt。
+  因此包 2 必须先「恢复 ≥43.7」再按 0.3pt 缓冲重基，不能只做「上移」。
+  另：functions 贴边 0.00、branches 余量 0.02，同样处于一触即红状态。
+
+=== 5. 工作树归档（git status --short / --ignored）===
+未提交变更（非本批产物，收口时不纳入）：
+  D  docs/Review/merge-audit-112.md
+  ?? .codebuddy/
+  ?? docs/Review/ExpiredAuditReport/20261111/merge-audit-112.md
+  ?? docs/Review/ExpiredAuditReport/20261116/
+ignored（本批只读参考，MA-24 已在批次 D 清理 .stryker-tmp/sandbox-* 与 everything-claude-code/，
+     现 git status --ignored 中 stryker/claude 命中为 0，清理已生效）：
+  .codegraph/ .mypy_cache/ .pytest_cache/ .ruff_cache/ node_modules/ 等常规缓存与日志文件
+
+=== 6. 账本占号 ===
+活账本最大号：BF-198（批次 D，2026-11-18 已关闭）
+本批占用：BF-199（MA-23），无撞号。
+
+=== 7. 批次 D 前置事实（防重复执行）===
+批次 D 已于 2026-11-18 收口（BF-198）：MA-16~22/24/26/29/30 全部落地，AI_REVIEW_NEEDED rg 归零，
+MA-21 已新增 DEFAULT_SUGGESTION_LIMIT 并完成分桶，MA-24 已清理本地残留。
+本批（MA-23）不重复执行上述任何项。

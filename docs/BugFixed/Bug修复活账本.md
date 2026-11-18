@@ -11495,3 +11495,37 @@ Commit 3（首跑红修复，head 8aa51b0）push 复验：
 - **终态门禁（本机实测，CT-7 口径：权威以 CI run 为准）**：后端定向（state_machine 71 / 迁移日志 2 / recycle 三件 56 / notification+masking 35 / health_ready 12）+ ruff/mypy 逐包绿；前端 type-check/lint:ci/format:check 绿 + 定向（statusMapping 40 / paginationDefaults / Format+ContractPaymentRecord 80 / useNotification 172）。
 - **如实标注**：后端 mutmut 本机未跑（Windows 限制，参照 BF-196 先例留 CI 收口）；MA-22③ 7 处 AI_REVIEW_NEEDED 已获用户批准并删除（后端 `6451682`/前端 `f1d97f4`/scripts `a376da3`，残留 rg 归零、53 护栏自测通过）；MA-19 P1 经用户拍板：脱敏表维持仅 employee_phone，其它字段**暂不脱敏为有意决策**（非遗漏，后续按需另批）。
 - **关联**：merge-audit-20261116.md MA-16~30 与 §十收口小节；BF-195/196/197（批次 A/B/C 先例）；[PATCH-BE] v1.28/v1.29；complete-patterns.md B-44 语义决策追加。
+
+## BF-199【已关闭】MA-23 独立迁移批次——factory_boy 工厂奠基 + 渐进迁移 + T2/T14 条文对齐 + .vue 棘轮重基｜来源：`docs/Review/merge-audit-20261116.md` MA-23（B-N-09 + N-10 + N-11，独立于批次 D）
+
+- **编号说明**：登记前核账本最大号 **BF-198**（批次 D，文件尾已核），顺延取 **BF-199**，无撞号。
+- **状态**：🔒 已关闭（2026-11-18，三包代码 + 两份条文落地 + 双端门禁绿）| 登记日期：2026-11-18
+- **前置拍板（2026-11-18，[HALT] diff 经用户批准）**：① 工厂位置 = 各 app `tests/factories.py` + 同步修 T2 条文（渐进迁移，不一次性改写存量）；② 棘轮 = 保留 0.3pt 缓冲、四指标各自上移（阈值 = `floor_0.1(实测 − 0.30pt)`）。
+- **执行内容（三包）**：
+  1. **包1 工厂奠基 + 条文对齐（N-09）**：新增 `apps/usermanagement/tests/factories.py`（DepartmentFactory DFACT 序列 / EmployeeFactory UFACT+13x 序列，`employee_department=None`）、`apps/authusermanagement/tests/factories.py`（AuthUserFactory 经 `objects.create_user()` 哈希密码，默认 `TEST_PASSWORD`；SuperUserFactory）、`apps/assetmanagement/tests/factories.py`（AssetTypeFactory / StorageFactory 仅必填 / ContractFactory 枚举常量 / AssetFactory `asset_type_recordcode=SubFactory(AssetType)` 其余关联 `None`、`asset_current_status=IN_STORE`）。硬约束：**全静态默认值禁 Faker**、可空 FK 恒 `None`、**`Employee.auth_user` 恒 `None`（绑定走 `EmployeeService.bind_auth_user()`）**、资产 FK 走 `to_field="recordcode"`（查询须 `filter(recordcode=…)` 而非 `pk=`）。`grouped_factories.py` 改薄包装委托（`_make_dept/_make_employee/_make_asset/_make_contract`，`_cold`/`group_key_json` 不变）。四份 `conftest.py`（usermanagement / assetmanagement / authusermanagement / unregisteredasset）夹具改走工厂，流转记录与 `UnregisteredAsset` 仍 `objects.create`（无工厂）。新增 `core/tests/test_factory_equivalence.py` **18 用例**锁三层等价（值等价 build / 持久化等价 create+重读 / 零副作用）。`backend-testing-rules.md` **v1.10→v1.11 [PATCH-BE]**：T2「**禁止**原始 `create()`」→「新写优先 + 存量渐进 + 不新增即红护栏」+ 分置路径 + 两条硬约束 + 等价性门禁。
+  2. **包2 补测 + 棘轮重基（N-11）**：新增 `src/components/componentsdetails/components/__tests__/DepartmentTree.spec.ts` **15 用例**（该组件补测前语句覆盖仅 2.4%），`.vue` 四指标 42.71/27.82/27.03/**43.69（行，已跌破 43.7、本机门禁红）** → **43.70/28.55/27.84/44.69**；`vitest.config.ts` `.vue` 阈值 42.6/27.8/27.0/43.7 → **43.4/28.2/27.5/44.3**（余量 ≥0.30pt）；`frontend-testing-rules.md` **v1.10→v1.11 [PATCH-FE]**：T14 数值同步 + 新增「阈值取值口径」条，**取代 v1.9 的「仅留取整残差 0.00~0.09pt、不额外预留固定余量」**——余量过薄正是 N-11 根因。**N-10 销项**：T9 原文（`:11`）已含「与组件同目录存放（推荐），或统一放置于 `src/__tests__/`」，与 273 spec 就近实践一致，**不改 T9**。
+  3. **包3 报告账本**：`merge-audit-20261116.md` 新增 **§十一 MA-23 独立批次收口小节** + MA-23 行标 ✅ + CT-2 行余量更新 + 拍板清单 #3 补拍板结论 + 批次 D 台账终态「MA-23 另批」→「已修复（独立批次，BF-199）」；活账本 BF-199/200/201 三条。
+- **终态门禁（本机实测，CT-7 口径：权威以 CI run `$GITHUB_STEP_SUMMARY` 为准）**：后端 `pytest --cov=. --cov-fail-under=80` = **2535 passed / 90.57% ≥ 80 / exit 0**（基线 2517 + 等价性 18；步骤 0 基线存档 `docs/Review/baseline-batchMA23-20261118.txt`），Service 四域 `--cov-fail-under=90` = **98%**，`mypy --strict` **0 issues / 234 files**（dev.txt 声明版本，CT-7），ruff 全仓 0，分组/夹具分域 81 / 252 / 265 / 1486 passed；前端 `npm run test:coverage` = **2761 passed / 279 文件 / exit 0**，分层 `.vue` 43.70/28.55/27.84/44.69 ≥ 43.4/28.2/27.5/44.3、`src/**/*.ts` 93.36/87.79/88.36/94.35 ≥ 80、`src/stores/**` 96.82/96.86/91.16/97.20 ≥ 90，type-check / lint / lint:ci / format:check 全绿，护栏（行数 BR-4/BR-6 / 重复不变量 / 前端不变量 FR-5·6·8）全 PASS。
+- **如实标注**：后端 mutmut 与前端 test:mutate 本机未跑（Windows 限制，参照 BF-196 先例留 CI 收口）；`.vue` 分层数字为本机 v8 直证中间量；存量 `objects.create` 用例未清零（渐进迁移口径，**不设「测试内 create 即红」护栏**，按拍板只登记）；`check_ci_orchestration.py` 不硬编码阈值数字（已核），改值不破坏七守护。
+- **遗留（不随本条关闭）**：**BF-200** DashboardPage async teardown 竞态（本批顺手修，已闭环）；**BF-201** `DepartmentTree.vue:212` 拖拽防环判定疑似反向（新发现，待修）。
+- **关联**：merge-audit-20261116.md MA-23 与 §十一收口小节；BF-191（棘轮上调 [HALT] 先例）；BF-198（批次 D，MA-23 原「另批」）；[PATCH-BE] v1.11 / [PATCH-FE] v1.11；根级 CT-1/CT-2/CT-5/CT-7 与 §1.8 新发现义务。
+
+## BF-200【已关闭】前端门禁假红——DashboardPage 懒加载组件 EnvironmentTeardownError 致 `npm run test:coverage` 恒 exit 1
+
+- **编号说明**：登记前核账本最大号 **BF-199**（MA-23 批次），顺延取 **BF-200**，无撞号。
+- **状态**：🔒 已关闭（2026-11-18，3/3 复现 → 3/3 归零）| 登记日期：2026-11-18
+- **根因**：`src/components/DashboardPage.vue:139-146` 用 `defineAsyncComponent(() => import(...))` 懒加载三个 section；`DashboardPage.spec.ts` 挂载后这些动态 import 在用例与环境 teardown 之后才落地，vite module runner 抛 `EnvironmentTeardownError: Cannot load '/src/...' after the environment was torn down`，vitest 判 unhandled error → **exit 1**（阈值本身全过、用例全绿，属门禁假红）。**非本批引入**：MA-23 步骤 0 基线 `docs/Review/baseline-batchMA23-20261118.txt:30` 已记为预存问题。
+- **修复**：`src/components/__tests__/DashboardPage.spec.ts` 增三条 `vi.mock`（`@/components/commoncomponents/DashboardStatusOverview.vue`、`@/components/DashboardTrendSection.vue`、`@/components/DashboardDistributionSection.vue`），切断 `DashboardPage → Section → DashboardAssetTrend/DashboardDistribution → echarts.ts` 懒加载链；测试改 async 并 `await flushPromises()`，让 async component 在用例内解析完毕。
+- **验证**：单文件 `npx vitest run src/components/__tests__/DashboardPage.spec.ts` **3/3 exit 0、零 Unhandled Error**（修复前 3/3 exit 1）；全量 `npm run test:coverage` **279 文件 / 2761 用例 / exit 0**。
+- **关联**：MA-23 包2b；C5/MA-14（echarts 懒加载改造引入的加载链，BF-197 内）；BF-193（同 spec 的既有告警族）。
+
+## BF-201【待修复】DepartmentTree 拖拽防环判定疑似与注释方向相反（可成环 / 合法移动被误拒）
+
+- **编号说明**：登记前核账本最大号 **BF-200**，顺延取 **BF-201**，无撞号。
+- **状态**：🔍 待修复（2026-11-18 登记，**本批不动生产代码**——用户拍板「登记待修」）| 登记日期：2026-11-18
+- **现象**：`src/components/componentsdetails/components/DepartmentTree.vue:211-214` 注释写「不能放入自己或自己的子节点中」，实现为 `if (isDescendant(dropData, draggingData.department_code)) return false`；而 `isDescendant(target, sourceCode)`（`:219-`）是从 `target` 向下遍历找 `sourceCode`，实际语义是「**source 是否为 target 的后代（或自身）**」。两者方向相反：
+  - 拖 **D1**（父）落其子节点 **D11** 的 `inner` → `isDescendant(D11, "D1")` 为 false → **放行**，D1 成为 D11 子节点，**与既有 D11 父链成环**；
+  - 拖 **D111**（子）放到其祖先 **D1** 的 `before` → `isDescendant(D1, "D111")` 为 true → **误拒**（该移动本不产生环）。
+- **本批处置**：`DepartmentTree.spec.ts` 两条用例按**现状**断言（self-drop 拒绝 / 拖到祖先拒绝）并在用例名标注「当前实现语义」，未改生产代码；修复时需先红后绿（补「拖父入其子 → 拒绝」用例）。
+- **修复方向（待批）**：把判定改为「放置目标是否位于被拖节点的子树内」（即从 `draggingData` 向下找 `dropData.department_code`），或等价地反向传参；同批复核 `before/after` 落点父节点是否也在被拖子树内。
+- **关联**：MA-23 包2 补测过程中的主动洞察（ID-2）；merge-audit-20261116.md §十一「新发现登记」。

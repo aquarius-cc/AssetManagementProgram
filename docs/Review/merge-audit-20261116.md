@@ -63,7 +63,7 @@ B-N-03（前端 useDashboardPage.ts:150-160 `toLocaleTimeString` 按浏览器时
 | MA-20 | P3 | A-FE-1 | vue-assetmanagement/src/utils/statusMapping.ts:208-220 | 状态未知键静默降级（直调函数绕过 StatusTag 告警点） | getAssetStatusText 等直调函数补 logWarn | 未知键单测断言 warning |
 | MA-21 | P3 | B-N-04 + N-05 + N-06 | stores 多处 / ContractPaymentRecord.vue:212-216 等 | pageSize:20 字面量未引 DEFAULT_PAGE_SIZE（4 处）；formatPrice/formatNumber 组件内副本；useNotification 两处裸 catch ignore | 引 DEFAULT_PAGE_SIZE；复用 Format.ts 导出；裸 catch 补 logError | `rg` 归零 + vitest |
 | MA-22 | P3 | B-N-07（+M-18） + N-08 | config/urls.py:41,50,71,98；vite.config.ts:17 | 三运维端点 JsonResponse 旁路无豁免登记（[推测]）+ "admin" 键注释矛盾；AI_REVIEW_NEEDED 标注残留未销项 | 运维端点按 §5.2 登记豁免或补信封；修 M-18 注释；复核后删标注留痕 | curl 响应体断言 + 护栏核对 |
-| MA-23 | P3 | B-N-09 + N-10 + N-11 | apps/*/tests/conftest.py 等；vitest.config.ts:60-63 | factory_boy 零使用（T2 条文与实践背离，拍板二选一）；测试目录口径条文与实践不一致（273 spec 就近 __tests__）；.vue 棘轮余量仅 0.03pt | 拍板：① 补 factories.py 渐进迁移或 ② 修 T2 条文；T9 补认就近目录口径；组件补测后棘轮绑定上移 | 拍板后定；`npm run test:coverage` 分层汇总核对 |
+| MA-23 | P3 | B-N-09 + N-10 + N-11 | apps/*/tests/conftest.py 等；vitest.config.ts:60-63 | factory_boy 零使用（T2 条文与实践背离，拍板二选一）；测试目录口径条文与实践不一致（273 spec 就近 __tests__）；.vue 棘轮余量仅 0.03pt | 拍板：① 补 factories.py 渐进迁移或 ② 修 T2 条文；T9 补认就近目录口径；组件补测后棘轮绑定上移 | 拍板后定；`npm run test:coverage` 分层汇总核对；**✅ 已修复（MA-23 独立批次 2026-11-18，BF-199，见 §十一）** |
 | MA-24 | P3 | B M-17/M-19/M-20 | docs 与本地残留 | 过程文档漂移（spec/tasks/TECHNICAL_DEBT）；MainView 样式注释漂移；.stryker-tmp/sandbox-* ×6 + everything-claude-code/ 本地残留 | 文档销项；本地清理 `git status --ignored` | 人工复核 + git status |
 
 ## 三、修复批次与顺序（v2 重核版，2026-11-16）
@@ -123,7 +123,7 @@ B-N-03（前端 useDashboardPage.ts:150-160 `toLocaleTimeString` 按浏览器时
 |:--|:--|:--|:--|
 | 1 | MA-03 导入行数上限取值（与后端核实） | A3 | 批次 A 开工前 |
 | 2 | MA-11 AuthUser 写权限：代码归一 vs 文档补注 | C2 | 批次 C 开工前 |
-| 3 | MA-23 factory_boy：补工厂整改 vs 修 T2 条文 | D | 批次 D 内 |
+| 3 | MA-23 factory_boy：补工厂整改 vs 修 T2 条文 | D | 批次 D 内（**已拍板 2026-11-18：① 补 factories.py 渐进迁移 + 同步修 T2 条文；② 棘轮保留 0.3pt 缓冲、四指标各自上移**） |
 | 4 | MA-22 运维端点 JsonResponse：登记豁免 vs 补信封 | D | 批次 D 内 |
 | 5 | MA-13 容器 TZ 策略（localdate 为默认，TZ 环境变量为可选加固） | C4 | 批次 C4 前 |
 
@@ -142,7 +142,7 @@ B-N-03（前端 useDashboardPage.ts:150-160 `toLocaleTimeString` 按浏览器时
 | 检查项 | 结论 | 依据 |
 |:--|:--|:--|
 | CT-1/CT-3/CT-5 | ✅ | 后端 2455 passed；状态机专项 71 passed 全边覆盖；本机全绿 + CI 阻断链完好 |
-| CT-2 覆盖率 | ✅（权威归 CI） | 后端 90.51% / 前端 ts 94.00%·stores 96.82%（本机）；.vue 棘轮通过但余量 0.03pt（MA-23 关注） |
+| CT-2 覆盖率 | ✅（权威归 CI） | 后端 90.51% / 前端 ts 94.00%·stores 96.82%（本机）；.vue 棘轮余量 0.03pt（MA-23 关注）→ **2026-11-18 已重基至 ≥0.30pt**（43.4/28.2/27.5/44.3，实测 43.70/28.55/27.84/44.69，BF-199） |
 | CT-4 回归屏障 | ⚠️ 部分 | MA-02 为新增缺口，随修复补用例 |
 | CT-7 工具链 | ✅ | C 实测 mypy 2.1.0/django-stubs 6.1.0 与 dev.txt 一致，0 error |
 | DR-5/DR-6 | ✅ | 规模护栏全 PASS（逻辑行口径） |
@@ -254,7 +254,30 @@ B-N-03（前端 useDashboardPage.ts:150-160 `toLocaleTimeString` 按浏览器时
 | MA-27/29/30 | 账本遗留 | 无代码 | MA-27 保持登记态（C-14 裁决在场）；MA-29 R-3 销项标注；MA-30 交叉引用留痕 | complete-patterns.md:730 裁决在场 |
 
 收口核对：
-- **台账终态**：MA-16/17/18/19/20/21/22/24/26 → 待修复 → **已修复（本批）**；MA-23 factory_boy 另批；MA-27 维持登记态；MA-28 部署期留痕；MA-29 销项；MA-30 留痕。
+- **台账终态**：MA-16/17/18/19/20/21/22/24/26 → 待修复 → **已修复（本批）**；MA-23 → **已修复（独立批次 2026-11-18，BF-199，见 §十一）**；MA-27 维持登记态；MA-28 部署期留痕；MA-29 销项；MA-30 留痕。
 - **如实标注**：后端 mutmut 本机未跑（Windows 限制，参照 BF-196 先例留 CI 收口；C4 services 两文件在变异范围内）；MA-22③ 7 处 AI_REVIEW_NEEDED 删除待用户逐条批准（复核意见已出：全部建议删除）；MA-19 P1 脱敏字段清单出样待确认；nginx -t 与「全站控制台零 CSP 违规」为部署日验证项。
 - **混入边界**：根仓非本批产物（.github/workflows/ci.yml、.codebuddy/、docs/Review/ExpiredAuditReport/）保持不纳入。
 - **留待部署日**：nginx -t + C6 观察期启用 + 探针开关决策 + MA-08 六步留痕（BF-196 遗留段同口径）。
+
+
+## 十一、MA-23 独立批次收口小节（2026-11-18 执行后追加）
+
+> MA-23 因涉及 T2/T14 两份子域条文改写与棘轮阈值上移，脱离批次 D 单独立项执行。**前置拍板（2026-11-18）**：
+> ① 工厂位置 = 各 app `tests/factories.py` + **同步修 T2 条文**（渐进迁移，不一次性改写存量）；
+> ② 棘轮 = **保留 0.3pt 缓冲、四指标各自上移**（阈值 = `floor_0.1(实测 − 0.30pt)`）。
+
+| 工作包 | 条目 | 提交（子仓/根仓） | 关键产出 | 回归证据 |
+|:--|:--|:--|:--|:--|
+| 1a 工厂奠基 | N-09 | `—`（待提交） | 三个 `tests/factories.py`：Department/Employee、AuthUser/SuperUser、AssetType/Storage/Contract/Asset（全静态默认值、可空 FK 恒 `None`、`Employee.auth_user` 恒 `None`、资产走 `asset_type_recordcode` SubFactory）；`core/tests/test_factory_equivalence.py` | 等价性 **18 passed**（值等价 / 持久化等价 / 零副作用三层） |
+| 1b/1c 夹具收编 | N-09 | `—`（待提交） | 四份 `conftest.py`（usermanagement / assetmanagement / authusermanagement / unregisteredasset）改走工厂；流转记录与 UnregisteredAsset 仍 `objects.create`（无工厂，渐进） | 分域 252 / 265 / 1486 passed |
+| 1d T2 条文 | N-09 | `—`（待提交） | `backend-testing-rules.md` v1.10→**v1.11**：「禁止原始 create」→「新写优先 + 存量渐进 + 不新增即红护栏」，补分置路径/全静态/auth_user 禁写/等价性门禁 | [HALT] diff 经用户批准后落盘 |
+| 2 补测 + 棘轮重基 | N-11 | `—`（待提交） | 新增 `DepartmentTree.spec.ts`（15 用例，原语句覆盖 2.4%）；`vitest.config.ts` `.vue` 四阈值 42.6/27.8/27.0/43.7 → **43.4/28.2/27.5/44.3**；`frontend-testing-rules.md` v1.10→**v1.11**（T14 数值 + 新增「阈值取值口径」条，取代 v1.9「不额外预留固定余量」） | `npm run test:coverage` **279 文件 / 2761 用例 / exit 0**（修 BF-200 后） |
+| 2b 门禁假红修复 | 新发现 | `—`（待提交） | `DashboardPage.spec.ts` vi.mock 三个 `defineAsyncComponent` 入口，切断 → echarts 懒加载链（**BF-200**） | 单跑 3/3 exit 0、零 Unhandled Error |
+| 3 报告账本 | 全条目 | `—`（待提交） | 本小节 + MA-23 行/CT-2 行/批次 D 台账终态同步；活账本 BF-199/200/201 | 文档交叉引用核对 |
+
+收口核对：
+- **台账终态**：MA-23 → 待修复 → **已修复（本批）**；**N-10 销项**——`frontend-testing-rules.md:11` T9 原文已含「与组件同目录存放（推荐），或统一放置于 `src/__tests__/`」，与 273 spec 就近 `__tests__` 的实践一致，**不改 T9**；**N-11 关闭**——余量由 0.03pt 升至 ≥0.30pt。
+- **新发现登记（ID-2，本批不修）**：① `DepartmentTree.vue:212` 拖拽防环判定疑似与 `:211` 注释方向相反（拖父节点入其子节点 inner **放行**可成环、拖子节点到其祖先却被误拒）→ **BF-201 待修复**，本批测试按现状断言并加注；② `DashboardPage` async teardown 竞态 → **BF-200 已关闭**。
+- **门禁证据（本机实测，CT-7 口径：权威以 CI run `$GITHUB_STEP_SUMMARY` 为准）**：后端 `pytest --cov=. --cov-fail-under=80` = **2535 passed / 90.57% ≥ 80 / exit 0**（基线 2517 + 等价性 18），Service 四域 `--cov-fail-under=90` = **98%**，`mypy --strict` **0 issues / 234 files**（dev.txt 声明版本），ruff 全仓 0；前端 `npm run test:coverage` = **2761 passed / 279 文件 / exit 0**，分层 `.vue` 43.70/28.55/27.84/44.69 ≥ 43.4/28.2/27.5/44.3，`src/**/*.ts` 93.36/87.79/88.36/94.35 ≥ 80，`src/stores/**` 96.82/96.86/91.16/97.20 ≥ 90；type-check / lint:ci / format:check 全绿；护栏（行数 / 重复不变量 / 前端不变量）全 PASS。
+- **如实标注**：后端 mutmut 与前端 test:mutate 本机未跑（Windows 限制，参照 BF-196 先例留 CI 收口）；`.vue` 覆盖率分层数字为**本机 v8 直证中间量**，权威结论以 CI 为准；存量 `objects.create` 用例未清零（渐进迁移口径，不设即红护栏）。
+- **混入边界**：根仓既有脏变更（`docs/Review/merge-audit-112.md` 删除、`.codebuddy/`、`ExpiredAuditReport/`）不纳入本批。
