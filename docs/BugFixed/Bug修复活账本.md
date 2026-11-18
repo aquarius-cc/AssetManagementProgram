@@ -11519,13 +11519,44 @@ Commit 3（首跑红修复，head 8aa51b0）push 复验：
 - **验证**：单文件 `npx vitest run src/components/__tests__/DashboardPage.spec.ts` **3/3 exit 0、零 Unhandled Error**（修复前 3/3 exit 1）；全量 `npm run test:coverage` **279 文件 / 2761 用例 / exit 0**。
 - **关联**：MA-23 包2b；C5/MA-14（echarts 懒加载改造引入的加载链，BF-197 内）；BF-193（同 spec 的既有告警族）。
 
-## BF-201【待修复】DepartmentTree 拖拽防环判定疑似与注释方向相反（可成环 / 合法移动被误拒）
+## BF-201【已关闭】DepartmentTree 拖拽防环判定方向相反 + 未计被拖子树高度（可成环 / 合法移动被误拒）
 
 - **编号说明**：登记前核账本最大号 **BF-200**，顺延取 **BF-201**，无撞号。
-- **状态**：🔍 待修复（2026-11-18 登记，**本批不动生产代码**——用户拍板「登记待修」）| 登记日期：2026-11-18
-- **现象**：`src/components/componentsdetails/components/DepartmentTree.vue:211-214` 注释写「不能放入自己或自己的子节点中」，实现为 `if (isDescendant(dropData, draggingData.department_code)) return false`；而 `isDescendant(target, sourceCode)`（`:219-`）是从 `target` 向下遍历找 `sourceCode`，实际语义是「**source 是否为 target 的后代（或自身）**」。两者方向相反：
-  - 拖 **D1**（父）落其子节点 **D11** 的 `inner` → `isDescendant(D11, "D1")` 为 false → **放行**，D1 成为 D11 子节点，**与既有 D11 父链成环**；
-  - 拖 **D111**（子）放到其祖先 **D1** 的 `before` → `isDescendant(D1, "D111")` 为 true → **误拒**（该移动本不产生环）。
-- **本批处置**：`DepartmentTree.spec.ts` 两条用例按**现状**断言（self-drop 拒绝 / 拖到祖先拒绝）并在用例名标注「当前实现语义」，未改生产代码；修复时需先红后绿（补「拖父入其子 → 拒绝」用例）。
-- **修复方向（待批）**：把判定改为「放置目标是否位于被拖节点的子树内」（即从 `draggingData` 向下找 `dropData.department_code`），或等价地反向传参；同批复核 `before/after` 落点父节点是否也在被拖子树内。
-- **关联**：MA-23 包2 补测过程中的主动洞察（ID-2）；merge-audit-20261116.md §十一「新发现登记」。
+- **状态**：🔒 已关闭（2026-11-18 修复并验证：先红 6 failed → 恢复 19/19）| 登记日期：2026-11-18
+- **缺陷（四条并存，缺一不可）**：
+  1. **判据方向反向（拦祖先、放子树）**：`DepartmentTree.vue:211-214` 注释写「不能放入自己或自己的子节点中」，实现为 `if (isDescendant(dropData, draggingData.department_code)) return false`；而 `isDescendant(target, sourceCode)`（原 `:219-`）是从 `target` 向下遍历找 `sourceCode`，实际语义是「**source 是否为 target 的后代（或自身）**」，即拦截的是「落点是被拖节点的自身/祖先」，与注释意图相反。
+  2. **判据不完整（未计子树高度）**：层级只算 `dropData.level (+1)`，不含被拖子树自身高度——高度 2 的子树落入 level 4 后最深节点达第 8 层，前端放行、后端 `DEPARTMENT_LEVEL_EXCEEDED` 打回。
+  3. **环拒绝静默**：`return false` 无任何用户反馈，节点直接回弹。
+  4. **告警顺序错误**：层级判定在环判定之前，成环场景可能先弹「部门层级最多6层」的**错误原因**告警。
+- **复算证据**（直接求值旧 `isDescendant`，A→C，A→C→X，P→B→A）：拖 A 到子 C 的 `inner` / `before` 均为 `false`（**放行成环**）；拖 C 到祖先 A `inner` 为 `true`（拒绝无害）；拖 A 到父 P 之后（提级）为 `true`（**合法移动被误拒**）；拖 X 到根 A `inner` 为 `true`（隔代祖先）。后端 `department_service.py:236-246` 以 `CIRCULAR_REFERENCE` 兜底，故属 UX/功能缺陷而非数据事故。
+- **修复**（`vue-assetmanagement` 提交 `22c02af`）：判据改为「**落点后的新父节点 ∈ 被拖子树（含自身）→ 拒绝**」，`before/after` 取 `dropData.parent_department_code` 一并覆盖（旧实现漏掉「拖到自身子节点前后 = 新父为自己」）；层级判定补 `getSubtreeHeight(draggingData)`（与后端 `new_level + max_child_depth > 5` 同式）；环判定前移到层级判定之前；新增 `warnBlocked` 按「拖拽码|落点码|类型|原因」去重（dragover 高频调用不刷屏），`allowDrop` 通过时重置 `lastWarnKey`。`utils/departmentTree.ts` 新增 `collectSubtreeCodes` / `isDepartmentInSubtree` / `getSubtreeHeight`，组件内私有 `isDescendant` 删除。
+- **验证**：stash 源码后 **6 failed**（含「拖父到子 inner」`expected true to be false`、「拖子到祖先 before」`expected false to be true`）；恢复后 **19 passed**；全量 `npm run test:coverage` 279 文件 / 2773 用例 / exit 0，`.vue` 语句 44.78 / 分支 30.01 / 函数 28.83（阈值 43.4/28.2/27.5 只升不降）；type-check / eslint / prettier 全绿。
+- **关联**：BF-202（同源 `isDescendant` 双实现收口）；BF-203（同文件落点 payload 改造）；MA-23 包2 补测过程中的主动洞察（ID-2）；merge-audit-20261116.md §十一「新发现登记」。
+
+## BF-202【已关闭】DepartmentFormDialog 上级部门仅禁用直系子——孙及更深仍可选，可选出环
+
+- **编号说明**：登记前核账本最大号 **BF-201**（同批新登记），顺延取 **BF-202**，无撞号。
+- **状态**：🔒 已关闭（2026-11-18，先红 2 failed → 3 passed）| 登记日期：2026-11-18
+- **根因**：`DepartmentFormDialog.vue:211-236` 逐节点调用 `utils.isDescendant(node, editCode)`，该函数按 parent 链判定「子树中某节点的**直接**父 == editCode」——只命中直系子；孙及更深返回 `false`，故编辑弹窗可把部门挂到自己孙级下（成环，仅靠后端 `CIRCULAR_REFERENCE` 兜底）。选集校验 `isDescendantByCode`（原 `:282`）同源同缺陷。
+- **修复**（`vue-assetmanagement` 提交 `14d0cf7`）：新增 `disabledDepartmentCodes` 计算属性，用 `findDepartmentNode` + `collectSubtreeCodes`（BF-201 已入库）一次性求「自己 + 全部子孙」编码集合；`processNode` 与 `validateParentCode` 统一按集合判定；删除已无调用方的 `isDescendant` / `isDescendantByCode`（消除同名不同义双实现，DR-1/DR-4）。
+- **验证**：stash 后 **2 failed**（孙级 `disabled` 为 `undefined`，`expected undefined to be true`），恢复后 3 passed；`utils` spec 新增 `collectSubtreeCodes` / `isDepartmentInSubtree` / `getSubtreeHeight` 用例（含四层链），两文件合计 **20 passed**；type-check / eslint / prettier 全绿。
+- **关联**：BF-201（同源工具函数）；MA-23 包2 补测主动洞察（ID-2）。
+
+## BF-203【已关闭】拖拽排序不持久化——`target_code` 死载荷、`sortDepartments` 零生产调用
+
+- **编号说明**：登记前核账本最大号 **BF-202**（同批新登记），顺延取 **BF-203**，无撞号。
+- **状态**：🔒 已关闭（2026-11-18，先红 7 failed → 25 passed）| 登记日期：2026-11-18
+- **根因**：前端「排序模式」只改视觉——`DepartmentTree.handleNodeDrop` 发出的 `target_code` 无任何消费方，`DepartmentManagement.handleDepartmentMove` 仅 `PUT /users/departments/{code}/move/`（同父重排等于无操作），`departmentStore.sortDepartments`（`PUT /users/departments/sort/`）在修复前**零生产调用**，落点顺序在刷新后回退。
+- **修复**（`vue-assetmanagement` 提交 `03b878f`）：`handleNodeDrop` 新增 `parent_changed` 与 `sort_items`——兄弟顺序统一从 `props.data` 推导（`inner` 追加到新父末尾；`before/after` **先剔除被拖节点**再按落点下标插入，故无需「原下标后移则 -1」修正），payload 删除死字段 `target_code`；`handleDepartmentMove` 改为「父级变更才 `moveDepartment` → 分批（≤100，对齐后端 `core.constants.MAX_BATCH_SIZE`）写 `sort_order` → `finally` 统一刷新树」，成功/失败提示各一次。
+- **验证**：stash 后 **7 failed**（旧 payload 深度不等 + handler 未调用 `sortDepartments`），恢复后 25 passed（含跨父顺序断言 `move → sort` 调用序、同父不调 `moveDepartment`、150 条分 100+50 两批）；全量 279 文件 / 2773 用例 / exit 0。
+- **遗留（不随本条关闭）**：表单弹窗改父路径（`DepartmentFormDialog.vue` 提交时调 `moveDepartment`）同样不写 `sort_order`，节点会按旧序号插在新兄弟中间——用户拍板另立 BF 待办，见 **BF-204**。
+- **关联**：BF-201（同文件落点判定）；`api/department.ts:190-196` 与 `departmentStore.ts:155-159`（既有能力被接通）。
+
+## BF-204【待修复】表单弹窗改父路径不归一化 `sort_order`——新位置按旧序号插入
+
+- **编号说明**：登记前核账本最大号 **BF-203**（同批新登记），顺延取 **BF-204**，无撞号。
+- **状态**：🔍 待修复（2026-11-18 登记，用户拍板本批**不做**、另立待办）| 登记日期：2026-11-18
+- **根因**：拖拽路径已由 BF-203 接通 `sortDepartments`，但「编辑/新增弹窗改上级部门」走的是另一条链路——`DepartmentFormDialog.vue` 提交时仅调 `moveDepartment`（改父），不追加 `sort_order` 写入；目标父下兄弟仍保持旧序号，新节点按遗留序号插入列表中部而非末尾，用户看到「刚挂进来的部门夹在中间」。
+- **修复方向（待批）**：改父成功后取新父下兄弟（含本节点）按「追加末尾」重排并 `sortDepartments`，与 BF-203 的 `buildSortItems` 共用同一排序构造逻辑（DR-1，避免第三处独立实现）；同时复核新增路径（无父变更）是否需要补 `sort_order`。
+- **关联**：BF-203（同域剩余链路）；`DepartmentFormDialog.vue` 提交流程；`departmentStore.sortDepartments`。
+
