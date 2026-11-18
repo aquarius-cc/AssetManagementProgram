@@ -1,5 +1,5 @@
 # 后端测试细则 (Backend Testing Rules)
-> 版本：v1.10 | 最后更新：2026-11-15
+> 版本：v1.11 | 最后更新：2026-11-18
 > 适用范围：pytest + pytest-django + factory_boy + mutmut（变异测试）
 
 ## 一、测试目录与命名 [T1]
@@ -12,8 +12,10 @@
 - 测试方法命名：`test_<scenario>_<expected_behavior>`（如 `test_checkout_success`）
 
 ## 二、测试数据工厂 [T2]
-- **强制**使用 `factory_boy` 定义工厂类（如 `AssetFactory`、`UserFactory`），**禁止**使用原始 `create()` 造数据。
-- 工厂类统一放在 `tests/factories.py` 中，并在需要时通过 `@pytest.fixture` 注入。
+- **新写测试优先使用 `factory_boy` 工厂**，工厂按 app 分置：部门/员工 → `apps/usermanagement/tests/factories.py`；AuthUser → `apps/authusermanagement/tests/factories.py`；资产类型/存放点/合同/资产 → `apps/assetmanagement/tests/factories.py`。
+- **工厂默认值全静态**（禁 Faker）；可空外键一律默认 `None`，不套 `SubFactory`；`Employee.auth_user` 恒为 `None`——绑定必须走 `EmployeeService.bind_auth_user()`，禁止直写。
+- **存量 `objects.create(...)` 渐进迁移**：本条落地时存量用例不一次性改写；域内已有工厂的七类对象（Department/Employee/AuthUser/AssetType/Storage/Contract/Asset），新增用例禁止绕过工厂手写 `create`，存量随触碰逐步收编。不新增「测试内 `create` 即红」护栏。
+- 工厂与手写构造的等价性由 `core/tests/test_factory_equivalence.py` 锁定（值等价 / 持久化等价 / 零副作用三层）。
 
 ## 三、Service 层必测场景（宪法 CT-1/CT-3 落地）[T3]
 针对每个资产状态变更方法（`checkout`、`recycle`、`mark_damaged` 等），必须覆盖：
@@ -120,6 +122,7 @@ findstr /N "RemoveIndex RemoveField RenameField" <迁移文件名>
 ```
 
 ## 十、变更日志
+- **v1.11 (2026-11-18)**：**[PATCH-BE] MA-23 / B-N-09 —— §二 T2 条文与实践对齐（放宽，非收紧）**。原条文「**禁止**使用原始 `create()` 造数据」与实践背离（存量 `objects.create` 用例数百处、factory_boy 此前零使用），本次改为「新写优先 + 存量渐进迁移 + 不新增即红护栏」，并补记七类工厂的分置路径、全静态默认值与 `Employee.auth_user` 不得直写两条硬约束，及 `core/tests/test_factory_equivalence.py` 三层等价性门禁。批准依据：merge-audit-20261116 MA-23 拍板 ①「补 `factories.py` 渐进迁移 + 同步修 T2 措辞」，[HALT] diff 经用户批准（2026-11-18）。**§5.4 适用性**：本条为**放宽**既有强制条款使其可执行，不新增/收紧任何红线、不改变 CI 阻断行为，不触发沙盒期。配套：三个 app 新增 `tests/factories.py`、四份 `conftest.py` 收编工厂、等价性测试 18 用例。
 - **v1.10 (2026-11-15)**：**[M-21] §六 T6 增门禁状态订正注记**——后端覆盖率门禁（整体 80 + 四 Service 各 90）已在 ci.yml `backend-test` 固化阻断；权威覆盖率数字以 CI run 的 `$GITHUB_STEP_SUMMARY` 为准，本地实测仅讨论中间量（CT-7）；CT-7 声明版本（pytest==9.1.1 / pytest-cov==7.1.0 / ruff==0.17.1）由 CI 覆盖率 step 前打印（「门禁工具链版本（CT-7）」step）；九项固化点由 `check_ci_orchestration.py` 断言七守护（删任一命令即红），红绿直证 PR #2（绿 43618743325 / 红 43623022911 / 终绿 43623471892）。**§5.4 适用性**：注记属状态订正（门禁已固化）与口径补全，不新增/收紧任何红线、不改变 CI 阻断行为，不触发沙盒期。配套根级 AGENTS.md v3.7.8（:39 [PENDING] 表述作废、:44 CT-7 声明版本口径）。
 - **v1.9 (2026-11-10)**：**[PATCH-BE] 批次 6 一次审批包**——① T4 第 29 行订正（M-22）：成功请求 `message` 改为 `<展示文案>` 口径（值不固定、按 `code` 判定），对齐 `backend-business-rules.md` v1.26 B1，跨端契约 §3 的 `message: "str"` 不变；② 头部版本字段漂移收敛：v1.6（最后更新 2026-10-10）→ v1.9，与变更日志 v1.8 对齐（头部漏升系 v1.7 时既有缺陷）。批准依据：批次 6 方案 D1-D7 / 用户拍板 2026-11-10。登记：BF-187（原登记号 BF-186 已被批次 4b 占用，顺延）。
 - **v1.8 (2026-10-27)**：§六 补注 M-46 闭环留痕（BF-160）——`apps.notification.services` 覆盖盲区按「补测」路径修复（专项 98.41%），**未**扩入 CI 逐 App 专项清单（扩清单属规则收紧，依根级 §5.4 沙盒另行立项）；本条为状态留痕，非红线/门禁口径变更。来源：`docs/Review/Merge-audit-2026-10-26.md` M-46 行。
