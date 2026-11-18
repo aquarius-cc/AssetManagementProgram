@@ -829,6 +829,7 @@
 - **判定**：AssetBatchImport.vue / AssetTypeBatchImport.vue 各 4 helper（extract400Items/isFailItem/buildFailedMap/applyFailedMapToRows）同型复制；ContractBatchImport.vue:222-248 内联 index map；useBatchImport.ts:105-124 内联 id map。
 - **修复方案**：新建 `src/utils/batchImport/failedMap.ts` 单源——extract400Items（统一取带 status===400 闸的版本）+ isFailItem + buildFailedMapByIndex + applyFailedMapToRows + buildFailedMapFromIds；两套映射语义（index/id）并存不合并；4 消费方全部切单源。
 - **验证命令**：`npx vitest run src/utils/batchImport/__tests__/failedMap.spec.ts` → 7 passed；`npm run type-check` 全绿；`git log` 前端 `e6e51d9`。
+- **【批次 D 追加 2026-11-18】语义决策登记**：MA-21 收编时在 utils/pagination.ts 新增 `DEFAULT_SUGGESTION_LIMIT=20`（下拉联想/模糊搜索条数上限），与 `DEFAULT_PAGE_SIZE` 语义隔离、独立导出——联想桶 5 处引前者、分页桶引后者，均非 DR-1 漏引。反向断言见 stores/__tests__/paginationDefaults.spec.ts。
 
 ### B-45. 【新发现 2026-11-17】dashboard.ts 8 处内联 catch（logError + isApiError 分支 + ElMessage.error）与 notifyCallerError 同构
 - **编号**：顺延登记（B-44 后最大号 +1）。**状态**：单源收编（2026-11-17，C3-2/MA-10）| 登记日期：2026-11-17 | 登记来源：`docs/Review/merge-audit-20261116.md` MA-10（B-N-01）。
