@@ -50,7 +50,6 @@ FINGERPRINTS_PATH = Path(__file__).resolve().parent / "secret_fingerprints.json"
 
 # 第一道·kv 形态（自 security-scan.yml PATTERNS 逐字移植，大小写敏感、无词边界）:
 # 命中值可按指纹白名单/占位判定分流（仅限 tests 路径）。
-# AI_REVIEW_NEEDED: regex validation required
 QUOTED_KV_PATTERNS = (
     ("password", r"password\s*[:=]\s*[\"'][^\"']{8,}"),
     ("secret", r"secret\s*[:=]\s*[\"'][^\"']{8,}"),
@@ -75,7 +74,6 @@ QUOTED_EXTENSIONS = frozenset(
 QUOTED_EXCLUDED_PREFIXES = (".opencode/", "scripts/check_secret_fingerprints.py")
 
 # 第三道·token 分词（指纹化检测力的载体，边界见模块 docstring）。
-# AI_REVIEW_NEEDED: regex validation required
 TOKEN_RE = re.compile(r"[A-Za-z0-9@#*_\-+/]{8,}")
 
 
