@@ -10730,7 +10730,7 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 
 *登记人：mimo ｜ 状态：【待决策】（平台侧一次性丢 job，attempt2 重跑恢复；复发阈值 ≥2 次触发加固立项），2026-11-01*
 
-## BF-170【待验证】批次 2 P1 行级隔离三连——OP-01 员工域行级隔离旁路（employees action 裸 filter 任意登录用户可枚举全公司员工）+ OP-03 报废批量删除跨部门（不收 user 全表查找）+ OP-02 出库批量删除跨部门（同型，全仓唯一漏网）；配套 G-6/G-7 护栏（批量删除必须携带用户/视图必须接线）防再发｜来源：`docs/Review/merge-codegraph-audit-20261101.md` OP 表 OP-01/OP-02/OP-03（P1）+ 批次 2 执行方案 v1.1（拍板①②）
+## BF-170【已关闭】批次 2 P1 行级隔离三连——OP-01 员工域行级隔离旁路（employees action 裸 filter 任意登录用户可枚举全公司员工）+ OP-03 报废批量删除跨部门（不收 user 全表查找）+ OP-02 出库批量删除跨部门（同型，全仓唯一漏网）；配套 G-6/G-7 护栏（批量删除必须携带用户/视图必须接线）防再发｜来源：`docs/Review/merge-codegraph-audit-20261101.md` OP 表 OP-01/OP-02/OP-03（P1）+ 批次 2 执行方案 v1.1（拍板①②）
 
 ### 一、问题与定性（行级隔离 / B14，零迁移）
 
@@ -10764,6 +10764,15 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 - **转【已关闭】条件**：三组用例 + 护栏自测绿落地推送后，CI 首跑全绿（含 mutation ≥ 基线 83.25676365492598）。
 
 *登记人：AtomCode ｜ 状态：【待验证】（修复方向已拍板，执行后回填验证证据），2026-11-01*
+
+### 六、终态验证与关闭记录（2026-11-19，后端子仓 `549674c`）
+
+- **复跑**：`test_out_asset_rbac.py` + `test_waste_asset_rbac.py` + `test_create_row_isolation.py` + `core/tests/test_batch_delete_view_mixin.py` → **42 passed**。
+- **端点级缺口用例补齐（CT-4）**：`get_department_by_jobcode` 此前仅有 scope-helper 断言、无真实路由锚——新增 `test_department_by_jobcode_cross_dept_404`（普通用户查他部门工号 → 404）。先红后绿：临时回退 `self.get_queryset()` 行 → 用例红（泄露部门信息）；恢复 → 绿。既有的 departments-employees 两例端点级 404 锚（OP-01）已在位。
+- **文件**：`core/department_scope.py:91`、`department_view.py:123`、`out_asset_service.py:317`、`waste_asset_service.py:66`（代码此前已落 HEAD）。
+- **CI 回填**：转关闭由根仓指针提交触发 CI 终态门禁为准（约束⑤：子仓推送不触发根 CI）。
+
+*关闭人：AtomCode ｜ 状态：【已关闭】（四文件复跑 42 passed + 端点级锚先红后绿），2026-11-19*
 
 ## BF-171【已关闭】B-29 提示层八触点收编——M-RC-09 单出口同型残留 ×6 + 同文件 submit 第二触点 ×2，全部收编 `notifyCallerError`；修复方向与 M-05 相反（收编而非删除）｜来源：`Rules_Fiels/Duplicate_Codes/complete-patterns.md` B-29（§1.8 新发现义务，批次 4 M-05 执行时同类排查实测）
 
