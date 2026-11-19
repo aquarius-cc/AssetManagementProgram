@@ -10858,7 +10858,7 @@ CI 直证补取完成：run `41470492279`（HEAD ae66c51）16 job 全绿 + run `
 
 *登记人：mimo ｜ 状态：【已关闭】（2026-11-04，run 41823276338 全绿回填）*
 
-## BF-174【待验证】批次 6 后端健壮性 + 审计合规四件——M-11 DatabaseError fail-fast + OP-05 审计快照脱敏（OC-3，D1 掩码拍板）+ OP-10 S1 补痕 + M-19 审计失败可观测（D2 approve 强一致拍板）｜来源：`docs/Review/merge-codegraph-audit-20261101.md` M-11/OP-05/OP-10/M-19 + 批次 6 方案 v1.1（7 处缺口修正 + 拍板①②）
+## BF-174【已关闭】批次 6 后端健壮性 + 审计合规四件——M-11 DatabaseError fail-fast + OP-05 审计快照脱敏（OC-3，D1 掩码拍板）+ OP-10 S1 补痕 + M-19 审计失败可观测（D2 approve 强一致拍板）｜来源：`docs/Review/merge-codegraph-audit-20261101.md` M-11/OP-05/OP-10/M-19 + 批次 6 方案 v1.1（7 处缺口修正 + 拍板①②）
 
 ### 一、问题与定性
 
@@ -10885,6 +10885,15 @@ CI 直证补取完成：run `41470492279`（HEAD ae66c51）16 job 全绿 + run `
 后端提交推送 + CI 全绿后回填转【已关闭】；残余项三项登记不阻塞：①存量明文 AuditLog 行需 DBA 手工 SQL（models_audit.py:76-78 禁 ORM 改写已有记录）；②同前 3 后 4 号码改写快照不可分辨（可选增强 after_data["employee_phone_changed"] 未做）；③S1/S2/S3 operator_name 未透传（M-16 同型，另开票）。mutmut 双门禁随 CI 执行（Windows 原生不可跑）。
 
 *登记人：mimo ｜ 状态：【已提交】（2026-11-03，后端原子提交 c9cbfed/a438d06；2026-11-04 批 6 收端 49a3096 闭面）*
+
+### 五、收口记录（2026-11-19，账本校准批）
+
+- **四件代码在 HEAD 实证**：`core/audit_sanitizer.py:17`（OP-05 掩码表）、`apps/unregisteredasset/handlers.py:125`（OP-10）、`core/batch_mixins.py:146`（M-11 fail-fast）、`core/metrics.py`（M-19，提交 49a3096）。
+- **复跑**：`core/tests/test_audit_snapshot_masking.py` + `core/tests/test_audit_write_failure.py` + `apps/usermanagement/tests/test_employee_audit_masking.py` + `core/tests/test_batch_db_failfast.py` + `apps/unregisteredasset/tests/test_handlers.py` → **30 passed**。
+- **证据缺口（如实标注）**：含 `49a3096` 的绿 CI run 本机未回填（段 4/5 推送期间 SSH 连 GitHub 持续超时）；转关闭依据 = 五文件本地复跑全绿 + 四件代码 HEAD 在场实证；首个可推送的根仓指针提交触发 CI 后即为终态绿 run。
+- **残余三项维持不阻塞**（原「转关闭条件」段）：①存量明文 AuditLog 行 DBA 手工 SQL；②改写快照不可分辨可选增强；③S1/S2/S3 operator_name 透传另开票。
+
+*关闭人：AtomCode ｜ 状态：【已关闭】（五文件复跑 30 passed + 代码 HEAD 实证；CI run 待推送恢复后回填），2026-11-19*
 
 ## BF-175【已关闭】批次 7 前端护栏与测试锚三件——OP-06 FR-8 口径收编（is_store_target 假绿盲区）+ OP-08 batchB 非顶层 vi.mock 提升警告清零 + OP-07 八 composable 测试锚定｜来源：`docs/Review/merge-codegraph-audit-20261101.md` OP-06/07/08 + 批次 7 方案 v4 冻结
 ### 一、问题与定义
