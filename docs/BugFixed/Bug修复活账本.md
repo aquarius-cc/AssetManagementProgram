@@ -11552,13 +11552,32 @@ Commit 3（首跑红修复，head 8aa51b0）push 复验：
 - **遗留（不随本条关闭）**：表单弹窗改父路径（`DepartmentFormDialog.vue` 提交时调 `moveDepartment`）同样不写 `sort_order`，节点会按旧序号插在新兄弟中间——用户拍板另立 BF 待办，见 **BF-204**。
 - **关联**：BF-201（同文件落点判定）；`api/department.ts:190-196` 与 `departmentStore.ts:155-159`（既有能力被接通）。
 
-## BF-204【待修复】表单弹窗改父路径不归一化 `sort_order`——新位置按旧序号插入
+## BF-204【已关闭】表单弹窗改父路径不归一化 `sort_order`——append 权威，序号 = 组内 max+1
 
 - **编号说明**：登记前核账本最大号 **BF-203**（同批新登记），顺延取 **BF-204**，无撞号。
-- **状态**：🔍 待修复（2026-11-18 登记，用户拍板本批**不做**、另立待办）| 登记日期：2026-11-18
+- **状态**：🔒 已关闭（2026-11-19，后端子仓 `7a5604e` + 前端子仓 `839f964`）| 登记日期：2026-11-18
 - **根因**：拖拽路径已由 BF-203 接通 `sortDepartments`，但「编辑/新增弹窗改上级部门」走的是另一条链路——`DepartmentFormDialog.vue` 提交时仅调 `moveDepartment`（改父），不追加 `sort_order` 写入；目标父下兄弟仍保持旧序号，新节点按遗留序号插入列表中部而非末尾，用户看到「刚挂进来的部门夹在中间」。
-- **修复方向（待批）**：改父成功后取新父下兄弟（含本节点）按「追加末尾」重排并 `sortDepartments`，与 BF-203 的 `buildSortItems` 共用同一排序构造逻辑（DR-1，避免第三处独立实现）；同时复核新增路径（无父变更）是否需要补 `sort_order`。
-- **关联**：BF-203（同域剩余链路）；`DepartmentFormDialog.vue` 提交流程；`departmentStore.sortDepartments`。
+- **修复**（最终方案与原「修复方向（待批）」不同，经逐行源码核实后改道）：**后端 append 权威**——① `department_serializers.py` 新增 `DepartmentCreateSerializer`，create 请求体 `parent_department_code` 可写（`SlugRelatedField(source="parent")`），基类保持 read_only 禁止 update 绕过 move（BF-206 同批）；② `department_view.py` `get_serializer_class` 按 action 分发 + `perform_create` 委托 `DepartmentService.create_department`；③ `department_service.py`：`create_department` 兼容 parent 模型实例 + sort_order 缺省经 `DepartmentSelector.next_sort_order(parent)` 排到目标组末尾（空组返回 0，显式传值尊重）；`move_department`/`_move_to_root` 真实改父时序号 = 新组 max+1；同父且 path 正确时 no-op 早退不改序号（path 异常仍执行，保留修复损坏路径能力）；④ 前端：`ensureDepartmentCreateForm` sort_order 条件展开（与 update 同构）、弹窗改父/新增载荷省略 sort_order、输入框禁用 + 提示「改父/新增后自动排到末尾，位置调整请用排序模式拖拽」。
+- **并发取舍（明示，防被当新缺陷重开）**：create 路径的 max+1 与 move 同款存在并发窗口（create 无行锁），属已知取舍——重复 sort_order 只影响并列时 `department_code` 决胜，不产生数据损坏，且拖拽（BF-203）整组 0..n-1 归一可自愈；不引入唯一约束。另：`move_department` 的 `parent_id` 为 `to_field=recordcode` 的字符串值，不可与 int pk 比较（no-op 判定曾因此失效，测试网住）。
+- **验证**：后端 usermanagement 全量 **262 passed**（含新增 service 6 例 + API 契约 4 例含审计核验）；ruff check/format 双闸、mypy、schema 基线重导出（非破坏性，spectacular 既有 6 类无关 warning/error 不变）；前端 type-check / lint:ci / format:check、`DepartmentFormDialog.spec.ts` 7 条 + `DepartmentManagement` 4 条 + `DepartmentTree` 25 条、全量覆盖率棘轮通过（2777 tests，exit 0）。
+- **关联**：BF-203（append 权威不冲突，拖拽仍为唯一整组归一入口）；BF-206（同批后端 API 缺陷）；BF-207（余留：batch-create 仍组内并列）。
+
+## BF-206【已关闭】部门创建 API 忽略 `parent_department_code`——部门被建到根层且 path 为空、审计未触发
+
+- **编号说明**：登记前核账本最大号 **BF-205**（同批新登记），顺延取 **BF-206**，无撞号。
+- **状态**：🔒 已关闭（2026-11-19，后端子仓 `7a5604e`，与 BF-204 同批）| 登记日期：2026-11-19
+- **现象**：`POST /users/departments/` 请求体携带 `parent_department_code` 时，因 `DepartmentSerializer.parent_department_code` 为 read_only 展示字段被丢弃；视图走 DRF 默认 `perform_create`（`serializer.save()`）绕过 `DepartmentService`，导致 ① parent 落 None（本应挂父的部门被建到根层）② level=0 ③ path 为空串（服务层的 `/编码` 兜底不生效）④ `DepartmentAuditAdapter.log_create` 不触发。阶段 0 临时红测留档证实（无父用例断言现状 `path == ""` / `level == 0`，带父用例断言 parent 为 None，全部通过即为缺陷证据，修复后同断言反转失败）。
+- **修复**：见 BF-204（`DepartmentCreateSerializer` + `perform_create` 委托服务层）；审计适配器现经服务层恰好调用一次，operator 空值不报错（`test_create_triggers_audit_once_with_empty_operator` 网住）。
+- **已知取舍**：create 路径 max+1 的并发窗口见 BF-204「并发取舍」段。
+- **关联**：BF-204（同批同根因面）；BF-207（batch-create 入口仍绕过）。
+
+## BF-207【待修复】`DepartmentBatchAddDialog` 批量建部门 `sort_order` 固定传 0——组内全并列
+
+- **编号说明**：登记前核账本最大号 **BF-206**（同批新登记），顺延取 **BF-207**，无撞号。
+- **状态**：🕘 待修复（2026-11-19 登记，BF-204 收口时拍板本批不做）| 登记日期：2026-11-19
+- **现象**：`PUT /users/departments/batch-create` 前端载荷 `sort_order` 固定传 0，同批创建的兄弟部门组内全并列，列表顺序退化为 `department_code` 决胜，与 BF-204 的 append 权威语义不一致。
+- **修复方向（待批）**：前端按序构造 `sort_order`（或后端 batch-create 落 `next_sort_order` 逐个递增）；同类症状的另一入口，评估与 BF-204 的 `next_sort_order` 共用（DR-1）。
+- **关联**：BF-204（append 权威基准）；BF-203（拖拽整组归一可临时自愈）。
 
 ## BF-205【已关闭】MA-23 后端遗留 ruff format 漂移——CI `backend-lint` 在 `0e1db91` 判红，连带 CD 部署门禁拒部署
 
