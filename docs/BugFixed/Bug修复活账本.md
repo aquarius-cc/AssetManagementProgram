@@ -4068,7 +4068,7 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
 *登记人：opencode ｜ 状态：部分关闭（0a 止血已落地并本地验收通过；52 处债台账待建，0b 评估阻断链），2026-09-29*
 
 
-## BF-063 【部分关闭】ci.yml 全无 timeout-minutes / continue-on-timeout 兜底，失败无边界 2026-09-29
+## BF-063 【已关闭】ci.yml 全无 timeout-minutes / continue-on-timeout 兜底，失败无边界 2026-09-29
 > **范围缩小补注（2026-10-13，账本卫生批）**：登记时事实「全文无 timeout-minutes」已不成立——现存 3 处 **step 级**（8 空格缩进）timeout：`ci.yml:274` 后端变异 300min / `:284` 基线断言 5min / `:451` 前端变异 90min。本轮精确实测：`jobs:` 段顶层键（2 空格缩进）解析共 **15 个 job**（backend-lint 至 ci-summary 逐一列名核对），**零 job 级（4 空格缩进）timeout-minutes**。本条开放范围缩小为「job 级 timeout 边界补齐」，其余子项视为已收口；维持【部分关闭】（真实残留仍在，不翻转）。
 
 ### 〇、元信息
@@ -4154,6 +4154,14 @@ if opening_paid and Decimal(str(opening_paid)) > 0:
    6 小时上限，前者贴边、后者挂死不可区分」。P2 定级不变，但措辞已知有偏，避免后续据标题误判严重度。
 
 *登记人：opencode ｜ 状态：0a 已落地超时/容错（2 重任务 + 判分 step），0b 待实测重标 + 评估是否补齐其余 job，2026-09-29*
+
+### 七、0b 收口记录（2026-11-19，根仓 `5de7205`）
+
+- **实测取数**：近 10 次成功 run（44313121355 等，2026-11-08 ~ 11-18）`gh api …/runs/<id>/jobs` 取「前端/后端 - 变异测试」各 10 个样本，全部 success，无缺口标注。
+- **p95 实测与标定**：前端 p95≈1125s（18.8min）→ ×1.5 ≈ 28min → 标 **30**；后端 p95≈404s（6.7min）→ ×1.5 ≈ 10min → 标 **15**（留 CI 抖动余量）。原估计值 300/90 与实测差一个量级以上（300 为 step 级保留，job 级另有 15 兜底）。
+- **全 job 补齐**：ci.yml 16 个 job 全部声明 job 级 timeout-minutes（常规 30–45、汇总 10）——开放范围（「job 级 timeout 边界补齐」）达成。
+- **防回潮**：`check_ci_orchestration.py` 新增断言八 `audit_timeouts`（job 级 4 空格缩进才计数，step 级不充当；先红后绿 4 例 + 真仓绿锚，26 passed）。
+- **关联**：backend-mutation 的变异数按 1385 基线运行（4h15m 为本地口径），CI 内 6.7min 系 `source_paths` 分片后的实测——遗产注记②「逼近 300 分钟需分片」实际早已由分片化解。
 
 
 ## BF-064 【已关闭】变异测试口径缺口：后端 65.63% / 前端 60.00，双双未达 80% 红线 2026-09-29
@@ -10517,7 +10525,7 @@ merge-audit 指出：员工手机号明文返回所有已登录用户——列�
 
 *登记人：atomcode ｜ 状态：【WAI 关闭】（业务确认口径明文 + 三锚点：注释×2 + 绊线测试×1），2026-10-29*
 
-## BF-166【待决策】根 context 下 nginx/certbot/blackbox 三个 Dockerfile 的 COPY 路径失配（compose build 必败）｜来源：批次 5 CI 实证阶段巡检发现（2026-10-30，ID-2 主动上报）
+## BF-166【已关闭】根 context 下 nginx/certbot/blackbox 三个 Dockerfile 的 COPY 路径失配（compose build 必败）｜来源：批次 5 CI 实证阶段巡检发现（2026-10-30，ID-2 主动上报）
 
 ### 一、问题与定性
 
@@ -10547,6 +10555,18 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 本地 `docker compose build nginx / certbot` 与 monitoring blackbox 构建失败（既存，非批次 1~5 引入；backend 主镜像、CD 断言链、CI 全量不受影响）。关联残余：根 `.dockerignore` 注记②「nginx 构建正向验证」兑现被本条阻塞，已在该注记内回链 BF-166。
 
 *登记人：opencode ｜ 状态：【待决策】（未修；方案 A 7 行前缀待批），2026-10-30*
+
+---
+
+### 五、关闭记录（2026-11-19，后端子仓 `8861787`）
+
+- **修复**：采纳方案 A——nginx stage2 三处 + certbot 1 处 + blackbox 3 处 COPY 补 `asset_management_backend/` 前缀（共 7 行）；`vue-assetmanagement/…` 两行本就相对仓根正确，不动；compose `context: ..` 不改（nginx stage1 取前端源码的必要条件）。
+- **静态验证（修复后）**：按仓根 context 逐条解析 9 处 COPY/ADD 源 → **全绿**（修复前 8/9 MISSING）。
+- **compose 静态校验**：`docker-compose.yml`（6 services）/ `monitoring.yml`（9）/ `prod.yml`（5）三份 YAML 解析通过，build.context + dockerfile 全部解析存在。
+- **证据缺口（如实标注）**：本机无 Docker（docker.exe 不存在、无服务），`docker compose config` 与 nginx/certbot/blackbox 实建未执行——待有 Docker 环境时按「临时 dummy `.env.production.local` → 实建 → 用完即删」补正向验证（与根 `.dockerignore` 注记②一并兑现）。
+- **防回潮**：COPY 路径静态解析已并入段 3 新护栏 `scripts/check_dockerfile_copy_paths.py`（D1）。
+
+*关闭人：AtomCode ｜ 状态：【已关闭】（方案 A 落地 + 静态全绿 + 实建缺口已标注），2026-11-19*
 
 ---
 
