@@ -6089,7 +6089,7 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 
 ---
 
-## BF-088 【观察项·未评估】跨部门部门可见性未评估：get_department_by_jobcode 返回部门而非员工档案 2026-10-13
+## BF-088 【已关闭】跨部门部门可见性未评估：get_department_by_jobcode 返回部门而非员工档案 2026-10-13
 
 ### 〇、元信息
 
@@ -6137,6 +6137,21 @@ detector 报告的 antipattern：`side-tab`（`Side-tab accent border`），指�
 - **排期**：按需评估，非上线阻塞。
 
 *登记人：opencode ｜ 状态：观察项·未评估（BF-048「另立」承诺补立；评估前按未知风险对待），2026-10-13*
+
+### 七、评估收口记录（2026-11-19，段 6）
+
+**评估完成、零代码缺陷**。三项待评估项逐条闭环：
+
+| # | 待评估项 | 闭环结论 |
+|:--|:---------|:---------|
+| 1 | 跨部门调用返回语义 | 已走 `self.get_queryset()` 行级取数（P3-8/OP-19，`employee_query_actions.py:247`），跨部门工号 → 404（与不存在同形） |
+| 2 | 与 B-24 行级 RBAC 边界 | 本端点属「员工可见性 → 传递出部门」点查，与员工域其余 8 端点同构，不额外套部门树可见性（边界见评估文档 §三） |
+| 3 | 测试锚补全 | `test_employee_rbac_scope.py::test_department_by_jobcode_cross_dept_404`（BF-170 收口批先红后绿补齐） |
+
+- **评估文档**：`docs/Review/BF-088-department-visibility-assessment.md`（调用方全量核实仅 1 处；文档串漂移已同步订正）。
+- **影响面澄清**：登记时「未评估按未知风险对待」的两条风险面，经评估均为 BF-048/P3-8 已覆盖语义，无泄露路径。
+
+*关闭人：AtomCode ｜ 状态：【已关闭】（评估完成、零代码缺陷；端点级锚在位），2026-11-19*
 
 ---
 
