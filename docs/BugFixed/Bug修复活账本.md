@@ -1,7 +1,10 @@
 ﻿# Bug 修复活账本
 
 > 唯一事实来源：所有已确认根因并完成修复的 Bug 在此登记。
-> 状态：`已关闭` / `待验证` / `降级` / `待核查`
+> **规范状态词表（2026-11-19 校准批）**：`已关闭`（允许后缀 `·WAI`/`·已闭档`/`·已闭环`/`·已修复`/`·已核实`）/ `部分关闭` / `待修复` / `待验证` / `待决策` / `评估中` / `收口中` / `进行中`。
+> 旧词映射（出现即视为规范词同义）：`已闭档`/`已闭环`/`已修复`/`已修复·部分`/`已核实`/`WAI 关闭` → 已关闭系；`已修复·待提交` → 已关闭或待验证（按正文末状态）。
+> 标题纪律：H2 标题的【状态】必须与正文末条 `状态：【…】` 一致（护栏 `scripts/check_ledger_consistency.py` 强制）。
+> 编号说明：BF-176/177 历史未分配（编号唯一即可，不要求单调连续）；BF-178/179、BF-205/207 的登记顺序为历史实录，不搬块重排。
 > 登记规则：每条必须包含证据（文件:行号 / 日志原文）、根因、修复方案、验证记录，缺一不予通过审核。
 
 ---
@@ -75,7 +78,7 @@ CSRF_TRUSTED_ORIGINS = [
 
 ### 六、遗留与关联事项
 
-- **BF-002【待核查】WebSocket 连接失败**（`ws://127.0.0.1:8000/ws/notifications/<jobcode>/`）：
+- **BF-002【待决策】WebSocket 连接失败**（`ws://127.0.0.1:8000/ws/notifications/<jobcode>/`）：
   主因为后端 `consumer.accept()` 未回显前端以 subprotocol 方式传入的 JWT（RFC 6455 要求服务器选择一个子协议应答，否则浏览器掐断连接）；次要因素与本案同源——cookie 按 host 隔离（`localhost` 与 `127.0.0.1` 互不可见）。建议修复时统一为 Vite 代理转发 WS（`/ws` 路径加 `ws: true`），消除双 host 结构【已落地 → BF-032】
 - **改进建议**：前端守卫可区分 403-CSRF 与 401，避免配置类故障被误判为"会话过期"【已落地 → BF-032】
 
@@ -86,6 +89,8 @@ CSRF_TRUSTED_ORIGINS = [
 ---
 
 ## BF-002 【待验证】WebSocket 通知连接失败（connection failed / 1006）
+
+> **复核标注（2026-11-19，账本校准批）**：正文尾部有「验证通过/人工确认」表述，但当年验证项（生产 WS 连通性）本机不可复现 → 维持【待验证】，历史证据缺口如实标注，不臆造。
 
 - **发现日期**：2026-XX-XX
 - **严重级别**：中（实时通知不可用；认证链路本身无缺陷）
@@ -166,6 +171,8 @@ await self.accept(subprotocol=self._extract_token())
 
 ## BF-003 【待验证】备份体系缺口收口（S3 出口 / Redis 归档 / 媒体备份 / 演练定时化）
 
+> **复核标注（2026-11-19，账本校准批）**：演练类验证项（备份演练定时化效果）依赖生产基础设施，本机不可复现 → 维持【待验证】，历史证据缺口如实标注。
+
 - **发现日期**：2026-XX-XX（5.5 节审计 → 两轮对抗审核后实施）
 - **严重级别**：中（数据安全基础设施；原报告"docker/backup 未提交"结论有误，已修正为三项真实缺口 + 终审新增媒体缺口）
 
@@ -228,6 +235,8 @@ await self.accept(subprotocol=self._extract_token())
 
 ## BF-004 【待验证】前端 vendor 巨型 chunk 拆分 + 预压缩产物启用
 
+> **复核标注（2026-11-19，账本校准批）**：产物体积/压缩产物验证需在部署环境核对，本机不可复现 → 维持【待验证】，历史证据缺口如实标注。
+
 - **发现日期**：2026-XX-XX（6.1 节审计；原报告 G-4 "nginx 未配置 gzip" 经核实为误报，真实问题为两项）
 - **严重级别**：低-中（性能优化，非功能缺陷）
 
@@ -279,6 +288,8 @@ element-plus:552KB（独立 chunk, 含图标）
 ---
 
 ## BF-005 【待验证】发布与回滚体系（迁移不可逆治理 / CD 流水线复活 / 镜像保留）
+
+> **复核标注（2026-11-19，账本校准批）**：发布/回滚演练依赖生产环境（与 BF-190/196 B4 部署期包同因），本机不可复现 → 维持【待验证】，历史证据缺口如实标注。
 
 - **发现日期**：2026-XX-XX（6.5 节审计 → 对抗审核修正后实施）
 - **严重级别**：中
@@ -1092,7 +1103,7 @@ element-plus:552KB（独立 chunk, 含图标）
 *登记人：big-pickle ✅ 状态：门禁 4 连全过 + 符号冒烟通过，代码级验证完成，2026-09-20*
 
 
-## BF-018 【已核实】`views/asset_view.py` 超 DR-5 500 行上限且「无标注」（审查报告 #12 DR-5）
+## BF-018【已关闭·已核实】`views/asset_view.py` 超 DR-5 500 行上限且「无标注」（审查报告 #12 DR-5）
 
 - **发现日期**：2026-09-17（《full-review-report-2026-09-17.md》P2 #12）
 - **严重级别**：P2（DR-5 文件规模红线）
@@ -1134,7 +1145,7 @@ element-plus:552KB（独立 chunk, 含图标）
 
 ---
 
-## BF-019 【已闭环】CT-3 状态机 5 条合法路径零测试覆盖（审查报告 #13）
+## BF-019【已关闭·已闭环】CT-3 状态机 5 条合法路径零测试覆盖（审查报告 #13）
 
 - **发现日期**：2026-09-17（《full-review-report-2026-09-17.md》P2 #13）
 - **严重级别**：P2（CT-3 宪法级测试红线）
@@ -1177,7 +1188,7 @@ mypy                        → 测试目录在 pyproject exclude=(.*test.*) 豁
 *登记人：big-pickle ✅ 状态：门禁 4 连全绿，代码级验证完成，2026-09-20*
 
 
-## BF-020 【已闭环】out_asset_service 核心逻辑无独立单测（审查报告 #14 CT-1）
+## BF-020【已关闭·已闭环】out_asset_service 核心逻辑无独立单测（审查报告 #14 CT-1）
 
 - **发现日期**：2026-09-17（《full-review-report-2026-09-17.md》P2 #14）
 - **严重级别**：P2（CT-1 宪法级测试红线）
@@ -1219,7 +1230,7 @@ mypy                        → 测试目录豁免 ✅
 *登记人：big-pickle ✅ 状态：门禁 4 连全绿，代码级验证完成，2026-09-20*
 
 
-## BF-021 【已闭环】create_damaged_asset TOCTOU 并发竞态 + 唯一槽位软删冲突（审查报告 #15 B5）
+## BF-021【已关闭·已闭环】create_damaged_asset TOCTOU 并发竞态 + 唯一槽位软删冲突（审查报告 #15 B5）
 
 - **发现日期**：2026-09-17（《full-review-report-2026-09-17.md》P2 #15，靶点 `services/damaged_asset_service.py:51,54`）
 - **严重级别**：P2（并发竞态 + Data Integrity）
@@ -1279,7 +1290,7 @@ CT-6 迁移三步                → ①②③ 全过，迁移已应用 ✅
 
 ---
 
-## BF-022 【已闭环】View 的 update/partial_update 裸传 request.data 绕过 Serializer 输入校验（审查报告 #16 B8）
+## BF-022【已关闭·已闭环】View 的 update/partial_update 裸传 request.data 绕过 Serializer 输入校验（审查报告 #16 B8）
 
 - **发现日期**：2026-09-17（《full-review-report-2026-09-17.md》P2 #16，靶点 `views/damaged_asset_view.py:130-150` + `views/out_asset_view.py:197-203`）
 - **严重级别**：P2（输入校验失效 + 行级 RBAC 缺口 + 契约漂移风险）
@@ -1332,7 +1343,7 @@ api-schema-baseline.json        → 已重导（M-3），diff 逐字段符合预
 
 ---
 
-## BF-023 【已闭环】View 层 batch_delete 业务编排违反分层（审查报告 #17 §1.2）
+## BF-023【已关闭·已闭环】View 层 batch_delete 业务编排违反分层（审查报告 #17 §1.2）
 
 - **发现日期**：2026-09-17（《full-review-report-2026-09-17.md》P1 #17，靶点 `views/_lifecycle_base.py:100-134`）
 - **严重级别**：P1（分层违例 + 批量框架与错误分类在此视图重复实现，DR-1/三视图集一致性风险）
@@ -1389,7 +1400,7 @@ api-schema-baseline.json                  → 已重导（M-3），仅非破坏�
 
 ---
 
-## BF-024 【已闭环】BR-4 长函数治理无门禁兜底——函数行数门禁固化 + 台账分批拆分规划（审查报告 #21）
+## BF-024【已关闭·已闭环】BR-4 长函数治理无门禁兜底——函数行数门禁固化 + 台账分批拆分规划（审查报告 #21）
 
 - **发现日期**：2026-09-17（《full-review-report-2026-09-17.md》P2 #21）
 - **严重级别**：P2（规则级：函数 >50 行超限靠评审/报告人工发现，无 CI 兜底，新增回潮无拦截）
@@ -1454,7 +1465,7 @@ api-schema-baseline.json                  → 已重导（M-3），仅非破坏�
 
 ---
 
-## BF-025 【已闭环】BR-4 函数拆分全批次（B1 状态机关键路径六函数 / B2 usermanagement+unregisteredasset 9 处 / B3 selectors+services 尾部 4 处）拆至 ≤50 行
+## BF-025【已关闭·已闭环】BR-4 函数拆分全批次（B1 状态机关键路径六函数 / B2 usermanagement+unregisteredasset 9 处 / B3 selectors+services 尾部 4 处）拆至 ≤50 行
 
 - **发现日期**：2026-09-21（BF-024 遗留「19 处拆分（后续提交，台账驱动）」→ 本项为 B1 执行部分）
 - **严重级别**：P2（规则级：函数 >50 行超限；本项为拆分执行，非新增缺陷）
@@ -1815,7 +1826,7 @@ grep gradient-card                          → 亮/暗双态各 4 条齐备 ✅
 
 *登记人：big-pickle ｜ 状态：已关闭（代码级验证通过，端到端冒烟 [待验证] 人工执行），2026-09-22*
 
-## BF-033 【已闭环】批量出库 batch-create 全量失败——`outasset_asset` 键名错位 + `row_number` 残留（测试容忍掩盖 100% 失败）
+## BF-033【已关闭·已闭环】批量出库 batch-create 全量失败——`outasset_asset` 键名错位 + `row_number` 残留（测试容忍掩盖 100% 失败）
 
 - **发现日期**：2026-09-22（`test_out_asset_view_api.py` 遗留"已知 bug"注释与 try/except 容忍块触发排查）
 - **严重级别**：P1（`POST /api/v1/asset/out-assets/batch-create/` 端点 100% 失败，批量出库功能整体不可用）
@@ -1929,7 +1940,7 @@ grep gradient-card                          → 亮/暗双态各 4 条齐备 ✅
 
 ---
 
-## BF-035 【已闭环】BR-4 护栏红灯回潮：`update_outasset` 未登记超长（53>50）且 `using_location` 落库三段手工实现重复
+## BF-035【已关闭·已闭环】BR-4 护栏红灯回潮：`update_outasset` 未登记超长（53>50）且 `using_location` 落库三段手工实现重复
 
 - **发现日期**：2026-09-23（BR-4 状态核查 + 拆分复用审查，guard `exit 1` 实证）
 - **严重级别**：中（护栏红 + DR-1 重复实现）
@@ -2792,7 +2803,7 @@ F-P2-8~13 六票批量执行（用户拍板 D1 补实现 / D2 取消不回退 / 
 
 ---
 
-## BF-048 【已修复】员工域无行级数据权限（部门经理可导出全公司员工档案）2026-09-26
+## BF-048【已关闭·已修复】员工域无行级数据权限（部门经理可导出全公司员工档案）2026-09-26
 
 ### 〇、元信息
 
@@ -2859,7 +2870,7 @@ F-P2-8~13 六票批量执行（用户拍板 D1 补实现 / D2 取消不回退 / 
 
 ---
 
-## BF-049 【已修复·部分】导出端点 OpenAPI 未声明其实际支持的筛选参数 2026-09-26
+## BF-049【部分关闭】导出端点 OpenAPI 未声明其实际支持的筛选参数 2026-09-26
 
 ### 〇、元信息
 
@@ -2934,7 +2945,7 @@ xlsx 二进制响应触发 `_is_list_view() == False` → **整个筛选参数�
 
 ---
 
-## BF-050 【已修复】员工统计端点 OpenAPI 契约三重错误（响应结构 + 多余 path 参数 + 虚假分页参数）2026-09-26
+## BF-050【已关闭·已修复】员工统计端点 OpenAPI 契约三重错误（响应结构 + 多余 path 参数 + 虚假分页参数）2026-09-26
 
 ### 〇、元信息
 
@@ -3013,7 +3024,7 @@ BF-050 的三处错误在 **1595 个用例全绿**的情况下长期存在——
 
 ---
 
-## BF-051 【已修复】`JWTCookieAuthentication` 缺 `OpenApiAuthenticationExtension`，cookie 认证不出现在 OpenAPI 2026-09-26
+## BF-051【已关闭·已修复】`JWTCookieAuthentication` 缺 `OpenApiAuthenticationExtension`，cookie 认证不出现在 OpenAPI 2026-09-26
 > **【2026-09-29 标题订正】** 原标题为【待修复·已延后】，与本条正文矛盾：`:3006` 元信息已记「✅ 已修复（2026-09-26，后端 commit `5ed31d6`）」，收尾登记人行亦为「已修复」。据正文事实订正为【已修复】，原措辞保留于本注。
 
 ### 〇、元信息
@@ -3102,7 +3113,7 @@ There was no OpenApiAuthenticationExtension registered for that class. Ignoring 
 
 ---
 
-## BF-052 【已修复】前端回落搜索把任意筛选值当 keyword，筛选值被当搜索词发出 2026-09-26
+## BF-052【已关闭·已修复】前端回落搜索把任意筛选值当 keyword，筛选值被当搜索词发出 2026-09-26
 
 ### 〇、元信息
 
@@ -10349,7 +10360,7 @@ CT-6：makemigrations --dry-run → No changes detected（无迁移，③ N/A）
 
 *登记人：atomcode ｜ 状态：【已关闭】（M-46 补测 98.41% + M-47 双文件日志 + caplog 4 杀变异面 + 全量 2210/0 cov 89.35% + ruff/C90/mypy/CT-6 全绿 + CI 四 workflow 全绿直证 mutation 83.5922% 超基线 +0.3355pt），2026-10-27*
 
-### BF-161：M-60~M-63 留痕批（融合台账四行收口 + 源报告归档入库）
+## BF-161【已关闭】M-60~M-63 留痕批（融合台账四行收口 + 源报告归档入库）
 
 #### 一、问题描述
 
@@ -10487,7 +10498,7 @@ AsideMenu 净减行（DR-5 不触发，.vue 无自动护栏 LT 口径人工标�
 
 ---
 
-## BF-165【WAI 关闭】M-03 员工手机号按角色脱敏 → 业务确认口径维持明文（WAI 留痕）｜来源：`docs/Review/merge-audit-20261029.md` :§批次2 M-03 行
+## BF-165【已关闭·WAI】M-03 员工手机号按角色脱敏 → 业务确认口径维持明文（WAI 留痕）｜来源：`docs/Review/merge-audit-20261029.md` :§批次2 M-03 行
 
 ### 一、问题与定性（隐私项，业务确认降级）
 
@@ -10689,7 +10700,7 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 
 *登记人：AtomCode ｜ 状态：【已关闭】（本地先红后绿 + CI 首跑 16/16 全绿 job 级直证），2026-11-01 登记 / 同日转档*
 
-## BF-169【待核查】CI Pipeline run #169 attempt1 丢失 `CI 汇总` job——`if: always()` 必跑 gate 未执行而 run 仍判 success（平台侧一次性丢 job，重跑恢复）｜来源：2026-11-01 BF-167/168 转档推送（head `9b88650`）取证观察
+## BF-169【待决策】CI Pipeline run #169 attempt1 丢失 `CI 汇总` job——`if: always()` 必跑 gate 未执行而 run 仍判 success（平台侧一次性丢 job，重跑恢复）｜来源：2026-11-01 BF-167/168 转档推送（head `9b88650`）取证观察
 
 ### 一、现象与定性
 
@@ -10715,9 +10726,9 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 ### 四、复发阈值与升级路径
 
 - 同类丢失**复发 ≥2 次**（不同 SHA/日期任一成立即计数）→ 立即升级加固立项：在 CD gate 或独立护栏中断言 head_sha 上「CI 汇总」check-run **存在且 success**（把「gate 自身存在性」纳入校验，消除本盲区）。
-- 未复发 → 保持【待核查】观测态，无需仓库改动；下次 CI 取证时顺带复核汇总 job 存在性（动作已并入取证惯例）。
+- 未复发 → 保持【待决策】观测态，无需仓库改动；下次 CI 取证时顺带复核汇总 job 存在性（动作已并入取证惯例）。
 
-*登记人：mimo ｜ 状态：【待核查】（平台侧一次性丢 job，attempt2 重跑恢复；复发阈值 ≥2 次触发加固立项），2026-11-01*
+*登记人：mimo ｜ 状态：【待决策】（平台侧一次性丢 job，attempt2 重跑恢复；复发阈值 ≥2 次触发加固立项），2026-11-01*
 
 ## BF-170【待验证】批次 2 P1 行级隔离三连——OP-01 员工域行级隔离旁路（employees action 裸 filter 任意登录用户可枚举全公司员工）+ OP-03 报废批量删除跨部门（不收 user 全表查找）+ OP-02 出库批量删除跨部门（同型，全仓唯一漏网）；配套 G-6/G-7 护栏（批量删除必须携带用户/视图必须接线）防再发｜来源：`docs/Review/merge-codegraph-audit-20261101.md` OP 表 OP-01/OP-02/OP-03（P1）+ 批次 2 执行方案 v1.1（拍板①②）
 
@@ -10781,7 +10792,7 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 
 *登记人：mimo ｜ 状态：【已关闭】（2026-11-02，前端 39b7118 + 根仓 7ecce40）*
 
-## BF-172【已修复·待提交】批次 4 前端 UX 五件——M-05 列表加载失败双 toast 删除 + M-06 四 store 删除双成功提示（disableAutoMessage）+ OP-13 导出文件名 UTC 偏一天 + OP-14 出库状态类型收窄（别名化拍板）+ OP-15 状态注释 8 态口径｜来源：`docs/Review/merge-codegraph-audit-20261101.md` M-05/M-06（§二台账行 84/85）+ OP-13/OP-14+OP-15（B P3-13/14/15，行 113/114）+ 批次 4 计划 §四
+## BF-172【已关闭】批次 4 前端 UX 五件——M-05 列表加载失败双 toast 删除 + M-06 四 store 删除双成功提示（disableAutoMessage）+ OP-13 导出文件名 UTC 偏一天 + OP-14 出库状态类型收窄（别名化拍板）+ OP-15 状态注释 8 态口径｜来源：`docs/Review/merge-codegraph-audit-20261101.md` M-05/M-06（§二台账行 84/85）+ OP-13/OP-14+OP-15（B P3-13/14/15，行 113/114）+ 批次 4 计划 §四
 
 ### 一、问题与定性
 
@@ -10811,7 +10822,7 @@ ci-cd.yml 仅构建 backend 主镜像（`context: ./asset_management_backend`，
 *登记人：mimo ｜ 状态：【已关闭】（2026-11-04，批 6 收端提交 49a3096 落地含 core/batch_mixins.py + core/metrics.py；推送 CI 全绿回填）*
 
 
-## BF-173【已修复·待提交】批次 5 后端三件——M-07 batch-size 实参显传递重复链（14 处下沉 DEFAULT 回落）+ M-08 role/employee_status 七处枚举收编 + CT-1 mock 盲区补测 7 条｜来源：`docs/Review/merge-codegraph-audit-20261101.md` M-07/M-08（§二台账行 84/85 批次 5）+ 批次 5 计划 v1.1（拍板①②）
+## BF-173【已关闭】批次 5 后端三件——M-07 batch-size 实参显传递重复链（14 处下沉 DEFAULT 回落）+ M-08 role/employee_status 七处枚举收编 + CT-1 mock 盲区补测 7 条｜来源：`docs/Review/merge-codegraph-audit-20261101.md` M-07/M-08（§二台账行 84/85 批次 5）+ 批次 5 计划 v1.1（拍板①②）
 
 ### 一、问题与定性
 
@@ -10838,7 +10849,7 @@ CI 直证补取完成：run `41470492279`（HEAD ae66c51）16 job 全绿 + run `
 
 *登记人：mimo ｜ 状态：【已关闭】（2026-11-04，run 41823276338 全绿回填）*
 
-## BF-174【已修复·待提交】批次 6 后端健壮性 + 审计合规四件——M-11 DatabaseError fail-fast + OP-05 审计快照脱敏（OC-3，D1 掩码拍板）+ OP-10 S1 补痕 + M-19 审计失败可观测（D2 approve 强一致拍板）｜来源：`docs/Review/merge-codegraph-audit-20261101.md` M-11/OP-05/OP-10/M-19 + 批次 6 方案 v1.1（7 处缺口修正 + 拍板①②）
+## BF-174【待验证】批次 6 后端健壮性 + 审计合规四件——M-11 DatabaseError fail-fast + OP-05 审计快照脱敏（OC-3，D1 掩码拍板）+ OP-10 S1 补痕 + M-19 审计失败可观测（D2 approve 强一致拍板）｜来源：`docs/Review/merge-codegraph-audit-20261101.md` M-11/OP-05/OP-10/M-19 + 批次 6 方案 v1.1（7 处缺口修正 + 拍板①②）
 
 ### 一、问题与定性
 
@@ -11108,7 +11119,7 @@ CI/CD 直证          -> CI 42237271531 success（快速门禁含 oasdiff schema
 
 *登记人：mimo ｜ 状态：【已关闭】（2026-11-06 回填完毕：提交链后端 `051d714` → 前端 `acffadb` → 根仓 `ddaca3f`；CI run 42237271531 + Security Scan 42237271557 / DupGuard 42237271600 / CD run 42246602503 全绿，部署收口）*
 
-## BF-183【进行中】批次 1 护栏与门禁自身正确性（M-01/M-02/M-17 收窄/M-18 + P-2 scripts/ 兜底，零业务代码）——G 护栏解码 fail-closed（G-0）+ FR read_text 单源 + security-summary Python 化六态 + duplicate-guard 删除与 gate 双名单回查 + migration-check 唤醒｜来源：`docs/Review/merge-codegraph-audit-20261107.md` M-01/M-02/M-17/M-18 + 批次 1 执行方案 v3.1（2026-11-07，三轮复核 15/15 锚点直证 + 4+2 补丁闭环）
+## BF-183【已关闭】批次 1 护栏与门禁自身正确性（M-01/M-02/M-17 收窄/M-18 + P-2 scripts/ 兜底，零业务代码）——G 护栏解码 fail-closed（G-0）+ FR read_text 单源 + security-summary Python 化六态 + duplicate-guard 删除与 gate 双名单回查 + migration-check 唤醒｜来源：`docs/Review/merge-codegraph-audit-20261107.md` M-01/M-02/M-17/M-18 + 批次 1 执行方案 v3.1（2026-11-07，三轮复核 15/15 锚点直证 + 4+2 补丁闭环）
 
 ### 一、核实结论
 - 三报告融合台账 M-01（P1）/M-02（P1）/M-18（P2）/M-17（P2，收窄）全部经独立直证成立；方案 v3.1 经三轮复核 15/15 锚点收敛（含 BR-6 旁路行号裁决 :82-83/:86-88，复核方撤回乱码直读伪影行号）。
