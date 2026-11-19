@@ -242,6 +242,82 @@ def test_guard_push_surface_missing_selftest_red(tmp_path):
     assert any("pytest ../scripts/tests -q" in item for item in problems)
 
 
+# ==================== BF-063 0b：全 job 必须声明 timeout-minutes ====================
+
+TIMEOUT_GREEN = """name: T
+
+on:
+  push:
+
+jobs:
+  alpha:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+  summary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [alpha]
+"""
+
+TIMEOUT_RED = """name: T
+
+on:
+  push:
+
+jobs:
+  alpha:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+  summary:
+    runs-on: ubuntu-latest
+    needs: [alpha]
+"""
+
+STEP_TIMEOUT_ONLY = """name: T
+
+on:
+  push:
+
+jobs:
+  alpha:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hi
+        timeout-minutes: 5
+
+  summary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [alpha]
+"""
+
+
+def test_timeout_all_declared_green(tmp_path):
+    assert guard.audit_timeouts(_workflow(tmp_path, TIMEOUT_GREEN)) == []
+
+
+def test_timeout_missing_job_red(tmp_path):
+    problems = guard.audit_timeouts(_workflow(tmp_path, TIMEOUT_RED))
+    assert len(problems) == 1
+    assert "summary" in problems[0]
+    assert "timeout-minutes" in problems[0]
+
+
+def test_timeout_step_level_does_not_count(tmp_path):
+    """step 级 timeout（8 空格缩进）不充当 job 级声明——alpha 只有 step 级 → 仍红。"""
+    problems = guard.audit_timeouts(_workflow(tmp_path, STEP_TIMEOUT_ONLY))
+    assert len(problems) == 1
+    assert "alpha" in problems[0]
+
+
+def test_timeout_real_repo_green():
+    """真仓绿锚：ci.yml 全部 job 均声明 job 级 timeout-minutes（BF-063 0b 落地后为真）。"""
+    root = Path(guard.__file__).resolve().parent.parent
+    assert guard.audit_timeouts(root / ".github" / "workflows" / "ci.yml") == []
+
+
 MIG_ENV_HEREDOC_TEXT = """      - name: 变更面解析
         run: |
           set -euo pipefail

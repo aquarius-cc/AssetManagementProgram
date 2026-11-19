@@ -303,6 +303,24 @@ def audit_coverage_gate(ci_path):
     ]
 
 
+def audit_timeouts(workflow_path):
+    """断言八（BF-063 0b）：每个 job 必须声明 job 级 timeout-minutes。
+
+    背景：backend-mutation step 级 300/前端 90 均为估计值，实测 p95×1.5 后
+    已逐 job 标定（前端变异 30 / 后端变异 15，常规 30–45，汇总 10）。
+    job 级缺 timeout = 悬挂 job 永久占用 runner（fail-open），故必须声明。
+    仅检查 job 级（4 空格缩进）；step 级（8 空格）不在此断言面。
+    """
+    workflow_path = Path(workflow_path)
+    blocks = _job_blocks(_jobs_section(workflow_path.read_text(encoding="utf-8").splitlines()))
+    return [
+        "%s: job `%s` 未声明 timeout-minutes（悬挂 runner 风险，BF-063 0b）" % (workflow_path.name, job)
+        for job, lines in sorted(blocks.items())
+        # 仅认 job 级（4 空格缩进）；step 级（8 空格）不充当声明
+        if not any(line.startswith("    timeout-minutes:") for line in lines)
+    ]
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="CI 编排护栏（needs 覆盖率 + CD 监听名 + security-summary 窄断言 + 迁移触发形态 + 双名单生效性 + push 面三点 + 变更面 env 安全 + 覆盖率门禁固化点九项）"
@@ -344,6 +362,7 @@ def main(argv=None):
             problems.extend(audit_gate_recheck(cd_path))
         problems.extend(audit_guard_push_surface(root))
         problems.extend(audit_coverage_gate(ci_path))
+        problems.extend(audit_timeouts(ci_path))
 
     if problems:
         print("[FAIL] CI 编排护栏未通过：")
