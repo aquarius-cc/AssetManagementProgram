@@ -11635,13 +11635,16 @@ Commit 3（首跑红修复，head 8aa51b0）push 复验：
 - **已知取舍**：create 路径 max+1 的并发窗口见 BF-204「并发取舍」段。
 - **关联**：BF-204（同批同根因面）；BF-207（batch-create 入口仍绕过）。
 
-## BF-207【待修复】`DepartmentBatchAddDialog` 批量建部门 `sort_order` 固定传 0——组内全并列
+## BF-207【已关闭】`DepartmentBatchAddDialog` 批量建部门 `sort_order` 固定传 0——组内全并列
 
 - **编号说明**：登记前核账本最大号 **BF-206**（同批新登记），顺延取 **BF-207**，无撞号。
-- **状态**：🕘 待修复（2026-11-19 登记，BF-204 收口时拍板本批不做）| 登记日期：2026-11-19
-- **现象**：`PUT /users/departments/batch-create` 前端载荷 `sort_order` 固定传 0，同批创建的兄弟部门组内全并列，列表顺序退化为 `department_code` 决胜，与 BF-204 的 append 权威语义不一致。
-- **修复方向（待批）**：前端按序构造 `sort_order`（或后端 batch-create 落 `next_sort_order` 逐个递增）；同类症状的另一入口，评估与 BF-204 的 `next_sort_order` 共用（DR-1）。
-- **关联**：BF-204（append 权威基准）；BF-203（拖拽整组归一可临时自愈）。
+- **状态**：🔒 已关闭（2026-11-20，后端子仓 `0cb29b5` + 前端子仓 `1418eeb`）| 登记日期：2026-11-19
+- **现象**：`POST /users/departments/batch-create`（路由名 `departments-batch-create`；登记时误写 PUT，关账订正）前端载荷 `sort_order` 固定传 0，同批创建的兄弟部门组内全并列，列表顺序退化为 `department_code` 决胜，与 BF-204 的 append 权威语义不一致。
+- **修复**：①后端 `DepartmentBatchItemSerializer.sort_order` 去掉 `default=0`、补 `min_value=0`（对齐 `DepartmentBatchSortSerializer`，负序号 → 400）——缺省 → None → `create_department` 走 `next_sort_order` 自动排组尾（复用 BF-204 append 权威，DR-1）；显式值（含 0）仍尊重；不加 `allow_null`（显式 null → 400，契约不松弛，经 `core/exception_handler.py:73-77` 透传）。②前端抽纯函数 `buildBatchCreateItems`（`src/utils/departmentBatch.ts`，映射逻辑逐字迁出），提交条件 `sort_order != null` 才透传（el-input-number 清空发 null）；输入框加「留空自动排末尾」placeholder；`types/department.ts:36` 注释同步。
+- **验证**：端点级先红后绿（缺省 3 条红态落库全 0 → 绿态 0/1/2 递增；显式 5 尊重锚；负序号 400 锚）；前端纯函数直测先红后绿（缺省行无 sort_order 键）+ 显式 0 尊重 + 空白回退 "-"；后端 ruff 双闸/mypy/pytest 7 passed；前端 type-check/lint/format/直测 3 passed。
+- **观察项（登记不阻塞）**：① `DepartmentBatchItemSerializer.row_number` 若被传入会在 `Department.objects.create(**dept_data)` 触发逐条 INTERNAL_ERROR（非 500/崩溃，`test_department_service.py:214-220` 同出口实证）——当前前端与 Excel 映射均不发该字段；② 缺省项逐条一次 `Max()` 查询（≤100/批）为 N+1 已知取舍，与 BF-204 无锁取舍同族，由 BF-203 拖拽整组归一兜底自愈。
+- **关联**：BF-204（append 权威基准）；BF-203（拖拽整组归一）；schema 基线重导出零漂移（batch-create 无 @extend_schema，基线 requestBody 指向 DepartmentRequest，既有失真另记）。
+- **关闭人**：AtomCode ｜ 状态：【已关闭】，2026-11-20
 
 ## BF-205【已关闭】MA-23 后端遗留 ruff format 漂移——CI `backend-lint` 在 `0e1db91` 判红，连带 CD 部署门禁拒部署
 
